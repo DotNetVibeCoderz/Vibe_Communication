@@ -1,0 +1,165 @@
+@page "/users"
+@inject IAdminService Admin
+@using Telepati.Admin
+@inject AdminSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>Pengguna</PageTitle>
+
+<header class="ad-head">
+    <div>
+        <h1>Pengguna</h1>
+        <p>@(_page?.Total ?? 0) akun terdaftar.</p>
+    </div>
+</header>
+
+<div class="ad-toolbar">
+    <input type="search" placeholder="Cari nama, username, atau email"
+           @bind="_search" @bind:event="oninput" @onkeydown="OnSearchKey" aria-label="Cari pengguna" />
+    <button type="button" class="tp-btn tp-btn--sm" @onclick="() => LoadAsync(1)">Cari</button>
+</div>
+
+@if (_message is not null)
+{
+    <div class="tp-alert @(_messageIsError ? null : "tp-alert--ok")" style="margin-bottom:1rem">@_message</div>
+}
+
+<div class="ad-table__wrap">
+    <table class="ad-table">
+        <thead>
+            <tr>
+                <th scope="col">Pengguna</th>
+                <th scope="col">Kontak</th>
+                <th scope="col">Peran</th>
+                <th scope="col">Status</th>
+                <th scope="col">Terakhir terlihat</th>
+                <th scope="col">Aksi</th>
+            </tr>
+        </thead>
+        <tbody>
+            @if (_page is null)
+            {
+                <tr><td colspan="6" class="tp-hint">Memuat…</td></tr>
+            }
+            else if (_page.Items.Count == 0)
+            {
+                <tr><td colspan="6" class="tp-hint">Tidak ada pengguna yang cocok.</td></tr>
+            }
+            else
+            {
+                @foreach (var user in _page.Items)
+                {
+                    <tr>
+                        <td>
+                            <div style="display:flex;align-items:center;gap:.6rem">
+                                <Avatar Name="@user.DisplayName" AvatarUrl="@user.AvatarUrl" Presence="user.Presence" Size="sm" />
+                                <div>
+                                    <div style="font-weight:650">
+                                        @user.DisplayName
+                                        @if (user.IsBot) { <span class="tp-chip" style="margin-left:.35rem">bot</span> }
+                                    </div>
+                                    <div class="tp-hint">&commat;@user.Username</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <div>@user.Email</div>
+                            <div class="tp-hint">@(user.PhoneNumber ?? "—")</div>
+                        </td>
+                        <td>
+                            <select value="@user.Role" @onchange="e => ChangeRoleAsync(user, e.Value?.ToString())"
+                                    disabled="@(!Session.IsSuperAdmin)" aria-label="Peran @user.DisplayName">
+                                <option value="0">Pengguna</option>
+                                <option value="1">Moderator</option>
+                                <option value="2">Admin</option>
+                                <option value="3">Super Admin</option>
+                            </select>
+                        </td>
+                        <td>
+                            <span class="tp-chip @(user.Presence == 1 ? "tp-chip--live" : null)">
+                                @PresenceLabel(user.Presence)
+                            </span>
+                        </td>
+                        <td class="tp-hint">@(user.LastSeenAt?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "—")</td>
+                        <td>
+                            <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost"
+                                    @onclick="() => ToggleActiveAsync(user)">
+                                Nonaktifkan
+                            </button>
+                        </td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+</div>
+
+@if (_page is not null && _page.Total > _page.PageSize)
+{
+    <div style="display:flex;gap:.5rem;align-items:center;margin-top:1rem">
+        <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost" disabled="@(_page.Page <= 1)"
+                @onclick="() => LoadAsync(_page.Page - 1)">← Sebelumnya</button>
+        <span class="tp-hint">Halaman @_page.Page dari @TotalPages</span>
+        <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost" disabled="@(!_page.HasMore)"
+                @onclick="() => LoadAsync(_page.Page + 1)">Berikutnya →</button>
+    </div>
+}
+
+@code {
+    private PagedResult<UserDto>? _page;
+    private string _search = string.Empty;
+    private string? _message;
+    private bool _messageIsError;
+
+    private int TotalPages => _page is null ? 1 : (int)Math.Ceiling(_page.Total / (double)_page.PageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await Session.EnsureLoadedAsync())
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        await LoadAsync(1);
+    }
+
+    private async Task LoadAsync(int page) =>
+        _page = await Admin.GetUsersAsync(string.IsNullOrWhiteSpace(_search) ? null : _search, page, 25);
+
+    private async Task OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await LoadAsync(1);
+    }
+
+    private async Task ChangeRoleAsync(UserDto user, string? value)
+    {
+        if (!int.TryParse(value, out var role)) return;
+
+        var result = await Admin.SetUserRoleAsync(Session.UserId, user.Id, (UserRole)role);
+        Report(result, $"Peran {user.DisplayName} diperbarui.");
+        await LoadAsync(_page?.Page ?? 1);
+    }
+
+    private async Task ToggleActiveAsync(UserDto user)
+    {
+        var result = await Admin.SetUserActiveAsync(Session.UserId, user.Id, false);
+        Report(result, $"{user.DisplayName} dinonaktifkan dan semua sesinya dicabut.");
+        await LoadAsync(_page?.Page ?? 1);
+    }
+
+    private void Report(ApiResult result, string success)
+    {
+        _messageIsError = !result.Success;
+        _message = result.Success ? success : result.Error;
+    }
+
+    private static string PresenceLabel(int presence) => presence switch
+    {
+        1 => "Online",
+        2 => "Away",
+        3 => "Sibuk",
+        4 => "Tak terlihat",
+        _ => "Offline"
+    };
+}

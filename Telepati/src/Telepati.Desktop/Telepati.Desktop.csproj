@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <RootNamespace>Telepati.Desktop</RootNamespace>
+    <AssemblyName>Telepati.Desktop</AssemblyName>
+  </PropertyGroup>
+
+  <!--
+    The desktop client is an Avalonia shell around an in-process Blazor Server host: Kestrel
+    binds a loopback port and Avalonia's NativeWebView renders it. Avalonia ships no
+    BlazorWebView control, and this keeps desktop on the very same Razor components as web
+    and mobile rather than forking the UI into XAML.
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Controls.WebView" Version="12.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Telepati.UI\Telepati.UI.csproj" />
+    <ProjectReference Include="..\Telepati.Client.Core\Telepati.Client.Core.csproj" />
+    <ProjectReference Include="..\Telepati.Shared\Telepati.Shared.csproj" />
+    <ProjectReference Include="..\Telepati.Client.Data\Telepati.Client.Data.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

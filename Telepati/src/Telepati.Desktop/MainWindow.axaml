@@ -1,0 +1,24 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.WebView"
+        x:Class="Telepati.Desktop.MainWindow"
+        Title="Telepati"
+        Width="1220" Height="800"
+        MinWidth="420" MinHeight="560"
+        WindowStartupLocation="CenterScreen">
+
+    <Grid>
+        <!-- Shown until the WebView has the loopback address; on a cold start the Blazor
+             host takes a moment, and an empty window would look like a crash. -->
+        <StackPanel x:Name="Splash"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Spacing="12">
+            <TextBlock Text="💬" FontSize="52" HorizontalAlignment="Center" />
+            <TextBlock Text="Telepati" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" />
+            <TextBlock Text="Menyiapkan aplikasi…" Opacity="0.65" HorizontalAlignment="Center" />
+        </StackPanel>
+
+        <controls:NativeWebView x:Name="WebView" IsVisible="False" />
+    </Grid>
+
+</Window>

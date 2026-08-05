@@ -1,0 +1,93 @@
+@page "/register"
+@inject ITelepatiClient Client
+@inject NavigationManager Navigation
+@inject TelepatiOptions Options
+
+<PageTitle>Daftar — @Options.Branding.AppName</PageTitle>
+
+<div style="display:grid;place-items:center;min-height:100dvh;background:var(--tp-surface);padding:1.5rem">
+    <div class="tp-panel" style="width:min(460px,100%)">
+        <h1 style="font-size:var(--tp-step-2)">Buat akun @Options.Branding.AppName</h1>
+        <p class="tp-hint" style="margin-bottom:1.25rem">@Options.Branding.Tagline</p>
+
+        @if (_error is not null)
+        {
+            <div class="tp-alert" style="margin-bottom:1rem" role="alert">@_error</div>
+        }
+
+        <EditForm Model="_model" OnValidSubmit="RegisterAsync" FormName="signup">
+            <div class="tp-field">
+                <label for="name">Nama tampilan</label>
+                <input id="name" @bind="_model.DisplayName" placeholder="Budi Santoso" />
+            </div>
+            <div class="tp-field">
+                <label for="username">Username</label>
+                <input id="username" @bind="_model.Username" placeholder="budisantoso" />
+            </div>
+            <div class="tp-field">
+                <label for="email">Email</label>
+                <input id="email" type="email" @bind="_model.Email" placeholder="budi@contoh.com" />
+            </div>
+            <div class="tp-field">
+                <label for="phone">Nomor telepon (opsional)</label>
+                <input id="phone" @bind="_model.PhoneNumber" placeholder="081234567890" />
+            </div>
+            <div class="tp-field">
+                <label for="password">Password</label>
+                <input id="password" type="password" @bind="_model.Password" placeholder="Minimal 8 karakter" />
+            </div>
+
+            <button type="submit" class="tp-btn" style="width:100%" disabled="@_busy">
+                @(_busy ? "Mendaftarkan…" : "Daftar")
+            </button>
+        </EditForm>
+
+        <p class="tp-hint" style="margin-top:1rem">Sudah punya akun? <a href="/login">Masuk</a>.</p>
+    </div>
+</div>
+
+@code {
+    private readonly RegisterModel _model = new();
+    private bool _busy;
+    private string? _error;
+
+    private async Task RegisterAsync()
+    {
+        _busy = true;
+        _error = null;
+
+        try
+        {
+            var result = await Client.RegisterAsync(new RegisterRequest(
+                _model.Username, _model.Email,
+                string.IsNullOrWhiteSpace(_model.PhoneNumber) ? null : _model.PhoneNumber,
+                _model.DisplayName, _model.Password));
+
+            if (!result.Success)
+            {
+                _error = result.Error ?? "Pendaftaran gagal.";
+                return;
+            }
+
+            await Client.ConnectAsync();
+            Navigation.NavigateTo("/");
+        }
+        catch (Exception e)
+        {
+            _error = $"Tidak bisa menghubungi server: {e.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private sealed class RegisterModel
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string? PhoneNumber { get; set; }
+        public string DisplayName { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
+}

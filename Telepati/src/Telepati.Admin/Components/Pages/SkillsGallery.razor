@@ -1,0 +1,478 @@
+@page "/skills"
+@using Telepati.Admin
+@inject ISkillCatalogService Catalog
+@inject AdminSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>Skills Gallery</PageTitle>
+
+<header class="ad-head">
+    <div>
+        <h1>Skills Gallery</h1>
+        <p>
+            Skill memberi Kang Bacot cara kerja khusus untuk sebuah tugas: instruksi langkah demi
+            langkah, plus referensi dan skrip yang menyertainya.
+        </p>
+    </div>
+</header>
+
+@if (_message is not null)
+{
+    <div class="tp-alert @(_messageIsError ? null : "tp-alert--ok")" style="margin-bottom:1rem" role="alert">@_message</div>
+}
+
+<div class="ad-tabs">
+    <button type="button" class="ad-tab @(_tab == Tab.Installed ? "ad-tab--active" : null)"
+            @onclick="() => _tab = Tab.Installed">
+        Terpasang @if (_installed.Count > 0) { <span class="tp-chip">@_installed.Count</span> }
+    </button>
+    <button type="button" class="ad-tab @(_tab == Tab.Browse ? "ad-tab--active" : null)"
+            @onclick="OpenBrowseAsync">Jelajahi</button>
+    <button type="button" class="ad-tab @(_tab == Tab.Sources ? "ad-tab--active" : null)"
+            @onclick="() => _tab = Tab.Sources">Sumber repo</button>
+</div>
+
+@switch (_tab)
+{
+    // ---------------------------------------------------------------- installed
+    case Tab.Installed:
+        @if (_installed.Count == 0)
+        {
+            <div class="tp-empty" style="min-height:220px">
+                <span class="tp-empty__mark">🧩</span>
+                <strong>Belum ada skill terpasang</strong>
+                <span class="tp-hint">Buka tab <em>Jelajahi</em> untuk mencari skill dari repo tepercaya.</span>
+            </div>
+        }
+        else
+        {
+            <div class="ad-cards">
+                @foreach (var skill in _installed)
+                {
+                    <article class="tp-panel ad-card">
+                        <div class="ad-card__head">
+                            <div>
+                                <strong>@skill.Name</strong>
+                                <div class="tp-hint">@skill.Slug @(skill.Version is null ? "" : $"· v{skill.Version}")</div>
+                            </div>
+                            <span class="tp-chip @(skill.IsEnabled ? "tp-chip--live" : "tp-chip--off")">
+                                @(skill.IsEnabled ? "aktif" : "nonaktif")
+                            </span>
+                        </div>
+
+                        <p class="tp-hint" style="margin:.5rem 0">@skill.Description</p>
+
+                        <div class="ad-card__meta">
+                            @if (skill.ReferenceFiles.Count > 0)
+                            {
+                                <span class="tp-chip">📚 @skill.ReferenceFiles.Count referensi</span>
+                            }
+                            @if (skill.ScriptFiles.Count > 0)
+                            {
+                                <span class="tp-chip @(skill.AllowScriptExecution ? "tp-chip--live" : null)">
+                                    ⚙️ @skill.ScriptFiles.Count skrip
+                                </span>
+                            }
+                            <span class="tp-chip">@FormatBytes(skill.SizeBytes)</span>
+                            @if (skill.UseCount > 0)
+                            {
+                                <span class="tp-chip">dipakai @skill.UseCount×</span>
+                            }
+                        </div>
+
+                        @if (skill.ScriptFiles.Count > 0)
+                        {
+                            @* Installing a skill and letting it run code are separate decisions,
+                               so the permission is its own control rather than implied. *@
+                            <label class="ad-switch">
+                                <input type="checkbox" checked="@skill.AllowScriptExecution"
+                                       @onchange="e => SetScriptExecutionAsync(skill, (bool)(e.Value ?? false))" />
+                                <span>Izinkan menjalankan skrip skill ini</span>
+                            </label>
+                        }
+
+                        <div class="ad-card__actions">
+                            <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost"
+                                    @onclick="() => SetEnabledAsync(skill, !skill.IsEnabled)">
+                                @(skill.IsEnabled ? "Nonaktifkan" : "Aktifkan")
+                            </button>
+                            <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost"
+                                    @onclick="() => _inspecting = _inspecting?.Id == skill.Id ? null : skill">
+                                @(_inspecting?.Id == skill.Id ? "Tutup" : "Lihat instruksi")
+                            </button>
+                            @if (!string.IsNullOrWhiteSpace(skill.SourceUrl))
+                            {
+                                <a class="tp-btn tp-btn--sm tp-btn--ghost" href="@skill.SourceUrl"
+                                   target="_blank" rel="noopener">Sumber ↗</a>
+                            }
+                            @if (!skill.IsBuiltIn)
+                            {
+                                <button type="button" class="tp-btn tp-btn--sm tp-btn--danger"
+                                        @onclick="() => RemoveAsync(skill)">Hapus</button>
+                            }
+                        </div>
+
+                        @if (_inspecting?.Id == skill.Id)
+                        {
+                            <div class="ad-inspect">
+                                @if (skill.ReferenceFiles.Count > 0 || skill.ScriptFiles.Count > 0)
+                                {
+                                    <p class="tp-hint">
+                                        @string.Join(" · ", skill.ReferenceFiles.Concat(skill.ScriptFiles))
+                                    </p>
+                                }
+                                <pre>@skill.Instructions</pre>
+                            </div>
+                        }
+                    </article>
+                }
+            </div>
+        }
+        break;
+
+    // ------------------------------------------------------------------- browse
+    case Tab.Browse:
+        <div class="ad-toolbar">
+            <input type="search" placeholder="Cari skill: pdf, presentasi, excel…"
+                   @bind="_query" @bind:event="oninput" @onkeydown="OnSearchKey" aria-label="Cari skill" />
+            <select @bind="_repositoryFilter" aria-label="Saring berdasarkan repo">
+                <option value="">Semua repo aktif</option>
+                @foreach (var repository in _repositories.Where(r => r.IsEnabled))
+                {
+                    <option value="@repository.Id">@repository.Name</option>
+                }
+            </select>
+            <button type="button" class="tp-btn tp-btn--sm" disabled="@_busy" @onclick="SearchAsync">
+                @(_busy ? "Mencari…" : "Cari")
+            </button>
+        </div>
+
+        @if (_searchResults.Count == 0)
+        {
+            <div class="tp-empty" style="min-height:200px">
+                <span class="tp-empty__mark">🔍</span>
+                <span class="tp-hint">
+                    @(_searched ? "Tidak ada skill yang cocok." : "Tekan Cari untuk membaca isi repo yang aktif.")
+                </span>
+            </div>
+        }
+        else
+        {
+            <p class="tp-hint" style="margin-bottom:.75rem">@_searchResults.Count skill ditemukan.</p>
+
+            <div class="ad-cards">
+                @foreach (var result in _searchResults)
+                {
+                    <article class="tp-panel ad-card">
+                        <div class="ad-card__head">
+                            <div>
+                                <strong>@result.Name</strong>
+                                <div class="tp-hint">@result.RepositorySlug</div>
+                            </div>
+                            @if (result.IsInstalled)
+                            {
+                                <span class="tp-chip tp-chip--live">terpasang</span>
+                            }
+                        </div>
+
+                        <p class="tp-hint" style="margin:.5rem 0">
+                            @(string.IsNullOrWhiteSpace(result.Description) ? "(tanpa deskripsi)" : result.Description)
+                        </p>
+                        <p class="tp-hint"><code>@result.Path</code></p>
+
+                        <div class="ad-card__actions">
+                            <button type="button" class="tp-btn tp-btn--sm"
+                                    disabled="@(result.IsInstalled || _busy)"
+                                    @onclick="() => InstallAsync(result)">
+                                @(result.IsInstalled ? "Sudah terpasang" : "Pasang")
+                            </button>
+                            <a class="tp-btn tp-btn--sm tp-btn--ghost" href="@result.SourceUrl"
+                               target="_blank" rel="noopener">Tinjau kode ↗</a>
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+        break;
+
+    // ------------------------------------------------------------------ sources
+    case Tab.Sources:
+        <p class="tp-hint" style="margin-bottom:1rem">
+            Skill bisa membawa skrip yang dijalankan di server, jadi pemasangan dibatasi hanya dari
+            repo yang terdaftar di sini. Tinjau isi repo sebelum menambahkannya.
+        </p>
+
+        <section class="tp-panel" style="margin-bottom:1rem">
+            <h3>Tambah repo</h3>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0 1rem">
+                <div class="tp-field">
+                    <label for="repo">Repo GitHub</label>
+                    <input id="repo" @bind="_newRepoSlug" placeholder="owner/repo" />
+                </div>
+                <div class="tp-field">
+                    <label for="reponame">Nama tampilan</label>
+                    <input id="reponame" @bind="_newRepoName" placeholder="opsional" />
+                </div>
+                <div class="tp-field">
+                    <label for="repobranch">Branch / tag</label>
+                    <input id="repobranch" @bind="_newRepoReference" placeholder="main" />
+                </div>
+                <div class="tp-field">
+                    <label for="repopath">Sub-folder</label>
+                    <input id="repopath" @bind="_newRepoPath" placeholder="kosongkan untuk akar repo" />
+                </div>
+            </div>
+            <button type="button" class="tp-btn" disabled="@_busy" @onclick="AddRepositoryAsync">Tambah repo</button>
+        </section>
+
+        <div class="ad-table__wrap">
+            <table class="ad-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Repo</th>
+                        <th scope="col">Branch</th>
+                        <th scope="col">Terakhir dibaca</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Aksi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var repository in _repositories)
+                    {
+                        <tr>
+                            <td>
+                                <div style="font-weight:650">
+                                    @repository.Name
+                                    @if (repository.IsOfficial) { <span class="tp-chip" style="margin-left:.35rem">bawaan</span> }
+                                </div>
+                                <div class="tp-hint">
+                                    <a href="@repository.HomepageUrl" target="_blank" rel="noopener">@repository.Slug ↗</a>
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(repository.Description))
+                                {
+                                    <div class="tp-hint">@repository.Description</div>
+                                }
+                            </td>
+                            <td class="tp-hint">
+                                @repository.Reference
+                                @if (!string.IsNullOrWhiteSpace(repository.Path)) { <div>/@repository.Path</div> }
+                            </td>
+                            <td class="tp-hint">
+                                @(repository.LastIndexedAt?.ToLocalTime().ToString("dd MMM HH:mm") ?? "belum pernah")
+                                @if (repository.DiscoveredSkillCount > 0)
+                                {
+                                    <div>@repository.DiscoveredSkillCount skill</div>
+                                }
+                            </td>
+                            <td>
+                                <span class="tp-chip @(repository.IsEnabled ? "tp-chip--live" : "tp-chip--off")">
+                                    @(repository.IsEnabled ? "aktif" : "nonaktif")
+                                </span>
+                                @if (!string.IsNullOrWhiteSpace(repository.LastIndexError))
+                                {
+                                    <div class="tp-hint" style="color:var(--tp-danger)">@repository.LastIndexError</div>
+                                }
+                            </td>
+                            <td>
+                                <div style="display:flex;gap:.35rem;flex-wrap:wrap">
+                                    <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost"
+                                            @onclick="() => SetRepositoryEnabledAsync(repository, !repository.IsEnabled)">
+                                        @(repository.IsEnabled ? "Nonaktifkan" : "Aktifkan")
+                                    </button>
+                                    @if (!repository.IsOfficial)
+                                    {
+                                        <button type="button" class="tp-btn tp-btn--sm tp-btn--danger"
+                                                @onclick="() => RemoveRepositoryAsync(repository)">Hapus</button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        break;
+}
+
+@code {
+    private enum Tab { Installed, Browse, Sources }
+
+    private Tab _tab = Tab.Installed;
+    private bool _busy;
+    private bool _searched;
+    private string? _message;
+    private bool _messageIsError;
+
+    private List<SkillDto> _installed = [];
+    private List<SkillRepositoryDto> _repositories = [];
+    private List<SkillSearchResultDto> _searchResults = [];
+    private SkillDto? _inspecting;
+
+    private string _query = string.Empty;
+    private string _repositoryFilter = string.Empty;
+
+    private string _newRepoSlug = string.Empty;
+    private string _newRepoName = string.Empty;
+    private string _newRepoReference = "main";
+    private string _newRepoPath = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await Session.EnsureLoadedAsync())
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _installed = (await Catalog.GetInstalledAsync()).ToList();
+        _repositories = (await Catalog.GetRepositoriesAsync()).ToList();
+    }
+
+    private async Task OpenBrowseAsync()
+    {
+        _tab = Tab.Browse;
+        if (!_searched) await SearchAsync();
+    }
+
+    private async Task OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SearchAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        _busy = true;
+        _message = null;
+
+        try
+        {
+            Guid? repositoryId = Guid.TryParse(_repositoryFilter, out var parsed) ? parsed : null;
+            var result = await Catalog.SearchAsync(_query, repositoryId);
+
+            _searched = true;
+
+            if (result.Success)
+            {
+                _searchResults = result.Data!.ToList();
+            }
+            else
+            {
+                _searchResults = [];
+                Report(false, result.Error!);
+            }
+
+            _repositories = (await Catalog.GetRepositoriesAsync()).ToList();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task InstallAsync(SkillSearchResultDto result)
+    {
+        _busy = true;
+        try
+        {
+            var installed = await Catalog.InstallAsync(Session.UserId, result.RepositoryId, result.Path);
+            Report(installed.Success, installed.Success
+                ? $"Skill '{installed.Data!.Name}' terpasang. Skripnya belum diizinkan berjalan — aktifkan di tab Terpasang bila perlu."
+                : installed.Error!);
+
+            if (installed.Success)
+            {
+                await LoadAsync();
+                await SearchAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RemoveAsync(SkillDto skill)
+    {
+        var result = await Catalog.RemoveAsync(Session.UserId, skill.Id);
+        Report(result.Success, result.Success ? $"Skill '{skill.Name}' dihapus." : result.Error!);
+        await LoadAsync();
+    }
+
+    private async Task SetEnabledAsync(SkillDto skill, bool enabled)
+    {
+        var result = await Catalog.SetEnabledAsync(skill.Id, enabled);
+        Report(result.Success, result.Success
+            ? $"Skill '{skill.Name}' {(enabled ? "diaktifkan" : "dinonaktifkan")}."
+            : result.Error!);
+        await LoadAsync();
+    }
+
+    private async Task SetScriptExecutionAsync(SkillDto skill, bool allowed)
+    {
+        var result = await Catalog.SetScriptExecutionAsync(skill.Id, allowed);
+        Report(result.Success, result.Success
+            ? $"Eksekusi skrip '{skill.Name}' {(allowed ? "diizinkan" : "dimatikan")}."
+            : result.Error!);
+        await LoadAsync();
+    }
+
+    private async Task AddRepositoryAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newRepoSlug))
+        {
+            Report(false, "Isi dulu alamat repo-nya.");
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var result = await Catalog.AddRepositoryAsync(
+                Session.UserId, _newRepoSlug, _newRepoName, _newRepoReference, _newRepoPath);
+
+            Report(result.Success, result.Success ? $"Repo '{result.Data!.Slug}' ditambahkan." : result.Error!);
+
+            if (result.Success)
+            {
+                _newRepoSlug = _newRepoName = _newRepoPath = string.Empty;
+                _newRepoReference = "main";
+                await LoadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RemoveRepositoryAsync(SkillRepositoryDto repository)
+    {
+        var result = await Catalog.RemoveRepositoryAsync(Session.UserId, repository.Id);
+        Report(result.Success, result.Success ? $"Repo '{repository.Slug}' dihapus." : result.Error!);
+        await LoadAsync();
+    }
+
+    private async Task SetRepositoryEnabledAsync(SkillRepositoryDto repository, bool enabled)
+    {
+        await Catalog.SetRepositoryEnabledAsync(repository.Id, enabled);
+        await LoadAsync();
+    }
+
+    private void Report(bool success, string message)
+    {
+        _messageIsError = !success;
+        _message = message;
+    }
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:0.#} KB",
+        _ => $"{bytes / (1024.0 * 1024):0.#} MB"
+    };
+}

@@ -1,0 +1,22 @@
+# Build output
+bin/
+obj/
+*.user
+
+# Local development database and uploaded files
+*.db
+*.db-shm
+*.db-wal
+storage/
+workspace/
+
+# Credentials — never commit these
+testkey.txt
+appsettings.*.Local.json
+*.secrets.json
+.env
+
+# Tooling
+.vs/
+.idea/
+node_modules/

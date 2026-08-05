@@ -1,0 +1,30 @@
+<Project>
+
+  <!--
+    Deliberately no TargetFramework default here. Directory.Build.props is imported before the
+    project body, so setting one would win over the multi-targeted TargetFrameworks the MAUI
+    project declares later and break its per-RID restore. Each project states its own.
+  -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Product>Telepati</Product>
+    <Company>Gravicode Studios</Company>
+    <Authors>Gravicode Studios - Kang Fadhil</Authors>
+    <Copyright>Copyright © Gravicode Studios</Copyright>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <!-- Semantic Kernel connectors are still evolving; silence the experimental diagnostics. -->
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);SKEXP0001;SKEXP0010;SKEXP0020;SKEXP0040;SKEXP0050;SKEXP0060;SKEXP0070;SKEXP0110;CS1591;CA1416</NoWarn>
+  </PropertyGroup>
+
+</Project>

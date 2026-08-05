@@ -1,0 +1,83 @@
+@inject MediaResolver Media
+
+@* Avatar with presence. A user who is online gets the sonar ring — the same wave
+   motif as the send ripple, and the only place presence needs to be announced. *@
+
+<div class="tp-avatar @SizeClass @(ShowLiveRing ? "tp-avatar--live" : null)"
+     style="@GradientStyle"
+     title="@Name">
+    @if (!string.IsNullOrWhiteSpace(AvatarUrl))
+    {
+        <img src="@Media.Resolve(AvatarUrl)" alt="@Name" loading="lazy" />
+    }
+    else
+    {
+        @Initials
+    }
+
+    @if (Presence is not null)
+    {
+        <span class="tp-presence @PresenceClass" aria-label="@PresenceLabel"></span>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Name { get; set; } = string.Empty;
+    [Parameter] public string? AvatarUrl { get; set; }
+    [Parameter] public int? Presence { get; set; }
+    [Parameter] public string Size { get; set; } = "md";
+
+    private string SizeClass => Size switch
+    {
+        "sm" => "tp-avatar--sm",
+        "lg" => "tp-avatar--lg",
+        _ => string.Empty
+    };
+
+    private bool ShowLiveRing => Presence == 1;
+
+    private string PresenceClass => Presence switch
+    {
+        1 => "tp-presence--online",
+        2 => "tp-presence--away",
+        3 => "tp-presence--busy",
+        _ => string.Empty
+    };
+
+    private string PresenceLabel => Presence switch
+    {
+        1 => "Online",
+        2 => "Sedang tidak di tempat",
+        3 => "Sibuk",
+        _ => "Offline"
+    };
+
+    private string Initials
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(Name)) return "?";
+
+            var parts = Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length == 1
+                ? parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant()
+                : $"{parts[0][0]}{parts[^1][0]}".ToUpperInvariant();
+        }
+    }
+
+    /// <summary>
+    /// Without a photo the tile still has to be distinguishable at a glance, so the gradient
+    /// is derived from the name — the same person always gets the same colours.
+    /// </summary>
+    private string GradientStyle
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(AvatarUrl)) return string.Empty;
+
+            var hash = Name.Aggregate(17, (acc, c) => acc * 31 + c);
+            var hue = Math.Abs(hash) % 360;
+            return $"background:linear-gradient(140deg,hsl({hue} 62% 56%),hsl({(hue + 42) % 360} 66% 46%));";
+        }
+    }
+}

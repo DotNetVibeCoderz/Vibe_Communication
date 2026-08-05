@@ -1,0 +1,10 @@
+@using Telepati.Web.Components.Layout
+
+@* Routable pages live in Telepati.UI so web, desktop and mobile share one set. *@
+<Router AppAssembly="typeof(Program).Assembly"
+        AdditionalAssemblies="new[] { typeof(Telepati.UI.Pages.Messenger).Assembly }">
+    <Found Context="routeData">
+        <RouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)" />
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+</Router>

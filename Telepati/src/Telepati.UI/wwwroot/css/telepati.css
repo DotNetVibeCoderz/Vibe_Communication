@@ -1,0 +1,965 @@
+/* ==========================================================================
+   Telepati — design system
+   Concept "Gelombang": telepathy as a signal travelling between two people.
+   The wave is the one motif carried through the whole product — the sonar ring
+   on a live avatar, the ripple a sent message leaves behind, the signal bar on
+   the open conversation. Everything else stays quiet so that motif can land.
+   ========================================================================== */
+
+:root {
+  /* Theme colours are injected at runtime from the active ThemeDefinition, so a
+     seasonal skin (Lebaran, Tahun Baru) only has to overwrite these six values. */
+  --tp-primary: #6C5CE7;
+  --tp-secondary: #00CEC9;
+  --tp-accent: #FD79A8;
+  --tp-bg: #FFFFFF;
+  --tp-surface: #F5F6FA;
+  --tp-text: #2D3436;
+
+  --tp-text-muted: color-mix(in srgb, var(--tp-text) 58%, transparent);
+  --tp-text-faint: color-mix(in srgb, var(--tp-text) 38%, transparent);
+  --tp-border: color-mix(in srgb, var(--tp-text) 12%, transparent);
+  --tp-border-strong: color-mix(in srgb, var(--tp-text) 22%, transparent);
+  --tp-primary-soft: color-mix(in srgb, var(--tp-primary) 12%, transparent);
+  --tp-primary-ink: color-mix(in srgb, var(--tp-primary) 88%, black);
+
+  --tp-bubble-in: var(--tp-bg);
+  --tp-bubble-out: var(--tp-primary);
+  --tp-bubble-out-text: #FFFFFF;
+
+  --tp-success: #00B894;
+  --tp-warning: #FDCB6E;
+  --tp-danger: #E17055;
+
+  /* Plus Jakarta Sans is drawn for Jakarta's own identity — the right voice for
+     an Indonesian messenger, and not a face that shows up on every dashboard. */
+  --tp-font: "Plus Jakarta Sans", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --tp-font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, "SF Mono", Consolas, monospace;
+
+  --tp-step--1: clamp(0.75rem, 0.72rem + 0.15vw, 0.8125rem);
+  --tp-step-0: clamp(0.875rem, 0.85rem + 0.15vw, 0.9375rem);
+  --tp-step-1: clamp(1rem, 0.96rem + 0.2vw, 1.0625rem);
+  --tp-step-2: clamp(1.25rem, 1.18rem + 0.35vw, 1.5rem);
+  --tp-step-3: clamp(1.75rem, 1.6rem + 0.7vw, 2.25rem);
+
+  --tp-radius-sm: 8px;
+  --tp-radius: 14px;
+  --tp-radius-lg: 22px;
+  --tp-radius-pill: 999px;
+
+  --tp-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.06), 0 1px 3px rgb(0 0 0 / 0.04);
+  --tp-shadow: 0 4px 16px rgb(0 0 0 / 0.08);
+  --tp-shadow-lg: 0 18px 48px rgb(0 0 0 / 0.16);
+
+  --tp-rail: 76px;
+  --tp-list: 340px;
+  --tp-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --tp-ease-in: cubic-bezier(0.55, 0, 0.55, 0.2);
+}
+
+/* The theme's six variables are set on an element inside <body>, but `body { color: ... }`
+   resolves against :root — so without re-declaring colour and background here, every
+   descendant inherits the light ink and dark mode renders unreadable text. */
+.tp-root {
+  min-height: 100dvh;
+  color: var(--tp-text);
+  background: var(--tp-bg);
+}
+
+/* The dark palette is a full replacement, not an opacity trick — bubbles and
+   surfaces need different contrast relationships, not just an inverted page. */
+[data-tp-dark="true"] {
+  --tp-bubble-in: color-mix(in srgb, var(--tp-surface) 80%, white 4%);
+
+  /* Light ink on a dark surface loses legibility faster than dark ink on light, so the
+     secondary tones are raised rather than reused from the light palette. */
+  --tp-text-muted: color-mix(in srgb, var(--tp-text) 72%, transparent);
+  --tp-text-faint: color-mix(in srgb, var(--tp-text) 55%, transparent);
+  --tp-border: color-mix(in srgb, var(--tp-text) 16%, transparent);
+  --tp-border-strong: color-mix(in srgb, var(--tp-text) 28%, transparent);
+
+  --tp-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --tp-shadow: 0 4px 18px rgb(0 0 0 / 0.45);
+  --tp-shadow-lg: 0 20px 56px rgb(0 0 0 / 0.6);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  font-family: var(--tp-font);
+  font-size: var(--tp-step-0);
+  line-height: 1.55;
+  color: var(--tp-text);
+  background: var(--tp-bg);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv11", "ss01";
+}
+
+h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+h1 { font-size: var(--tp-step-3); }
+h2 { font-size: var(--tp-step-2); }
+h3 { font-size: var(--tp-step-1); }
+
+a { color: var(--tp-primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+:focus-visible {
+  outline: 2px solid var(--tp-primary);
+  outline-offset: 2px;
+  border-radius: var(--tp-radius-sm);
+}
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb {
+  background: var(--tp-border-strong);
+  border-radius: var(--tp-radius-pill);
+}
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ==========================================================================
+   Shell — rail / list / thread
+   ========================================================================== */
+
+.tp-shell {
+  display: grid;
+  grid-template-columns: var(--tp-rail) var(--tp-list) 1fr;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--tp-surface);
+}
+
+.tp-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 0;
+  background: var(--tp-bg);
+  border-right: 1px solid var(--tp-border);
+}
+
+.tp-rail__brand {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 0.75rem;
+  border-radius: var(--tp-radius);
+  background: linear-gradient(140deg, var(--tp-primary), var(--tp-secondary));
+  color: #fff;
+  font-size: 1.25rem;
+}
+
+.tp-rail__item {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border: 0;
+  border-radius: var(--tp-radius);
+  background: transparent;
+  color: var(--tp-text-muted);
+  font-size: 1.15rem;
+  cursor: pointer;
+  transition: background 160ms var(--tp-ease), color 160ms var(--tp-ease), transform 160ms var(--tp-ease);
+}
+.tp-rail__item:hover { background: var(--tp-primary-soft); color: var(--tp-primary); transform: translateY(-1px); }
+.tp-rail__item[aria-current="page"] { background: var(--tp-primary-soft); color: var(--tp-primary); }
+
+.tp-rail__badge {
+  position: absolute;
+  top: 6px; right: 6px;
+  min-width: 17px;
+  padding: 0 4px;
+  border-radius: var(--tp-radius-pill);
+  background: var(--tp-accent);
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+}
+
+.tp-rail__spacer { flex: 1; }
+
+/* ==========================================================================
+   Conversation list
+   ========================================================================== */
+
+.tp-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--tp-bg);
+  border-right: 1px solid var(--tp-border);
+}
+
+.tp-list__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1.15rem 1.15rem 0.85rem;
+}
+
+.tp-list__title { font-size: var(--tp-step-2); font-weight: 800; letter-spacing: -0.03em; }
+
+.tp-search {
+  margin: 0 1.15rem 0.75rem;
+  position: relative;
+}
+.tp-search input {
+  width: 100%;
+  padding: 0.6rem 0.85rem 0.6rem 2.25rem;
+  border: 1px solid transparent;
+  border-radius: var(--tp-radius-pill);
+  background: var(--tp-surface);
+  color: inherit;
+  font: inherit;
+  transition: border-color 160ms var(--tp-ease), background 160ms var(--tp-ease);
+}
+.tp-search input:focus { border-color: var(--tp-primary); background: var(--tp-bg); outline: none; }
+.tp-search__icon {
+  position: absolute;
+  left: 0.8rem; top: 50%;
+  transform: translateY(-50%);
+  color: var(--tp-text-faint);
+  pointer-events: none;
+}
+
+.tp-list__scroll { flex: 1; overflow-y: auto; padding: 0 0.5rem 1rem; }
+
+.tp-conv {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.7rem 0.75rem;
+  border: 0;
+  border-radius: var(--tp-radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms var(--tp-ease);
+}
+.tp-conv:hover { background: var(--tp-surface); }
+.tp-conv--active { background: var(--tp-primary-soft); }
+
+/* Signature: the open conversation carries a signal bar rather than a plain
+   highlight — the same wave language as the avatar ring and the send ripple. */
+.tp-conv--active::before {
+  content: "";
+  position: absolute;
+  left: -0.5rem; top: 50%;
+  width: 3px; height: 60%;
+  transform: translateY(-50%);
+  border-radius: var(--tp-radius-pill);
+  background: var(--tp-primary);
+  animation: tp-signal 2.4s var(--tp-ease) infinite;
+}
+
+@keyframes tp-signal {
+  0%, 100% { height: 40%; opacity: 0.55; }
+  50%      { height: 72%; opacity: 1; }
+}
+
+.tp-conv__body { min-width: 0; }
+.tp-conv__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.tp-conv__name {
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tp-conv__time { flex: none; font-size: var(--tp-step--1); color: var(--tp-text-faint); }
+.tp-conv__preview {
+  margin-top: 0.1rem;
+  font-size: var(--tp-step--1);
+  color: var(--tp-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tp-conv__meta { display: flex; flex-direction: column; align-items: flex-end; gap: 0.3rem; }
+
+.tp-unread {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: var(--tp-radius-pill);
+  background: var(--tp-primary);
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+
+/* ==========================================================================
+   Avatar + presence
+   ========================================================================== */
+
+.tp-avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px; height: 44px;
+  border-radius: var(--tp-radius-pill);
+  background: linear-gradient(140deg, var(--tp-primary), var(--tp-secondary));
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  user-select: none;
+}
+.tp-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.tp-avatar--sm { width: 32px; height: 32px; font-size: 0.75rem; }
+.tp-avatar--lg { width: 72px; height: 72px; font-size: 1.5rem; }
+
+.tp-presence {
+  position: absolute;
+  right: -1px; bottom: -1px;
+  width: 12px; height: 12px;
+  border: 2px solid var(--tp-bg);
+  border-radius: var(--tp-radius-pill);
+  background: var(--tp-text-faint);
+}
+.tp-presence--online { background: var(--tp-success); }
+.tp-presence--away { background: var(--tp-warning); }
+.tp-presence--busy { background: var(--tp-danger); }
+
+/* Signature: a live contact emits a slow sonar ring. It is the calmest possible
+   way to say "reachable right now" without adding another badge to the row. */
+.tp-avatar--live::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--tp-success);
+  border-radius: inherit;
+  animation: tp-sonar 2.8s var(--tp-ease-in) infinite;
+  pointer-events: none;
+}
+
+@keyframes tp-sonar {
+  0%   { transform: scale(1);    opacity: 0.7; }
+  70%  { transform: scale(1.45); opacity: 0; }
+  100% { transform: scale(1.45); opacity: 0; }
+}
+
+/* ==========================================================================
+   Thread
+   ========================================================================== */
+
+.tp-thread {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--tp-surface);
+}
+
+.tp-thread__head {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.85rem 1.15rem;
+  background: var(--tp-bg);
+  border-bottom: 1px solid var(--tp-border);
+}
+.tp-thread__title { font-weight: 700; letter-spacing: -0.01em; }
+.tp-thread__sub { font-size: var(--tp-step--1); color: var(--tp-text-muted); }
+.tp-thread__actions { display: flex; gap: 0.3rem; margin-left: auto; }
+
+.tp-thread__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.25rem 1.15rem 0.5rem;
+  scroll-behavior: smooth;
+}
+
+.tp-daystamp {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  color: var(--tp-text-faint);
+  font-size: var(--tp-step--1);
+}
+.tp-daystamp::before,
+.tp-daystamp::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--tp-border);
+}
+
+/* ==========================================================================
+   Bubbles
+   ========================================================================== */
+
+.tp-msg {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+  animation: tp-arrive 320ms var(--tp-ease) both;
+}
+.tp-msg--mine { flex-direction: row-reverse; }
+
+@keyframes tp-arrive {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+
+.tp-bubble {
+  position: relative;
+  max-width: min(62ch, 74%);
+  padding: 0.6rem 0.85rem;
+  border-radius: var(--tp-radius-lg);
+  background: var(--tp-bubble-in);
+  box-shadow: var(--tp-shadow-sm);
+  overflow-wrap: anywhere;
+}
+/* The squared corner points back at the sender — the only "tail" the design uses. */
+.tp-bubble--in { border-bottom-left-radius: var(--tp-radius-sm); }
+.tp-bubble--out {
+  background: var(--tp-bubble-out);
+  color: var(--tp-bubble-out-text);
+  border-bottom-right-radius: var(--tp-radius-sm);
+}
+.tp-bubble--out a { color: #fff; text-decoration: underline; }
+
+.tp-bubble--bot {
+  background: linear-gradient(150deg,
+    color-mix(in srgb, var(--tp-secondary) 16%, var(--tp-bubble-in)),
+    var(--tp-bubble-in));
+  border: 1px solid color-mix(in srgb, var(--tp-secondary) 32%, transparent);
+}
+
+.tp-bubble__sender {
+  margin-bottom: 0.15rem;
+  color: var(--tp-primary);
+  font-size: var(--tp-step--1);
+  font-weight: 700;
+}
+
+.tp-bubble__reply {
+  margin-bottom: 0.35rem;
+  padding: 0.35rem 0.55rem;
+  border-left: 3px solid currentColor;
+  border-radius: var(--tp-radius-sm);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  font-size: var(--tp-step--1);
+  opacity: 0.85;
+}
+
+.tp-bubble__meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+  font-size: 0.6875rem;
+  opacity: 0.7;
+}
+
+.tp-ticks { letter-spacing: -0.18em; }
+.tp-ticks--read { color: var(--tp-secondary); }
+.tp-bubble--out .tp-ticks--read { color: #B8F5F2; }
+
+.tp-reactions { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.35rem; }
+.tp-reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--tp-border);
+  border-radius: var(--tp-radius-pill);
+  background: var(--tp-bg);
+  color: var(--tp-text);
+  font-size: var(--tp-step--1);
+  cursor: pointer;
+  transition: transform 140ms var(--tp-ease), border-color 140ms var(--tp-ease);
+}
+.tp-reaction:hover { transform: scale(1.06); border-color: var(--tp-primary); }
+.tp-reaction--mine { border-color: var(--tp-primary); background: var(--tp-primary-soft); }
+
+.tp-attach {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.4rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--tp-radius);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.tp-attach img, .tp-attach video {
+  max-width: 100%;
+  max-height: 340px;
+  border-radius: var(--tp-radius);
+}
+.tp-attach__name { font-size: var(--tp-step--1); font-weight: 600; }
+.tp-attach__size { font-size: 0.6875rem; opacity: 0.7; }
+
+/* ==========================================================================
+   Typing indicator
+   ========================================================================== */
+
+.tp-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: var(--tp-radius-lg);
+  border-bottom-left-radius: var(--tp-radius-sm);
+  background: var(--tp-bubble-in);
+  box-shadow: var(--tp-shadow-sm);
+}
+.tp-typing span {
+  width: 6px; height: 6px;
+  border-radius: var(--tp-radius-pill);
+  background: var(--tp-text-faint);
+  animation: tp-blip 1.3s var(--tp-ease) infinite;
+}
+.tp-typing span:nth-child(2) { animation-delay: 0.16s; }
+.tp-typing span:nth-child(3) { animation-delay: 0.32s; }
+
+@keyframes tp-blip {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
+  30%           { transform: translateY(-4px); opacity: 1; }
+}
+
+/* ==========================================================================
+   Composer
+   ========================================================================== */
+
+.tp-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1.15rem 1rem;
+  background: var(--tp-bg);
+  border-top: 1px solid var(--tp-border);
+}
+
+.tp-composer__field {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.4rem;
+  padding: 0.35rem 0.5rem 0.35rem 0.85rem;
+  border: 1px solid var(--tp-border);
+  border-radius: var(--tp-radius-lg);
+  background: var(--tp-surface);
+  transition: border-color 160ms var(--tp-ease);
+}
+.tp-composer__field:focus-within { border-color: var(--tp-primary); }
+
+.tp-composer textarea {
+  flex: 1;
+  max-height: 8.5rem;
+  padding: 0.45rem 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  resize: none;
+  outline: none;
+}
+
+.tp-iconbtn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px; height: 38px;
+  border: 0;
+  border-radius: var(--tp-radius-pill);
+  background: transparent;
+  color: var(--tp-text-muted);
+  font-size: 1.05rem;
+  cursor: pointer;
+  transition: background 140ms var(--tp-ease), color 140ms var(--tp-ease), transform 140ms var(--tp-ease);
+}
+.tp-iconbtn:hover { background: var(--tp-primary-soft); color: var(--tp-primary); }
+.tp-iconbtn:active { transform: scale(0.94); }
+.tp-iconbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Signature: the send button leaves a ripple behind — the thought going out.
+   It fires on the .is-sending class the composer adds for one animation cycle. */
+.tp-send {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px; height: 44px;
+  border: 0;
+  border-radius: var(--tp-radius-pill);
+  background: var(--tp-primary);
+  color: #fff;
+  font-size: 1.05rem;
+  cursor: pointer;
+  transition: transform 160ms var(--tp-ease), background 160ms var(--tp-ease);
+}
+.tp-send:hover { background: var(--tp-primary-ink); transform: translateY(-1px); }
+.tp-send:active { transform: scale(0.93); }
+.tp-send:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+.tp-send::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--tp-primary);
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+}
+.tp-send.is-sending::after { animation: tp-ripple 620ms var(--tp-ease-in); }
+
+@keyframes tp-ripple {
+  0%   { transform: scale(1);   opacity: 0.85; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+
+/* ==========================================================================
+   Markdown rendered inside bot replies
+   ========================================================================== */
+
+.tp-md > :first-child { margin-top: 0; }
+.tp-md > :last-child { margin-bottom: 0; }
+.tp-md p { margin: 0.4rem 0; }
+.tp-md h1, .tp-md h2, .tp-md h3 { margin: 0.8rem 0 0.4rem; }
+.tp-md ul, .tp-md ol { margin: 0.4rem 0; padding-left: 1.25rem; }
+.tp-md li { margin: 0.15rem 0; }
+.tp-md blockquote {
+  margin: 0.5rem 0;
+  padding: 0.35rem 0.75rem;
+  border-left: 3px solid var(--tp-secondary);
+  background: color-mix(in srgb, var(--tp-secondary) 10%, transparent);
+  border-radius: var(--tp-radius-sm);
+}
+.tp-md code {
+  padding: 0.1rem 0.35rem;
+  border-radius: 5px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-family: var(--tp-font-mono);
+  font-size: 0.86em;
+}
+.tp-md pre {
+  margin: 0.5rem 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: var(--tp-radius);
+  background: #12131A;
+  color: #EDEEF3;
+  overflow-x: auto;
+}
+.tp-md pre code { padding: 0; background: none; color: inherit; }
+
+/* A wide table must scroll inside the bubble, never widen the thread. */
+.tp-md__tablewrap { overflow-x: auto; margin: 0.5rem 0; }
+.tp-md table { width: 100%; border-collapse: collapse; font-size: var(--tp-step--1); }
+.tp-md th, .tp-md td { padding: 0.35rem 0.6rem; border: 1px solid var(--tp-border); text-align: left; }
+.tp-md th { background: color-mix(in srgb, currentColor 8%, transparent); font-weight: 700; }
+.tp-md img, .tp-md video { max-width: 100%; border-radius: var(--tp-radius); }
+.tp-md audio { width: 100%; margin: 0.4rem 0; }
+
+/* ==========================================================================
+   Buttons, panels, forms
+   ========================================================================== */
+
+.tp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.55rem 1.1rem;
+  border: 1px solid transparent;
+  border-radius: var(--tp-radius-pill);
+  background: var(--tp-primary);
+  color: #fff;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 160ms var(--tp-ease), transform 160ms var(--tp-ease), box-shadow 160ms var(--tp-ease);
+}
+.tp-btn:hover { background: var(--tp-primary-ink); transform: translateY(-1px); box-shadow: var(--tp-shadow); }
+.tp-btn:active { transform: translateY(0) scale(0.98); }
+.tp-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.tp-btn--ghost { background: transparent; color: var(--tp-text); border-color: var(--tp-border-strong); }
+.tp-btn--ghost:hover { background: var(--tp-surface); color: var(--tp-primary); border-color: var(--tp-primary); }
+.tp-btn--danger { background: var(--tp-danger); }
+.tp-btn--sm { padding: 0.35rem 0.75rem; font-size: var(--tp-step--1); }
+
+.tp-panel {
+  padding: 1.25rem;
+  border: 1px solid var(--tp-border);
+  border-radius: var(--tp-radius-lg);
+  background: var(--tp-bg);
+  box-shadow: var(--tp-shadow-sm);
+}
+
+.tp-field { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.9rem; }
+.tp-field label { font-size: var(--tp-step--1); font-weight: 650; color: var(--tp-text-muted); }
+.tp-field input,
+.tp-field select,
+.tp-field textarea {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--tp-border);
+  border-radius: var(--tp-radius);
+  background: var(--tp-bg);
+  color: inherit;
+  font: inherit;
+  transition: border-color 160ms var(--tp-ease);
+}
+.tp-field input:focus,
+.tp-field select:focus,
+.tp-field textarea:focus { border-color: var(--tp-primary); outline: none; }
+
+.tp-hint { font-size: var(--tp-step--1); color: var(--tp-text-faint); }
+
+.tp-alert {
+  padding: 0.7rem 0.95rem;
+  border-radius: var(--tp-radius);
+  border-left: 3px solid var(--tp-danger);
+  background: color-mix(in srgb, var(--tp-danger) 12%, transparent);
+  font-size: var(--tp-step--1);
+}
+.tp-alert--ok { border-left-color: var(--tp-success); background: color-mix(in srgb, var(--tp-success) 12%, transparent); }
+
+.tp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--tp-border);
+  border-radius: var(--tp-radius-pill);
+  font-size: var(--tp-step--1);
+  color: var(--tp-text-muted);
+}
+.tp-chip--live { border-color: var(--tp-success); color: var(--tp-success); }
+.tp-chip--off { border-color: var(--tp-danger); color: var(--tp-danger); }
+
+.tp-empty {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.5rem;
+  height: 100%;
+  padding: 2rem;
+  text-align: center;
+  color: var(--tp-text-muted);
+}
+.tp-empty__mark { font-size: 2.75rem; opacity: 0.75; }
+
+/* ==========================================================================
+   Status ring (stories)
+   ========================================================================== */
+
+.tp-story {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 62px; height: 62px;
+  padding: 3px;
+  border-radius: var(--tp-radius-pill);
+  background: conic-gradient(from 210deg, var(--tp-primary), var(--tp-secondary), var(--tp-accent), var(--tp-primary));
+  cursor: pointer;
+  transition: transform 180ms var(--tp-ease);
+}
+.tp-story:hover { transform: scale(1.05); }
+.tp-story--seen { background: var(--tp-border-strong); }
+.tp-story__inner {
+  display: grid;
+  place-items: center;
+  width: 100%; height: 100%;
+  border: 2px solid var(--tp-bg);
+  border-radius: inherit;
+  overflow: hidden;
+  background: var(--tp-surface);
+}
+
+/* ==========================================================================
+   Responsive — the three panes collapse to one on a phone
+   ========================================================================== */
+
+@media (max-width: 1024px) {
+  :root { --tp-list: 300px; }
+}
+
+@media (max-width: 820px) {
+  .tp-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+  }
+  .tp-rail {
+    grid-row: 2;
+    flex-direction: row;
+    justify-content: space-around;
+    padding: 0.35rem 0.5rem;
+    border-right: 0;
+    border-top: 1px solid var(--tp-border);
+  }
+  .tp-rail__brand, .tp-rail__spacer { display: none; }
+
+  /* One pane at a time: the shell sets data-tp-pane to whichever should show. */
+  .tp-list, .tp-thread { grid-row: 1; grid-column: 1; }
+  .tp-shell[data-tp-pane="list"] .tp-thread { display: none; }
+  .tp-shell[data-tp-pane="thread"] .tp-list { display: none; }
+
+  .tp-bubble { max-width: 86%; }
+}
+
+/* ==========================================================================
+   Motion preference — the wave motif is decorative and goes away entirely
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Sentinel row at the top of a thread. It has to occupy real height so the
+   IntersectionObserver has something to intersect with. */
+.tp-loadmore {
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  margin-bottom: 0.75rem;
+}
+
+/* ==========================================================================
+   Status viewer — the full-pane player for a person's 24-hour posts
+   ========================================================================== */
+
+.tp-story-view {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100dvh;
+  background: #0E0F16;
+  color: #F2F3F8;
+}
+
+/* Segment bars: one per post, filled up to the one on screen. */
+.tp-story-view__bars {
+  display: flex;
+  gap: 3px;
+  padding: 0.75rem 1rem 0;
+}
+
+.tp-story-view__bar {
+  flex: 1;
+  height: 3px;
+  border-radius: var(--tp-radius-pill);
+  background: rgb(255 255 255 / 0.25);
+}
+.tp-story-view__bar.is-done { background: rgb(255 255 255 / 0.85); }
+.tp-story-view__bar.is-active {
+  background: linear-gradient(to right, rgb(255 255 255 / 0.9) 0%, rgb(255 255 255 / 0.25) 0%);
+  animation: tp-story-fill 6s linear forwards;
+}
+
+@keyframes tp-story-fill {
+  to { background: linear-gradient(to right, rgb(255 255 255 / 0.9) 100%, rgb(255 255 255 / 0.25) 100%); }
+}
+
+.tp-story-view__head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.85rem 1rem;
+}
+.tp-story-view__name { font-weight: 650; }
+.tp-story-view__time { font-size: var(--tp-step--1); opacity: 0.7; }
+
+/* The viewer overrides the theme, so its own controls need explicit colours. */
+.tp-story-view .tp-iconbtn { color: rgb(255 255 255 / 0.8); }
+.tp-story-view .tp-iconbtn:hover { background: rgb(255 255 255 / 0.12); color: #fff; }
+.tp-story-view .tp-chip { border-color: rgb(255 255 255 / 0.3); color: rgb(255 255 255 / 0.85); }
+.tp-story-view .tp-hint { color: rgb(255 255 255 / 0.6); }
+.tp-story-view .tp-btn--ghost { color: rgb(255 255 255 / 0.85); border-color: rgb(255 255 255 / 0.3); }
+.tp-story-view .tp-btn--ghost:hover:not(:disabled) { background: rgb(255 255 255 / 0.12); color: #fff; }
+
+.tp-story-view__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.tp-story-view__media {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* A text status is the whole canvas: its colour is the post. */
+.tp-story-view__text {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: clamp(1.5rem, 6vw, 5rem);
+}
+.tp-story-view__text p {
+  margin: 0;
+  max-width: 22ch;
+  color: #fff;
+  font-size: clamp(1.25rem, 3.5vw, 2.25rem);
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* Invisible tap zones over the media, like a phone. */
+.tp-story-view__zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 35%;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  z-index: 1;
+}
+.tp-story-view__zone--prev { left: 0; }
+.tp-story-view__zone--next { right: 0; }
+
+.tp-story-view__caption {
+  padding: 0.85rem 1.15rem;
+  text-align: center;
+  font-size: var(--tp-step-0);
+}
+
+.tp-story-view__nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1.15rem 1.15rem;
+  border-top: 1px solid rgb(255 255 255 / 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tp-story-view__bar.is-active { animation: none; background: rgb(255 255 255 / 0.6); }
+}

@@ -1,0 +1,178 @@
+@inject MarkdownRenderer Markdown
+@inject MediaResolver Media
+
+@* One bubble. Bot replies are rendered as Markdown (tables, code, media); everything
+   else stays plain text, because a person's message must never execute as markup. *@
+
+<div class="tp-msg @(IsMine ? "tp-msg--mine" : null)" id="msg-@Message.Id">
+    @if (ShowAvatar && !IsMine)
+    {
+        <Avatar Name="@Message.SenderName" AvatarUrl="@Message.SenderAvatarUrl" Size="sm" />
+    }
+
+    <div class="tp-bubble @BubbleClass">
+        @if (ShowSenderName && !IsMine)
+        {
+            <div class="tp-bubble__sender">@Message.SenderName</div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(Message.ReplyToPreview))
+        {
+            <div class="tp-bubble__reply">@Message.ReplyToPreview</div>
+        }
+
+        @if (Message.ForwardedFromUserId is not null)
+        {
+            <div class="tp-hint">↪ Diteruskan</div>
+        }
+
+        @if (Message.IsEncrypted)
+        {
+            <div class="tp-hint">🔒 Pesan terenkripsi — hanya bisa dibaca di perangkat penerima.</div>
+        }
+        else if (Message.IsBotMessage)
+        {
+            <div class="tp-md">@Markdown.Render(Message.Content)</div>
+        }
+        else if (!string.IsNullOrWhiteSpace(Message.Content))
+        {
+            <div style="white-space:pre-wrap">@Message.Content</div>
+        }
+
+        @foreach (var attachment in Message.Attachments)
+        {
+            @RenderAttachment(attachment)
+        }
+
+        @if (Message.Reactions.Count > 0)
+        {
+            <div class="tp-reactions">
+                @foreach (var reaction in Message.Reactions)
+                {
+                    <button type="button"
+                            class="tp-reaction @(MyUserId is not null && reaction.UserIds.Contains(MyUserId.Value) ? "tp-reaction--mine" : null)"
+                            @onclick="() => OnReact.InvokeAsync((Message.Id, reaction.Emoji))">
+                        <span>@reaction.Emoji</span>
+                        <span>@reaction.Count</span>
+                    </button>
+                }
+            </div>
+        }
+
+        <div class="tp-bubble__meta">
+            @if (Message.IsPinned)
+            {
+                <span title="Tersemat">📌</span>
+            }
+            @if (Message.IsEdited)
+            {
+                <span>diubah</span>
+            }
+            <time datetime="@Message.CreatedAt.ToString("O")">@Message.CreatedAt.ToLocalTime().ToString("HH:mm")</time>
+            @if (IsMine)
+            {
+                <span class="tp-ticks @(Message.DeliveryState >= 3 ? "tp-ticks--read" : null)" title="@DeliveryLabel">
+                    @DeliveryTicks
+                </span>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public MessageDto Message { get; set; } = default!;
+    [Parameter] public Guid? MyUserId { get; set; }
+    [Parameter] public bool ShowSenderName { get; set; }
+    [Parameter] public bool ShowAvatar { get; set; } = true;
+    [Parameter] public EventCallback<(Guid MessageId, string Emoji)> OnReact { get; set; }
+
+    private bool IsMine => MyUserId is not null && Message.SenderId == MyUserId.Value;
+
+    private string BubbleClass =>
+        Message.IsBotMessage ? "tp-bubble--bot"
+        : IsMine ? "tp-bubble--out"
+        : "tp-bubble--in";
+
+    private string DeliveryTicks => Message.DeliveryState switch
+    {
+        0 => "🕐",
+        1 => "✓",
+        2 or 3 => "✓✓",
+        4 => "⚠",
+        _ => "✓"
+    };
+
+    private string DeliveryLabel => Message.DeliveryState switch
+    {
+        0 => "Menunggu",
+        1 => "Terkirim",
+        2 => "Sampai",
+        3 => "Dibaca",
+        4 => "Gagal",
+        _ => string.Empty
+    };
+
+    private RenderFragment RenderAttachment(AttachmentDto attachment) => builder =>
+    {
+        var sequence = 0;
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "tp-attach");
+
+        if (attachment.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        {
+            builder.OpenElement(sequence++, "img");
+            builder.AddAttribute(sequence++, "src", Media.Resolve(attachment.Url));
+            builder.AddAttribute(sequence++, "alt", attachment.FileName);
+            builder.AddAttribute(sequence++, "loading", "lazy");
+            builder.CloseElement();
+        }
+        else if (attachment.ContentType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
+        {
+            builder.OpenElement(sequence++, "video");
+            builder.AddAttribute(sequence++, "src", Media.Resolve(attachment.Url));
+            builder.AddAttribute(sequence++, "controls", true);
+            builder.CloseElement();
+        }
+        else if (attachment.ContentType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase))
+        {
+            builder.OpenElement(sequence++, "audio");
+            builder.AddAttribute(sequence++, "src", Media.Resolve(attachment.Url));
+            builder.AddAttribute(sequence++, "controls", true);
+            builder.CloseElement();
+        }
+        else
+        {
+            builder.OpenElement(sequence++, "span");
+            builder.AddContent(sequence++, "📎");
+            builder.CloseElement();
+
+            builder.OpenElement(sequence++, "a");
+            builder.AddAttribute(sequence++, "href", Media.Resolve(attachment.Url));
+            builder.AddAttribute(sequence++, "target", "_blank");
+            builder.AddAttribute(sequence++, "rel", "noopener noreferrer");
+            builder.AddAttribute(sequence++, "download", attachment.FileName);
+
+            builder.OpenElement(sequence++, "div");
+            builder.AddAttribute(sequence++, "class", "tp-attach__name");
+            builder.AddContent(sequence++, attachment.FileName);
+            builder.CloseElement();
+
+            builder.OpenElement(sequence++, "div");
+            builder.AddAttribute(sequence++, "class", "tp-attach__size");
+            builder.AddContent(sequence++, FormatSize(attachment.SizeBytes));
+            builder.CloseElement();
+
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
+    };
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:0.#} KB",
+        < 1024L * 1024 * 1024 => $"{bytes / (1024.0 * 1024):0.#} MB",
+        _ => $"{bytes / (1024.0 * 1024 * 1024):0.#} GB"
+    };
+}

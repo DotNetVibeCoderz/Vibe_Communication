@@ -1,0 +1,277 @@
+syntax = "proto3";
+
+option csharp_namespace = "Telepati.Shared.Grpc";
+
+package telepati;
+
+import "google/protobuf/timestamp.proto";
+
+// The gRPC face of the server. It mirrors the REST surface and the SignalR hub one for one:
+// a client picks whichever transport it prefers and sees identical behaviour. Realtime
+// delivery arrives through the server-streaming Subscribe call.
+service TelepatiService {
+  rpc Login (GrpcLoginRequest) returns (GrpcLoginResponse);
+  rpc Refresh (GrpcRefreshRequest) returns (GrpcLoginResponse);
+
+  rpc GetChats (GetChatsRequest) returns (GetChatsResponse);
+  rpc GetMessages (GetMessagesRequest) returns (GetMessagesResponse);
+  rpc SendMessage (GrpcSendMessageRequest) returns (GrpcMessage);
+  rpc EditMessage (GrpcEditMessageRequest) returns (GrpcMessage);
+  rpc DeleteMessage (MessageIdRequest) returns (GrpcAck);
+  rpc PinMessage (PinRequest) returns (GrpcAck);
+  rpc React (GrpcReactionRequest) returns (GrpcAck);
+  rpc MarkRead (MarkReadRequest) returns (GrpcAck);
+  rpc SetTyping (TypingRequest) returns (GrpcAck);
+  rpc SetPresence (PresenceRequest) returns (GrpcAck);
+
+  rpc GetContacts (EmptyRequest) returns (GetContactsResponse);
+  rpc SearchUsers (SearchUsersRequest) returns (SearchUsersResponse);
+
+  rpc SendCallSignal (CallSignal) returns (GrpcAck);
+
+  // Server-streaming realtime feed: new messages, edits, receipts, typing, presence, calls.
+  rpc Subscribe (SubscribeRequest) returns (stream RealtimeEvent);
+}
+
+message EmptyRequest {}
+
+message GrpcAck {
+  bool success = 1;
+  string error = 2;
+}
+
+message GrpcLoginRequest {
+  string username_or_email = 1;
+  string password = 2;
+  string two_factor_code = 3;
+  string device_name = 4;
+  string device_type = 5;
+  string platform = 6;
+}
+
+message GrpcRefreshRequest {
+  string refresh_token = 1;
+}
+
+message GrpcLoginResponse {
+  bool success = 1;
+  string access_token = 2;
+  string refresh_token = 3;
+  google.protobuf.Timestamp expires_at = 4;
+  GrpcUser user = 5;
+  bool two_factor_required = 6;
+  string error = 7;
+}
+
+message GrpcUser {
+  string id = 1;
+  string username = 2;
+  string display_name = 3;
+  string email = 4;
+  string phone_number = 5;
+  string avatar_url = 6;
+  string about = 7;
+  int32 role = 8;
+  int32 presence = 9;
+  google.protobuf.Timestamp last_seen_at = 10;
+  bool is_bot = 11;
+  double distance_km = 12;
+}
+
+message GrpcChat {
+  string id = 1;
+  int32 type = 2;
+  string title = 3;
+  string description = 4;
+  string avatar_url = 5;
+  string handle = 6;
+  bool is_encrypted = 7;
+  bool is_public = 8;
+  bool only_admins_can_post = 9;
+  int32 member_count = 10;
+  int32 unread_count = 11;
+  bool is_muted = 12;
+  bool is_pinned = 13;
+  bool is_archived = 14;
+  int32 my_role = 15;
+  GrpcMessage last_message = 16;
+  google.protobuf.Timestamp last_message_at = 17;
+}
+
+message GrpcAttachment {
+  string id = 1;
+  string file_name = 2;
+  string content_type = 3;
+  int64 size_bytes = 4;
+  string url = 5;
+  string thumbnail_url = 6;
+  int32 width = 7;
+  int32 height = 8;
+  int32 duration_seconds = 9;
+}
+
+message GrpcReaction {
+  string emoji = 1;
+  int32 count = 2;
+  repeated string user_ids = 3;
+}
+
+message GrpcMessage {
+  string id = 1;
+  string chat_id = 2;
+  string sender_id = 3;
+  string sender_name = 4;
+  string sender_avatar_url = 5;
+  int32 type = 6;
+  string content = 7;
+  bool is_encrypted = 8;
+  string reply_to_message_id = 9;
+  string reply_to_preview = 10;
+  string forwarded_from_user_id = 11;
+  string forwarded_from_name = 12;
+  bool is_pinned = 13;
+  bool is_edited = 14;
+  bool is_bot_message = 15;
+  int32 delivery_state = 16;
+  google.protobuf.Timestamp created_at = 17;
+  double latitude = 18;
+  double longitude = 19;
+  repeated GrpcAttachment attachments = 20;
+  repeated GrpcReaction reactions = 21;
+  repeated string mentioned_user_ids = 22;
+  string client_message_id = 23;
+}
+
+message GetChatsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  bool include_archived = 3;
+}
+
+message GetChatsResponse {
+  repeated GrpcChat chats = 1;
+  int32 total = 2;
+}
+
+message GetMessagesRequest {
+  string chat_id = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  string before_message_id = 4;
+}
+
+message GetMessagesResponse {
+  repeated GrpcMessage messages = 1;
+  int32 total = 2;
+}
+
+message GrpcSendMessageRequest {
+  string chat_id = 1;
+  int32 type = 2;
+  string content = 3;
+  string reply_to_message_id = 4;
+  string forwarded_from_message_id = 5;
+  repeated string attachment_ids = 6;
+  repeated string mentioned_user_ids = 7;
+  double latitude = 8;
+  double longitude = 9;
+  string client_message_id = 10;
+}
+
+message GrpcEditMessageRequest {
+  string message_id = 1;
+  string content = 2;
+}
+
+message MessageIdRequest {
+  string message_id = 1;
+}
+
+message PinRequest {
+  string message_id = 1;
+  bool pinned = 2;
+}
+
+message GrpcReactionRequest {
+  string message_id = 1;
+  string emoji = 2;
+}
+
+message MarkReadRequest {
+  string chat_id = 1;
+  string last_read_message_id = 2;
+}
+
+message TypingRequest {
+  string chat_id = 1;
+  bool is_typing = 2;
+}
+
+message PresenceRequest {
+  int32 presence = 1;
+}
+
+message GetContactsResponse {
+  repeated GrpcUser contacts = 1;
+}
+
+message SearchUsersRequest {
+  string query = 1;
+  string mode = 2;
+  double latitude = 3;
+  double longitude = 4;
+  double radius_km = 5;
+  int32 take = 6;
+}
+
+message SearchUsersResponse {
+  repeated GrpcUser users = 1;
+}
+
+message CallSignal {
+  string call_id = 1;
+  string chat_id = 2;
+  string from_user_id = 3;
+  string to_user_id = 4;
+  int32 type = 5;
+  // offer | answer | ice | hangup | reject
+  string signal_kind = 6;
+  string payload = 7;
+}
+
+message SubscribeRequest {
+  repeated string chat_ids = 1;
+}
+
+// One envelope for every push so clients keep a single dispatch loop per transport.
+message RealtimeEvent {
+  // message | message_edited | message_deleted | receipt | typing | presence | call | chat_updated
+  string kind = 1;
+  GrpcMessage message = 2;
+  TypingEvent typing = 3;
+  PresenceEvent presence = 4;
+  ReceiptEvent receipt = 5;
+  CallSignal call = 6;
+  GrpcChat chat = 7;
+  string deleted_message_id = 8;
+}
+
+message TypingEvent {
+  string chat_id = 1;
+  string user_id = 2;
+  string user_name = 3;
+  bool is_typing = 4;
+}
+
+message PresenceEvent {
+  string user_id = 1;
+  int32 presence = 2;
+  google.protobuf.Timestamp last_seen_at = 3;
+}
+
+message ReceiptEvent {
+  string chat_id = 1;
+  string message_id = 2;
+  string user_id = 3;
+  int32 state = 4;
+}

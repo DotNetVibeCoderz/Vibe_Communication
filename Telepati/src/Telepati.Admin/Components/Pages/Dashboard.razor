@@ -1,0 +1,126 @@
+@page "/"
+@implements IDisposable
+@inject IAdminService Admin
+@using Telepati.Admin
+@inject AdminSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>Dashboard</PageTitle>
+
+<header class="ad-head">
+    <div>
+        <h1>Dashboard</h1>
+        <p>Pantauan realtime. Angka menyegar otomatis tiap @RefreshSeconds detik.</p>
+    </div>
+    <button type="button" class="tp-btn tp-btn--ghost tp-btn--sm" @onclick="RefreshAsync">Segarkan sekarang</button>
+</header>
+
+@if (_stats is null)
+{
+    <p class="tp-hint">Memuat statistik…</p>
+}
+else
+{
+    <div class="ad-tiles">
+        @Tile("Total pengguna", _stats.TotalUsers.ToString("N0"), $"{_stats.OnlineUsers:N0} online sekarang", "👥")
+        @Tile("Aktif 24 jam", _stats.ActiveUsers24h.ToString("N0"), "pengguna terlihat sehari terakhir", "⚡")
+        @Tile("Total pesan", _stats.TotalMessages.ToString("N0"), $"{_stats.Messages24h:N0} dalam 24 jam", "💬")
+        @Tile("Percakapan", _stats.TotalChats.ToString("N0"), $"{_stats.TotalGroups:N0} grup · {_stats.TotalChannels:N0} channel", "🗂️")
+        @Tile("Penyimpanan", FormatBytes(_stats.StorageBytes), "total berkas terunggah", "💾")
+        @Tile("Panggilan aktif", _stats.ActiveCalls.ToString("N0"), "sedang berlangsung", "📞")
+        @Tile("Kang Bacot", _stats.BotInvocations24h.ToString("N0"), "balasan bot dalam 24 jam", "🤖")
+
+        <div class="ad-tile @(_stats.OpenReports > 0 ? "ad-tile--attention" : null)">
+            <div class="ad-tile__label"><span>🚩</span> Laporan terbuka</div>
+            <div class="ad-tile__value">@_stats.OpenReports.ToString("N0")</div>
+            <div class="ad-tile__note">
+                @if (_stats.OpenReports > 0)
+                {
+                    <a href="/reports">Tinjau sekarang →</a>
+                }
+                else
+                {
+                    <span>tidak ada yang menunggu</span>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* Two measures of different scale get two charts — never a second y-axis on one. *@
+    <div class="ad-grid2">
+        <TrendChart Title="Pesan terkirim"
+                    Subtitle="14 hari terakhir"
+                    Unit="pesan"
+                    Points="_stats.MessageTrend"
+                    Color="var(--tp-primary)" />
+
+        <TrendChart Title="Pengguna baru"
+                    Subtitle="14 hari terakhir"
+                    Unit="pendaftaran"
+                    Points="_stats.UserTrend"
+                    Color="var(--tp-secondary)" />
+    </div>
+}
+
+@code {
+    private const int RefreshSeconds = 15;
+
+    private DashboardStatsDto? _stats;
+    private Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await Session.EnsureLoadedAsync())
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        await RefreshAsync();
+
+        // The service caches for 15s, so polling at the same cadence keeps the page live
+        // without ever hitting the database more often than the cache would allow.
+        _timer = new Timer(async _ => await InvokeAsync(RefreshAsync), null,
+            TimeSpan.FromSeconds(RefreshSeconds), TimeSpan.FromSeconds(RefreshSeconds));
+    }
+
+    private async Task RefreshAsync()
+    {
+        _stats = await Admin.GetDashboardAsync();
+        StateHasChanged();
+    }
+
+    private RenderFragment Tile(string label, string value, string note, string icon) => builder =>
+    {
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "ad-tile");
+
+        builder.OpenElement(2, "div");
+        builder.AddAttribute(3, "class", "ad-tile__label");
+        builder.AddMarkupContent(4, $"<span>{icon}</span>");
+        builder.AddContent(5, label);
+        builder.CloseElement();
+
+        builder.OpenElement(6, "div");
+        builder.AddAttribute(7, "class", "ad-tile__value");
+        builder.AddContent(8, value);
+        builder.CloseElement();
+
+        builder.OpenElement(9, "div");
+        builder.AddAttribute(10, "class", "ad-tile__note");
+        builder.AddContent(11, note);
+        builder.CloseElement();
+
+        builder.CloseElement();
+    };
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:0.#} KB",
+        < 1024L * 1024 * 1024 => $"{bytes / (1024.0 * 1024):0.#} MB",
+        _ => $"{bytes / (1024.0 * 1024 * 1024):0.##} GB"
+    };
+
+    public void Dispose() => _timer?.Dispose();
+}

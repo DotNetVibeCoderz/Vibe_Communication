@@ -1,0 +1,192 @@
+@page "/login"
+@inject ITelepatiClient Client
+@inject NavigationManager Navigation
+@inject TelepatiOptions Options
+
+<PageTitle>Masuk — @Options.Branding.AppName</PageTitle>
+
+@* The sign-in screen is the first impression, so it leads with the wave motif rather
+   than a form on a blank page: rings expanding outward, one thought leaving for another mind. *@
+<div class="tp-auth">
+    <section class="tp-auth__stage" aria-hidden="true">
+        <div class="tp-auth__waves">
+            <span></span><span></span><span></span>
+        </div>
+        <div class="tp-auth__mark">💬</div>
+    </section>
+
+    <section class="tp-auth__panel">
+        <header class="tp-auth__head">
+            <h1>@Options.Branding.AppName</h1>
+            <p class="tp-hint">@Options.Branding.Tagline</p>
+        </header>
+
+        @if (_twoFactorRequired)
+        {
+            <div class="tp-alert tp-alert--ok" style="margin-bottom:1rem">
+                Masukkan kode 6 digit dari aplikasi autentikator kamu.
+            </div>
+        }
+
+        @if (_error is not null)
+        {
+            <div class="tp-alert" style="margin-bottom:1rem" role="alert">@_error</div>
+        }
+
+        <EditForm Model="_model" OnValidSubmit="SignInAsync" FormName="signin">
+            <div class="tp-field">
+                <label for="identifier">Username, email, atau nomor telepon</label>
+                <input id="identifier" @bind="_model.Identifier" autocomplete="username" placeholder="kangfadhil" />
+            </div>
+
+            <div class="tp-field">
+                <label for="password">Password</label>
+                <input id="password" type="password" @bind="_model.Password" autocomplete="current-password" placeholder="••••••••" />
+            </div>
+
+            @if (_twoFactorRequired)
+            {
+                <div class="tp-field">
+                    <label for="code">Kode 2FA</label>
+                    <input id="code" @bind="_model.TwoFactorCode" inputmode="numeric" maxlength="6" placeholder="123456" />
+                </div>
+            }
+
+            <button type="submit" class="tp-btn" style="width:100%" disabled="@_busy">
+                @(_busy ? "Menghubungkan…" : "Masuk")
+            </button>
+        </EditForm>
+
+        <p class="tp-hint" style="margin-top:1rem">
+            Belum punya akun? <a href="/register">Daftar dulu</a>.
+        </p>
+
+        <details style="margin-top:1.25rem">
+            <summary class="tp-hint" style="cursor:pointer">Akun demo</summary>
+            <p class="tp-hint" style="margin-top:.5rem">
+                <code>kangfadhil</code> / <code>Telepati123!</code> — super admin<br />
+                <code>sitinurhaliza</code> / <code>Telepati123!</code> — pengguna biasa
+            </p>
+        </details>
+
+        <footer class="tp-hint" style="margin-top:2rem">
+            Dibuat oleh @Options.Branding.Company — dipimpin oleh @Options.Branding.Leader
+        </footer>
+    </section>
+</div>
+
+<style>
+    .tp-auth {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr;
+        min-height: 100dvh;
+        background: var(--tp-surface);
+    }
+
+    .tp-auth__stage {
+        position: relative;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        background: linear-gradient(150deg, var(--tp-primary), color-mix(in srgb, var(--tp-secondary) 70%, var(--tp-primary)));
+    }
+
+    /* Signature: three rings expanding outward — the signal leaving one mind for another. */
+    .tp-auth__waves span {
+        position: absolute;
+        top: 50%; left: 50%;
+        width: 180px; height: 180px;
+        margin: -90px 0 0 -90px;
+        border: 2px solid rgb(255 255 255 / 0.5);
+        border-radius: 50%;
+        animation: tp-auth-wave 4.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+    }
+    .tp-auth__waves span:nth-child(2) { animation-delay: 1.4s; }
+    .tp-auth__waves span:nth-child(3) { animation-delay: 2.8s; }
+
+    @@keyframes tp-auth-wave {
+        0%   { transform: scale(0.35); opacity: 0; }
+        18%  { opacity: 0.8; }
+        100% { transform: scale(3.2); opacity: 0; }
+    }
+
+    .tp-auth__mark {
+        position: relative;
+        display: grid;
+        place-items: center;
+        width: 116px; height: 116px;
+        border-radius: 32px;
+        background: rgb(255 255 255 / 0.16);
+        font-size: 3.25rem;
+    }
+
+    .tp-auth__panel {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: clamp(1.5rem, 5vw, 4rem);
+        background: var(--tp-bg);
+    }
+
+    .tp-auth__head { margin-bottom: 1.75rem; }
+    .tp-auth__head h1 { font-size: var(--tp-step-3); font-weight: 800; }
+
+    @@media (max-width: 860px) {
+        .tp-auth { grid-template-columns: 1fr; }
+        .tp-auth__stage { min-height: 190px; }
+        .tp-auth__mark { width: 84px; height: 84px; font-size: 2.25rem; border-radius: 24px; }
+    }
+
+    @@media (prefers-reduced-motion: reduce) {
+        .tp-auth__waves span { animation: none; opacity: 0.35; }
+    }
+</style>
+
+@code {
+    private readonly LoginModel _model = new();
+    private bool _busy;
+    private bool _twoFactorRequired;
+    private string? _error;
+
+    private async Task SignInAsync()
+    {
+        _busy = true;
+        _error = null;
+
+        try
+        {
+            var result = await Client.LoginAsync(_model.Identifier, _model.Password,
+                string.IsNullOrWhiteSpace(_model.TwoFactorCode) ? null : _model.TwoFactorCode);
+
+            if (result.TwoFactorRequired)
+            {
+                _twoFactorRequired = true;
+                return;
+            }
+
+            if (!result.Success)
+            {
+                _error = result.Error ?? "Login gagal.";
+                return;
+            }
+
+            await Client.ConnectAsync();
+            Navigation.NavigateTo("/");
+        }
+        catch (Exception e)
+        {
+            _error = $"Tidak bisa menghubungi server: {e.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private sealed class LoginModel
+    {
+        public string Identifier { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+        public string TwoFactorCode { get; set; } = string.Empty;
+    }
+}

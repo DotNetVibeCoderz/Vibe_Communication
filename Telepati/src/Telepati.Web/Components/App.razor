@@ -1,0 +1,36 @@
+@inject TelepatiOptions Options
+
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="@Options.Branding.AppName — @Options.Branding.Tagline" />
+    <meta name="theme-color" content="#6C5CE7" />
+    <base href="/" />
+
+    <title>@Options.Branding.AppName</title>
+
+    @* Plus Jakarta Sans is drawn for Jakarta's own identity — the right voice for an
+       Indonesian messenger. The stack in telepati.css falls back to system faces offline. *@
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" />
+
+    <link rel="stylesheet" href="_content/Telepati.UI/css/telepati.css" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>" />
+
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
+
+<body>
+    <Routes @rendermode="InteractiveServer" />
+
+    <script src="_content/Telepati.UI/js/telepati-store.js"></script>
+    <script src="_content/Telepati.UI/js/telepati.js"></script>
+    <script src="_framework/blazor.web.js"></script>
+</body>
+
+</html>

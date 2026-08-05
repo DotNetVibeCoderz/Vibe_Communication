@@ -1,0 +1,20 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject ThemeState Theme
+
+@* Same job as the web app's layout: publish the active theme's colours as CSS variables. *@
+<div class="tp-root" style="@Theme.ToCssVariables()" data-tp-dark="@Theme.IsDark.ToString().ToLowerInvariant()">
+    @Body
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        Theme.Changed += OnThemeChanged;
+        await Theme.LoadAsync();
+    }
+
+    private void OnThemeChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Theme.Changed -= OnThemeChanged;
+}

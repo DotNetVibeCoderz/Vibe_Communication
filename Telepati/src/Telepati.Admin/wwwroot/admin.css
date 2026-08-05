@@ -1,0 +1,257 @@
+/* Admin console layout. It inherits the messenger's tokens from telepati.css and adds
+   only the shell — the console should feel like the same product, not a second one. */
+
+.ad-shell {
+  display: grid;
+  grid-template-columns: 250px 1fr;
+  min-height: 100dvh;
+  background: var(--tp-surface);
+}
+
+.ad-side {
+  display: flex;
+  flex-direction: column;
+  padding: 1.15rem 0.85rem;
+  background: var(--tp-bg);
+  border-right: 1px solid var(--tp-border);
+}
+
+.ad-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0 0.4rem 1.25rem;
+}
+.ad-brand strong { display: block; letter-spacing: -0.02em; }
+.ad-brand__mark {
+  display: grid;
+  place-items: center;
+  width: 38px; height: 38px;
+  border-radius: var(--tp-radius);
+  background: linear-gradient(140deg, var(--tp-primary), var(--tp-secondary));
+  font-size: 1.05rem;
+}
+
+.ad-nav { display: flex; flex-direction: column; gap: 0.15rem; }
+
+.ad-nav__item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--tp-radius);
+  color: var(--tp-text-muted);
+  font-weight: 550;
+  text-decoration: none;
+  transition: background 140ms cubic-bezier(0.22, 1, 0.36, 1), color 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.ad-nav__item:hover { background: var(--tp-surface); color: var(--tp-text); text-decoration: none; }
+.ad-nav__item.active { background: var(--tp-primary-soft); color: var(--tp-primary); }
+.ad-nav__icon { width: 1.25rem; text-align: center; }
+
+.ad-side__foot { margin-top: auto; padding-top: 1rem; }
+
+.ad-user {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem;
+  border: 1px solid var(--tp-border);
+  border-radius: var(--tp-radius);
+}
+
+.ad-main {
+  min-width: 0;
+  padding: 1.75rem 2rem 3rem;
+  overflow-y: auto;
+}
+
+.ad-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.ad-head h1 { font-size: var(--tp-step-3); font-weight: 800; }
+.ad-head p { margin: 0.25rem 0 0; color: var(--tp-text-muted); }
+
+/* Stat tiles: a big number with a quiet label. No plot, so no hover layer. */
+.ad-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1.5rem;
+}
+
+.ad-tile {
+  padding: 1rem 1.15rem;
+  border: 1px solid var(--tp-border);
+  border-radius: var(--tp-radius-lg);
+  background: var(--tp-bg);
+}
+.ad-tile__label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: var(--tp-step--1);
+  color: var(--tp-text-muted);
+}
+.ad-tile__value {
+  margin-top: 0.35rem;
+  font-size: var(--tp-step-3);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+}
+.ad-tile__note { font-size: var(--tp-step--1); color: var(--tp-text-faint); }
+
+/* Status colours are reserved for state, never reused as a series colour. */
+.ad-tile--attention { border-color: color-mix(in srgb, var(--tp-warning) 55%, transparent); }
+.ad-tile--attention .ad-tile__value { color: var(--tp-danger); }
+
+.ad-grid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1.5rem;
+}
+
+.ad-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--tp-bg);
+  border-radius: var(--tp-radius-lg);
+  overflow: hidden;
+}
+.ad-table th,
+.ad-table td {
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid var(--tp-border);
+  text-align: left;
+  vertical-align: middle;
+}
+.ad-table th {
+  font-size: var(--tp-step--1);
+  font-weight: 700;
+  color: var(--tp-text-muted);
+  background: var(--tp-surface);
+}
+.ad-table tbody tr:hover { background: var(--tp-surface); }
+.ad-table__wrap {
+  overflow-x: auto;
+  border: 1px solid var(--tp-border);
+  border-radius: var(--tp-radius-lg);
+}
+
+.ad-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.ad-toolbar input[type="search"],
+.ad-toolbar select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--tp-border);
+  border-radius: var(--tp-radius-pill);
+  background: var(--tp-bg);
+  color: inherit;
+  font: inherit;
+}
+
+@media (max-width: 900px) {
+  .ad-shell { grid-template-columns: 1fr; }
+  .ad-side { flex-direction: row; align-items: center; gap: 1rem; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--tp-border); }
+  .ad-nav { flex-direction: row; }
+  .ad-side__foot { margin: 0 0 0 auto; padding: 0; }
+  .ad-main { padding: 1.25rem; }
+}
+
+/* Gallery layout: tabs, cards, and the inline inspector panel. */
+
+.ad-tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--tp-border);
+}
+
+.ad-tab {
+  padding: 0.6rem 1rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--tp-text-muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 140ms cubic-bezier(0.22, 1, 0.36, 1), border-color 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.ad-tab:hover { color: var(--tp-text); }
+.ad-tab--active { color: var(--tp-primary); border-bottom-color: var(--tp-primary); }
+
+.ad-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.ad-card { display: flex; flex-direction: column; }
+
+.ad-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.ad-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.5rem 0;
+}
+
+.ad-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: auto;
+  padding-top: 0.75rem;
+}
+
+/* A card's command line and code paths need to wrap rather than widen the grid column. */
+.ad-card code {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: var(--tp-step--1);
+}
+
+.ad-switch {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.25rem 0 0.5rem;
+  font-size: var(--tp-step--1);
+  color: var(--tp-text-muted);
+}
+
+.ad-inspect {
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--tp-border);
+}
+.ad-inspect pre {
+  max-height: 340px;
+  overflow: auto;
+  padding: 0.75rem;
+  border-radius: var(--tp-radius);
+  background: var(--tp-surface);
+  font-size: var(--tp-step--1);
+  white-space: pre-wrap;
+}

@@ -1,0 +1,136 @@
+@* The conversation list. Pinned first, then by recency — the ordering the server
+   already applies, mirrored here so realtime updates re-sort without a round trip. *@
+
+<div class="tp-list">
+    <div class="tp-list__head">
+        <div class="tp-list__title">@Title</div>
+        <div style="display:flex;gap:.25rem">
+            <span class="tp-chip @(IsConnected ? "tp-chip--live" : "tp-chip--off")" title="Transport aktif">
+                @(IsConnected ? "●" : "○") @TransportName
+            </span>
+            @if (OnNewChat.HasDelegate)
+            {
+                <button type="button" class="tp-iconbtn" title="Percakapan baru" @onclick="OnNewChat">✏️</button>
+            }
+        </div>
+    </div>
+
+    <div class="tp-search">
+        <span class="tp-search__icon">🔍</span>
+        <input type="search" placeholder="Cari percakapan atau orang" value="@Query"
+               @oninput="e => OnQueryChanged(e.Value?.ToString())" aria-label="Cari percakapan" />
+    </div>
+
+    <div class="tp-list__scroll">
+        @if (Loading && Chats.Count == 0)
+        {
+            <div class="tp-empty"><span class="tp-empty__mark">◌</span><span>Memuat percakapan…</span></div>
+        }
+        else if (Filtered.Count == 0)
+        {
+            <div class="tp-empty">
+                <span class="tp-empty__mark">💬</span>
+                <strong>@(string.IsNullOrWhiteSpace(Query) ? "Belum ada percakapan" : "Tidak ada yang cocok")</strong>
+                <span class="tp-hint">
+                    @(string.IsNullOrWhiteSpace(Query) ? "Mulai dengan mencari kontak lalu kirim sapaan." : "Coba kata kunci lain.")
+                </span>
+            </div>
+        }
+        else
+        {
+            @* Virtualized: rows are uniform height and the list can run to hundreds of
+               conversations, so only the visible window is ever in the DOM. ItemSize matches
+               the row height in telepati.css — a wrong value makes the scrollbar drift. *@
+            <Virtualize Items="Filtered" ItemSize="64" OverscanCount="6" TItem="ChatDto">
+              <ItemContent Context="chat">
+                <button type="button"
+                        class="tp-conv @(ActiveChatId == chat.Id ? "tp-conv--active" : null)"
+                        @key="chat.Id"
+                        @onclick="() => OnSelect.InvokeAsync(chat)">
+                    <Avatar Name="@chat.Title" AvatarUrl="@chat.AvatarUrl" Presence="@PresenceFor(chat)" />
+
+                    <div class="tp-conv__body">
+                        <div class="tp-conv__row">
+                            <span class="tp-conv__name">
+                                @if (chat.IsPinned) { <span title="Disematkan">📌</span> }
+                                @TitleFor(chat)
+                            </span>
+                            <span class="tp-conv__time">@FormatTime(chat.LastMessageAt)</span>
+                        </div>
+                        <div class="tp-conv__preview">@PreviewFor(chat)</div>
+                    </div>
+
+                    <div class="tp-conv__meta">
+                        @if (chat.UnreadCount > 0)
+                        {
+                            <span class="tp-unread">@(chat.UnreadCount > 99 ? "99+" : chat.UnreadCount.ToString())</span>
+                        }
+                        @if (chat.IsMuted) { <span title="Dibisukan" style="opacity:.5">🔕</span> }
+                    </div>
+                </button>
+              </ItemContent>
+            </Virtualize>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = "Obrolan";
+    [Parameter] public IReadOnlyList<ChatDto> Chats { get; set; } = [];
+    [Parameter] public Guid? ActiveChatId { get; set; }
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public bool IsConnected { get; set; }
+    [Parameter] public string TransportName { get; set; } = "SignalR";
+    [Parameter] public EventCallback<ChatDto> OnSelect { get; set; }
+    [Parameter] public EventCallback OnNewChat { get; set; }
+
+    private string Query { get; set; } = string.Empty;
+
+    private void OnQueryChanged(string? value) => Query = value ?? string.Empty;
+
+    private List<ChatDto> Filtered =>
+        string.IsNullOrWhiteSpace(Query)
+            ? Chats.ToList()
+            : Chats.Where(c =>
+                  c.Title.Contains(Query, StringComparison.OrdinalIgnoreCase) ||
+                  (c.LastMessage?.Content?.Contains(Query, StringComparison.OrdinalIgnoreCase) ?? false))
+              .ToList();
+
+    private static int? PresenceFor(ChatDto chat) => chat.Type == 0 ? null : null;
+
+    private static string TitleFor(ChatDto chat) => chat.Type switch
+    {
+        2 => $"# {chat.Title}",
+        4 => "Pesan Tersimpan",
+        _ => chat.Title
+    };
+
+    private static string PreviewFor(ChatDto chat)
+    {
+        if (chat.LastMessage is null) return "Belum ada pesan";
+        if (chat.LastMessage.IsEncrypted) return "🔒 Pesan terenkripsi";
+
+        var prefix = chat.Type is 1 or 2 ? $"{chat.LastMessage.SenderName.Split(' ')[0]}: " : string.Empty;
+
+        if (chat.LastMessage.Attachments.Count > 0 && string.IsNullOrWhiteSpace(chat.LastMessage.Content))
+        {
+            return prefix + "📎 Lampiran";
+        }
+
+        return prefix + MarkdownRenderer.ToPreview(chat.LastMessage.Content, 60);
+    }
+
+    /// <summary>Chat apps show a clock today, a weekday this week, and a date beyond that.</summary>
+    private static string FormatTime(DateTimeOffset? at)
+    {
+        if (at is null) return string.Empty;
+
+        var local = at.Value.ToLocalTime();
+        var today = DateTimeOffset.Now.Date;
+
+        if (local.Date == today) return local.ToString("HH:mm");
+        if (local.Date == today.AddDays(-1)) return "Kemarin";
+        if (local.Date > today.AddDays(-7)) return local.ToString("ddd");
+        return local.ToString("dd/MM/yy");
+    }
+}

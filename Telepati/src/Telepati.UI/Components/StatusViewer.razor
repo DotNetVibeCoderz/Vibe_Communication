@@ -1,0 +1,187 @@
+@implements IDisposable
+@inject MediaResolver Media
+
+@* Full-pane status viewer.
+   Statuses are grouped per person, the way every messenger does it: opening someone's ring
+   plays their posts in order, then moves on. Text posts render on their own colour, image and
+   video posts fill the frame. *@
+
+@if (Current is null)
+{
+    <div class="tp-thread">
+        <div class="tp-empty">
+            <span class="tp-empty__mark">◍</span>
+            <h3>Pilih status</h3>
+            <span class="tp-hint">Status dari kontak kamu bertahan 24 jam.</span>
+        </div>
+    </div>
+}
+else
+{
+    <div class="tp-story-view">
+        @* One segment per post in this person's run, filled up to the one being shown. *@
+        <div class="tp-story-view__bars">
+            @for (var i = 0; i < Items.Count; i++)
+            {
+                <span class="tp-story-view__bar @(i < _index ? "is-done" : i == _index ? "is-active" : null)"></span>
+            }
+        </div>
+
+        <header class="tp-story-view__head">
+            <Avatar Name="@Current.UserName" AvatarUrl="@Current.UserAvatarUrl" Size="sm" />
+            <div style="min-width:0">
+                <div class="tp-story-view__name">@Current.UserName</div>
+                <div class="tp-story-view__time">@RelativeTime(Current.CreatedAt)</div>
+            </div>
+            <div style="margin-left:auto;display:flex;gap:.25rem">
+                @if (IsMine)
+                {
+                    <span class="tp-chip" title="Dilihat @Current.ViewCount kali">👁 @Current.ViewCount</span>
+                }
+                <button type="button" class="tp-iconbtn" title="Tutup" @onclick="OnClose">✕</button>
+            </div>
+        </header>
+
+        <div class="tp-story-view__stage">
+            @* Tap zones sit above the media, like a phone: left goes back, right goes forward. *@
+            <button type="button" class="tp-story-view__zone tp-story-view__zone--prev"
+                    aria-label="Status sebelumnya" @onclick="PreviousAsync"></button>
+            <button type="button" class="tp-story-view__zone tp-story-view__zone--next"
+                    aria-label="Status berikutnya" @onclick="NextAsync"></button>
+
+            @switch (Current.MediaType)
+            {
+                case 1 when !string.IsNullOrWhiteSpace(Current.MediaUrl):
+                    <img class="tp-story-view__media" src="@Media.Resolve(Current.MediaUrl)" alt="@(Current.Caption ?? "Status")" />
+                    break;
+
+                case 2 when !string.IsNullOrWhiteSpace(Current.MediaUrl):
+                    @* Autoplays muted so a browser will not block it; the reader can unmute. *@
+                    <video class="tp-story-view__media" src="@Media.Resolve(Current.MediaUrl)"
+                           autoplay muted controls playsinline></video>
+                    break;
+
+                default:
+                    <div class="tp-story-view__text" style="background:@(Current.BackgroundColor ?? "#6C5CE7")">
+                        <p>@Current.Caption</p>
+                    </div>
+                    break;
+            }
+        </div>
+
+        @if (Current.MediaType != 0 && !string.IsNullOrWhiteSpace(Current.Caption))
+        {
+            <footer class="tp-story-view__caption">@Current.Caption</footer>
+        }
+
+        <nav class="tp-story-view__nav">
+            <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost"
+                    disabled="@(!HasPrevious)" @onclick="PreviousAsync">← Sebelumnya</button>
+            <span class="tp-hint">@(_index + 1) dari @Items.Count</span>
+            <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost"
+                    disabled="@(!HasNext)" @onclick="NextAsync">Berikutnya →</button>
+        </nav>
+    </div>
+}
+
+@code {
+    /// <summary>Every status by the person being viewed, oldest first.</summary>
+    [Parameter] public IReadOnlyList<StatusPostDto> Items { get; set; } = [];
+
+    [Parameter] public Guid? MyUserId { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    /// <summary>Raised once per status actually shown, so the caller can record the view.</summary>
+    [Parameter] public EventCallback<StatusPostDto> OnViewed { get; set; }
+
+    /// <summary>Raised when the reader advances past the last status of this person.</summary>
+    [Parameter] public EventCallback OnFinished { get; set; }
+
+    private int _index;
+    private Guid? _lastReported;
+    private Timer? _advanceTimer;
+
+    private StatusPostDto? Current => _index >= 0 && _index < Items.Count ? Items[_index] : null;
+
+    private bool IsMine => MyUserId is not null && Current?.UserId == MyUserId;
+    private bool HasPrevious => _index > 0;
+    private bool HasNext => _index < Items.Count - 1;
+
+    protected override void OnParametersSet()
+    {
+        // A different person's run restarts from their first post.
+        if (_index >= Items.Count) _index = 0;
+        _ = ReportViewAsync();
+        ScheduleAdvance();
+    }
+
+    private async Task NextAsync()
+    {
+        if (HasNext)
+        {
+            _index++;
+            await ReportViewAsync();
+            ScheduleAdvance();
+        }
+        else
+        {
+            await OnFinished.InvokeAsync();
+        }
+    }
+
+    private async Task PreviousAsync()
+    {
+        if (!HasPrevious) return;
+
+        _index--;
+        await ReportViewAsync();
+        ScheduleAdvance();
+    }
+
+    /// <summary>
+    /// Text and image posts advance on their own after a few seconds. Video does not — it runs
+    /// for as long as the clip does, and cutting it short would be worse than waiting.
+    /// </summary>
+    private void ScheduleAdvance()
+    {
+        _advanceTimer?.Dispose();
+        _advanceTimer = null;
+
+        if (Current is null || Current.MediaType == 2) return;
+
+        _advanceTimer = new Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                if (HasNext) await NextAsync();
+                else await OnFinished.InvokeAsync();
+
+                StateHasChanged();
+            });
+        }, null, TimeSpan.FromSeconds(6), Timeout.InfiniteTimeSpan);
+    }
+
+    /// <summary>Reports each status once, so re-rendering does not inflate the view count.</summary>
+    private async Task ReportViewAsync()
+    {
+        if (Current is null || _lastReported == Current.Id) return;
+
+        _lastReported = Current.Id;
+        await OnViewed.InvokeAsync(Current);
+    }
+
+    private static string RelativeTime(DateTimeOffset at)
+    {
+        var elapsed = DateTimeOffset.UtcNow - at;
+
+        return elapsed switch
+        {
+            { TotalMinutes: < 1 } => "baru saja",
+            { TotalMinutes: < 60 } => $"{elapsed.TotalMinutes:0} menit lalu",
+            { TotalHours: < 24 } => $"{elapsed.TotalHours:0} jam lalu",
+            _ => at.ToLocalTime().ToString("dd MMM HH:mm")
+        };
+    }
+
+    public void Dispose() => _advanceTimer?.Dispose();
+}

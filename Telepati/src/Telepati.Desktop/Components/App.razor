@@ -1,0 +1,27 @@
+@inject TelepatiOptions Options
+
+@* Host document for the desktop window. Identical to the web app's, minus the remote
+   font link — a desktop client should not need the network just to render text. *@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <title>@Options.Branding.AppName</title>
+
+    <link rel="stylesheet" href="_content/Telepati.UI/css/telepati.css" />
+
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
+
+<body>
+    <Routes @rendermode="InteractiveServer" />
+
+    <script src="_content/Telepati.UI/js/telepati-store.js"></script>
+    <script src="_content/Telepati.UI/js/telepati.js"></script>
+    <script src="_framework/blazor.web.js"></script>
+</body>
+
+</html>

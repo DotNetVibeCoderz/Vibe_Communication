@@ -1,0 +1,258 @@
+@page "/themes"
+@inject IThemeService ThemeService
+@using Telepati.Admin
+@inject AdminSession Session
+@inject ThemeState ThemeState
+@inject NavigationManager Navigation
+
+<PageTitle>Tema</PageTitle>
+
+<header class="ad-head">
+    <div>
+        <h1>Tema tampilan</h1>
+        <p>
+            Tema musiman menyala sendiri di dalam rentang tanggalnya — Lebaran, tahun baru,
+            17 Agustus — dan mati lagi setelahnya. Di luar itu, tema yang diaktifkan di sini yang dipakai.
+        </p>
+    </div>
+    <button type="button" class="tp-btn" @onclick="StartNew">Tambah tema</button>
+</header>
+
+@if (_message is not null)
+{
+    <div class="tp-alert @(_messageIsError ? null : "tp-alert--ok")" style="margin-bottom:1rem">@_message</div>
+}
+
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:.85rem;margin-bottom:1.5rem">
+    @foreach (var theme in _themes)
+    {
+        <article class="tp-panel" style="padding:0;overflow:hidden">
+            @* The swatch strip is the preview: five bars, exactly the tokens the theme sets. *@
+            <div style="display:flex;height:64px">
+                <div style="flex:2;background:@theme.PrimaryColor"></div>
+                <div style="flex:1;background:@theme.SecondaryColor"></div>
+                <div style="flex:1;background:@theme.AccentColor"></div>
+                <div style="flex:1;background:@theme.SurfaceColor"></div>
+                <div style="flex:1;background:@theme.BackgroundColor;border-left:1px solid var(--tp-border)"></div>
+            </div>
+
+            <div style="padding:.85rem 1rem 1rem">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem">
+                    <strong>@theme.IconSet @theme.Name</strong>
+                    @if (theme.IsActive)
+                    {
+                        <span class="tp-chip tp-chip--live">aktif</span>
+                    }
+                </div>
+                <p class="tp-hint" style="margin:.25rem 0 .75rem">@theme.Description</p>
+
+                @if (theme.IsSeasonal)
+                {
+                    <p class="tp-hint">
+                        🗓️ @(theme.ActiveFrom?.ToString("dd MMM yyyy") ?? "—") → @(theme.ActiveTo?.ToString("dd MMM yyyy") ?? "—")
+                    </p>
+                }
+                @if (theme.IsDark)
+                {
+                    <p class="tp-hint">🌙 Tema gelap</p>
+                }
+
+                <div style="display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.75rem">
+                    @if (!theme.IsActive)
+                    {
+                        <button type="button" class="tp-btn tp-btn--sm" @onclick="() => ActivateAsync(theme)">Aktifkan</button>
+                    }
+                    <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost" @onclick="() => Edit(theme)">Ubah</button>
+                    @if (!theme.IsActive)
+                    {
+                        <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost" @onclick="() => DeleteAsync(theme)">Hapus</button>
+                    }
+                </div>
+            </div>
+        </article>
+    }
+</div>
+
+@if (_draft is not null)
+{
+    <section class="tp-panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:1rem">
+            <h2 style="font-size:var(--tp-step-1)">@(_isNew ? "Tema baru" : $"Ubah: {_draft.Name}")</h2>
+            <button type="button" class="tp-iconbtn" title="Tutup" @onclick="() => _draft = null">✕</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0 1rem">
+            <div class="tp-field">
+                <label for="name">Nama</label>
+                <input id="name" value="@_draft.Name" @onchange="e => Update(t => t with { Name = e.Value?.ToString() ?? string.Empty })" />
+            </div>
+            <div class="tp-field">
+                <label for="desc">Deskripsi</label>
+                <input id="desc" value="@_draft.Description" @onchange="e => Update(t => t with { Description = e.Value?.ToString() })" />
+            </div>
+            <div class="tp-field">
+                <label for="icon">Ikon / emoji</label>
+                <input id="icon" value="@_draft.IconSet" @onchange="e => Update(t => t with { IconSet = e.Value?.ToString() })" placeholder="🌙✨" />
+            </div>
+
+            @ColorField("Primer", _draft.PrimaryColor, v => Update(t => t with { PrimaryColor = v }))
+            @ColorField("Sekunder", _draft.SecondaryColor, v => Update(t => t with { SecondaryColor = v }))
+            @ColorField("Aksen", _draft.AccentColor, v => Update(t => t with { AccentColor = v }))
+            @ColorField("Latar", _draft.BackgroundColor, v => Update(t => t with { BackgroundColor = v }))
+            @ColorField("Permukaan", _draft.SurfaceColor, v => Update(t => t with { SurfaceColor = v }))
+            @ColorField("Teks", _draft.TextColor, v => Update(t => t with { TextColor = v }))
+        </div>
+
+        <div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin:.5rem 0 1rem">
+            <label style="display:flex;gap:.5rem;align-items:center">
+                <input type="checkbox" checked="@_draft.IsDark" @onchange="e => Update(t => t with { IsDark = (bool)(e.Value ?? false) })" />
+                <span>Tema gelap</span>
+            </label>
+            <label style="display:flex;gap:.5rem;align-items:center">
+                <input type="checkbox" checked="@_draft.IsSeasonal" @onchange="e => Update(t => t with { IsSeasonal = (bool)(e.Value ?? false) })" />
+                <span>Tema musiman (aktif otomatis pada rentang tanggal)</span>
+            </label>
+        </div>
+
+        @if (_draft.IsSeasonal)
+        {
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0 1rem">
+                <div class="tp-field">
+                    <label for="from">Mulai</label>
+                    <input id="from" type="date" value="@_draft.ActiveFrom?.ToString("yyyy-MM-dd")"
+                           @onchange="e => Update(t => t with { ActiveFrom = ParseDate(e.Value) })" />
+                </div>
+                <div class="tp-field">
+                    <label for="to">Selesai</label>
+                    <input id="to" type="date" value="@_draft.ActiveTo?.ToString("yyyy-MM-dd")"
+                           @onchange="e => Update(t => t with { ActiveTo = ParseDate(e.Value) })" />
+                </div>
+            </div>
+        }
+
+        <div style="display:flex;gap:.5rem">
+            <button type="button" class="tp-btn" @onclick="SaveAsync">Simpan</button>
+            <button type="button" class="tp-btn tp-btn--ghost" @onclick="PreviewDraft">Pratinjau di konsol ini</button>
+        </div>
+    </section>
+}
+
+@code {
+    private List<ThemeDto> _themes = [];
+    private ThemeDto? _draft;
+    private bool _isNew;
+    private string? _message;
+    private bool _messageIsError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await Session.EnsureLoadedAsync())
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() => _themes = (await ThemeService.GetAllAsync()).ToList();
+
+    private void StartNew()
+    {
+        _isNew = true;
+        _draft = new ThemeDto(Guid.Empty, "Tema Baru", "Deskripsi singkat",
+            "#6C5CE7", "#00CEC9", "#FD79A8", "#FFFFFF", "#F5F6FA", "#2D3436",
+            "✨", false, false, false, null, null);
+    }
+
+    private void Edit(ThemeDto theme)
+    {
+        _isNew = false;
+        _draft = theme;
+    }
+
+    private void Update(Func<ThemeDto, ThemeDto> mutate)
+    {
+        if (_draft is not null) _draft = mutate(_draft);
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_draft is null) return;
+
+        var result = _isNew
+            ? (await ThemeService.CreateAsync(_draft)) is { Success: true } ? ApiResult.Ok() : ApiResult.Fail("Gagal menyimpan tema.")
+            : await ThemeService.UpdateAsync(_draft);
+
+        _messageIsError = !result.Success;
+        _message = result.Success ? "Tema disimpan." : result.Error;
+
+        if (result.Success)
+        {
+            _draft = null;
+            await LoadAsync();
+        }
+    }
+
+    private async Task ActivateAsync(ThemeDto theme)
+    {
+        var result = await ThemeService.ActivateAsync(theme.Id);
+        _messageIsError = !result.Success;
+        _message = result.Success ? $"Tema '{theme.Name}' diaktifkan untuk semua klien." : result.Error;
+
+        if (result.Success)
+        {
+            ThemeState.Apply(theme);
+            await LoadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(ThemeDto theme)
+    {
+        var result = await ThemeService.DeleteAsync(theme.Id);
+        _messageIsError = !result.Success;
+        _message = result.Success ? "Tema dihapus." : result.Error;
+        await LoadAsync();
+    }
+
+    /// <summary>Repaints this console with the draft so colours can be judged in place.</summary>
+    private void PreviewDraft()
+    {
+        if (_draft is not null) ThemeState.Apply(_draft);
+    }
+
+    private RenderFragment ColorField(string label, string value, Action<string> onChange) => builder =>
+    {
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "tp-field");
+
+        builder.OpenElement(2, "label");
+        builder.AddContent(3, label);
+        builder.CloseElement();
+
+        builder.OpenElement(4, "div");
+        builder.AddAttribute(5, "style", "display:flex;gap:.5rem;align-items:center");
+
+        builder.OpenElement(6, "input");
+        builder.AddAttribute(7, "type", "color");
+        builder.AddAttribute(8, "value", value);
+        builder.AddAttribute(9, "style", "width:44px;height:38px;padding:2px;border-radius:8px");
+        builder.AddAttribute(10, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this,
+            e => onChange(e.Value?.ToString() ?? value)));
+        builder.CloseElement();
+
+        builder.OpenElement(11, "input");
+        builder.AddAttribute(12, "type", "text");
+        builder.AddAttribute(13, "value", value);
+        builder.AddAttribute(14, "style", "flex:1");
+        builder.AddAttribute(15, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this,
+            e => onChange(e.Value?.ToString() ?? value)));
+        builder.CloseElement();
+
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    private static DateTimeOffset? ParseDate(object? value) =>
+        DateTimeOffset.TryParse(value?.ToString(), out var parsed) ? parsed : null;
+}

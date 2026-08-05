@@ -1,0 +1,22 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject ThemeState Theme
+
+@* Publishes the active theme's colours as CSS variables, exactly as web and desktop do.
+   The safe-area padding is the only mobile-specific concession. *@
+<div class="tp-root" style="@Theme.ToCssVariables() padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)"
+     data-tp-dark="@Theme.IsDark.ToString().ToLowerInvariant()">
+    @Body
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        Theme.Changed += OnThemeChanged;
+        await Theme.LoadAsync();
+    }
+
+    private void OnThemeChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Theme.Changed -= OnThemeChanged;
+}

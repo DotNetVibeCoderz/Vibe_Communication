@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Telepati.UI\Telepati.UI.csproj" />
+    <ProjectReference Include="..\Telepati.Shared\Telepati.Shared.csproj" />
+    <ProjectReference Include="..\Telepati.Domain\Telepati.Domain.csproj" />
+    <ProjectReference Include="..\Telepati.Infrastructure\Telepati.Infrastructure.csproj" />
+    <ProjectReference Include="..\Telepati.Bot\Telepati.Bot.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+  </PropertyGroup>
+
+</Project>

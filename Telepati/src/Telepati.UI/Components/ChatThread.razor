@@ -1,0 +1,263 @@
+@implements IDisposable
+@inject IJSRuntime JS
+
+@* The open conversation. Consecutive messages from one sender are grouped, and a
+   day divider is emitted whenever the calendar date changes. *@
+
+<div class="tp-thread">
+    @if (Chat is null)
+    {
+        <div class="tp-empty">
+            <span class="tp-empty__mark">🌊</span>
+            <h3>Pilih percakapan</h3>
+            <span class="tp-hint">Obrolan yang kamu buka akan muncul di sini.</span>
+        </div>
+    }
+    else
+    {
+        <div class="tp-thread__head">
+            @if (OnBack.HasDelegate)
+            {
+                <button type="button" class="tp-iconbtn" title="Kembali" @onclick="OnBack">←</button>
+            }
+            <Avatar Name="@Chat.Title" AvatarUrl="@Chat.AvatarUrl" Size="sm" />
+            <div>
+                <div class="tp-thread__title">@Chat.Title</div>
+                <div class="tp-thread__sub">@SubtitleText</div>
+            </div>
+            <div class="tp-thread__actions">
+                @if (OnStartCall.HasDelegate)
+                {
+                    <button type="button" class="tp-iconbtn" title="Panggilan suara" @onclick="() => OnStartCall.InvokeAsync(0)">📞</button>
+                    <button type="button" class="tp-iconbtn" title="Panggilan video" @onclick="() => OnStartCall.InvokeAsync(1)">🎥</button>
+                }
+                @if (OnShowInfo.HasDelegate)
+                {
+                    <button type="button" class="tp-iconbtn" title="Info percakapan" @onclick="OnShowInfo">ⓘ</button>
+                }
+            </div>
+        </div>
+
+        <div class="tp-thread__scroll" id="@ScrollId">
+            @if (Loading && Messages.Count == 0)
+            {
+                <div class="tp-empty"><span class="tp-empty__mark">◌</span><span>Memuat pesan…</span></div>
+            }
+            else if (Messages.Count == 0)
+            {
+                <div class="tp-empty">
+                    <span class="tp-empty__mark">👋</span>
+                    <strong>Belum ada pesan</strong>
+                    <span class="tp-hint">Sapa duluan — percakapan dimulai dari satu kata.</span>
+                </div>
+            }
+            else
+            {
+                @* Sentinel watched by an IntersectionObserver: scrolling near the top loads the
+                   next page automatically. A message thread cannot use <Virtualize> — that
+                   renders top-down from a provider, while a thread grows from the bottom and
+                   must hold its scroll position while older pages are prepended. Capping the
+                   rendered window achieves the same DOM ceiling without fighting the scroll. *@
+                @if (OnLoadOlder.HasDelegate)
+                {
+                    <div id="@SentinelId" class="tp-loadmore">
+                        @if (_loadingOlder)
+                        {
+                            <span class="tp-hint">Memuat pesan lama…</span>
+                        }
+                        else
+                        {
+                            <button type="button" class="tp-btn tp-btn--ghost tp-btn--sm" @onclick="LoadOlderAsync">
+                                Muat pesan lama
+                            </button>
+                        }
+                    </div>
+                }
+
+                DateTime? previousDay = null;
+                Guid? previousSender = null;
+
+                @foreach (var message in Window)
+                {
+                    var day = message.CreatedAt.ToLocalTime().Date;
+
+                    if (previousDay != day)
+                    {
+                        previousDay = day;
+                        previousSender = null;
+                        <div class="tp-daystamp">@FormatDay(day)</div>
+                    }
+
+                    var isFirstOfRun = previousSender != message.SenderId;
+                    previousSender = message.SenderId;
+
+                    @* @key lets Blazor match bubbles across renders instead of rebuilding the
+                       run whenever a message is prepended or edited. *@
+                    <MessageBubble @key="message.Id"
+                                   Message="message"
+                                   MyUserId="MyUserId"
+                                   ShowSenderName="@(IsGroup && isFirstOfRun)"
+                                   ShowAvatar="@isFirstOfRun"
+                                   OnReact="OnReact" />
+                }
+
+                @if (TypingNames.Count > 0)
+                {
+                    <div class="tp-msg">
+                        <div class="tp-typing" aria-label="@TypingLabel">
+                            <span></span><span></span><span></span>
+                        </div>
+                    </div>
+                    <div class="tp-hint" style="margin-left:.4rem">@TypingLabel</div>
+                }
+            }
+        </div>
+
+        @ChildContent
+    }
+</div>
+
+@code {
+    [Parameter] public ChatDto? Chat { get; set; }
+    [Parameter] public IReadOnlyList<MessageDto> Messages { get; set; } = [];
+    [Parameter] public IReadOnlyList<string> TypingNames { get; set; } = [];
+    [Parameter] public Guid? MyUserId { get; set; }
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public string? MemberSummary { get; set; }
+    [Parameter] public EventCallback<(Guid MessageId, string Emoji)> OnReact { get; set; }
+    [Parameter] public EventCallback OnLoadOlder { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+    [Parameter] public EventCallback OnShowInfo { get; set; }
+    [Parameter] public EventCallback<int> OnStartCall { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private const string ScrollId = "tp-thread-scroll";
+    private const string SentinelId = "tp-thread-sentinel";
+
+    /// <summary>
+    /// Hard ceiling on rendered bubbles. A thread with thousands of messages would otherwise
+    /// put every one of them in the DOM, and on Blazor Server every node also costs render-tree
+    /// diffing on the server.
+    /// </summary>
+    private const int MaxRenderedMessages = 120;
+
+    private int _renderedCount;
+    private bool _loadingOlder;
+    private DotNetObjectReference<ChatThread>? _selfReference;
+    private bool _observerAttached;
+
+    private bool IsGroup => Chat?.Type is 1 or 2;
+
+    /// <summary>The newest slice of the thread — what actually reaches the DOM.</summary>
+    private IReadOnlyList<MessageDto> Window =>
+        Messages.Count <= MaxRenderedMessages
+            ? Messages
+            : Messages.Skip(Messages.Count - MaxRenderedMessages).ToList();
+
+    private string SubtitleText
+    {
+        get
+        {
+            if (Chat is null) return string.Empty;
+            if (TypingNames.Count > 0) return TypingLabel;
+            if (!string.IsNullOrWhiteSpace(MemberSummary)) return MemberSummary;
+
+            return Chat.Type switch
+            {
+                1 => $"{Chat.MemberCount} anggota",
+                2 => $"{Chat.MemberCount} pelanggan",
+                3 => "Bot • selalu siap",
+                4 => "Catatan pribadi",
+                _ => Chat.IsEncrypted ? "🔒 Terenkripsi ujung ke ujung" : "Chat langsung"
+            };
+        }
+    }
+
+    private string TypingLabel => TypingNames.Count switch
+    {
+        0 => string.Empty,
+        1 => $"{TypingNames[0]} sedang mengetik…",
+        2 => $"{TypingNames[0]} dan {TypingNames[1]} sedang mengetik…",
+        _ => $"{TypingNames.Count} orang sedang mengetik…"
+    };
+
+    /// <summary>
+    /// Scrolls to the newest message whenever the count grows. Doing it here rather than in the
+    /// page keeps every host (web, desktop, mobile) behaving the same.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try
+        {
+            // The observer is attached once the thread is on screen; it fires whenever the
+            // sentinel scrolls into view, which is what makes older pages load by themselves.
+            if (Chat is not null && !_observerAttached && OnLoadOlder.HasDelegate)
+            {
+                _selfReference ??= DotNetObjectReference.Create(this);
+                await JS.InvokeVoidAsync("telepati.observeTop", SentinelId, ScrollId, _selfReference);
+                _observerAttached = true;
+            }
+
+            if (Messages.Count == _renderedCount && !firstRender) return;
+
+            _renderedCount = Messages.Count;
+            await JS.InvokeVoidAsync("telepati.scrollToBottom", ScrollId);
+        }
+        catch (JSException)
+        {
+            // Prerendering has no DOM yet; the next render handles it.
+        }
+    }
+
+    /// <summary>Called from JS when the top sentinel becomes visible.</summary>
+    [JSInvokable]
+    public async Task OnReachedTop()
+    {
+        if (_loadingOlder || !OnLoadOlder.HasDelegate) return;
+        await LoadOlderAsync();
+    }
+
+    private async Task LoadOlderAsync()
+    {
+        if (_loadingOlder) return;
+
+        _loadingOlder = true;
+        StateHasChanged();
+
+        try
+        {
+            // Prepending shifts everything down, so the scroll offset is captured before the
+            // load and restored after — otherwise the reader is thrown back to the bottom.
+            var anchor = Window.FirstOrDefault()?.Id;
+            await OnLoadOlder.InvokeAsync();
+
+            if (anchor is not null)
+            {
+                await JS.InvokeVoidAsync("telepati.preserveScrollAt", ScrollId, $"msg-{anchor}");
+            }
+        }
+        catch (JSException)
+        {
+            // No DOM: the caller still got its data.
+        }
+        finally
+        {
+            _loadingOlder = false;
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose()
+    {
+        _selfReference?.Dispose();
+        _selfReference = null;
+    }
+
+    private static string FormatDay(DateTime day)
+    {
+        var today = DateTime.Now.Date;
+        if (day == today) return "Hari ini";
+        if (day == today.AddDays(-1)) return "Kemarin";
+        return day.ToString("dddd, dd MMMM yyyy");
+    }
+}

@@ -1,0 +1,8 @@
+@* Same pages as web and desktop — the mobile app contributes only its shell. *@
+<Router AppAssembly="@typeof(MauiProgram).Assembly"
+        AdditionalAssemblies="new[] { typeof(Telepati.UI.Pages.Messenger).Assembly }">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(ShellLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+</Router>

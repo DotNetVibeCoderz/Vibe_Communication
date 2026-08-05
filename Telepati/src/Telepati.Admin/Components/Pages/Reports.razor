@@ -1,0 +1,137 @@
+@page "/reports"
+@inject IAdminService Admin
+@using Telepati.Admin
+@inject AdminSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>Laporan</PageTitle>
+
+<header class="ad-head">
+    <div>
+        <h1>Laporan pengguna</h1>
+        <p>Aduan spam, pelecehan, dan konten bermasalah yang dikirim pengguna.</p>
+    </div>
+</header>
+
+<div class="ad-toolbar">
+    <select @bind="_stateFilter" @bind:after="() => LoadAsync(1)" aria-label="Saring status laporan">
+        <option value="0">Terbuka</option>
+        <option value="1">Sedang ditinjau</option>
+        <option value="2">Selesai</option>
+        <option value="3">Ditolak</option>
+        <option value="">Semua</option>
+    </select>
+</div>
+
+@if (_message is not null)
+{
+    <div class="tp-alert tp-alert--ok" style="margin-bottom:1rem">@_message</div>
+}
+
+<div class="ad-table__wrap">
+    <table class="ad-table">
+        <thead>
+            <tr>
+                <th scope="col">Pelapor</th>
+                <th scope="col">Dilaporkan</th>
+                <th scope="col">Alasan</th>
+                <th scope="col">Detail</th>
+                <th scope="col">Waktu</th>
+                <th scope="col">Tindakan</th>
+            </tr>
+        </thead>
+        <tbody>
+            @if (_page is null)
+            {
+                <tr><td colspan="6" class="tp-hint">Memuat…</td></tr>
+            }
+            else if (_page.Items.Count == 0)
+            {
+                <tr><td colspan="6" class="tp-hint">Tidak ada laporan pada status ini.</td></tr>
+            }
+            else
+            {
+                @foreach (var report in _page.Items)
+                {
+                    <tr>
+                        <td>@(report.Reporter?.DisplayName ?? "—")</td>
+                        <td>
+                            <div style="font-weight:650">@(report.ReportedUser?.DisplayName ?? "—")</div>
+                            <div class="tp-hint">&commat;@(report.ReportedUser?.Username ?? "")</div>
+                        </td>
+                        <td>@ReasonLabel(report.Reason)</td>
+                        <td style="max-width:280px">@(report.Details ?? "—")</td>
+                        <td class="tp-hint">@report.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</td>
+                        <td>
+                            @if (report.State == ReportState.Open || report.State == ReportState.UnderReview)
+                            {
+                                <div style="display:flex;gap:.35rem;flex-wrap:wrap">
+                                    <button type="button" class="tp-btn tp-btn--sm"
+                                            @onclick="() => ResolveAsync(report, ReportState.Resolved)">Tindak</button>
+                                    <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost"
+                                            @onclick="() => ResolveAsync(report, ReportState.Dismissed)">Tolak</button>
+                                </div>
+                            }
+                            else
+                            {
+                                <span class="tp-chip">@StateLabel(report.State)</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    private PagedResult<UserReport>? _page;
+    private string _stateFilter = "0";
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await Session.EnsureLoadedAsync())
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        await LoadAsync(1);
+    }
+
+    private async Task LoadAsync(int page)
+    {
+        ReportState? state = int.TryParse(_stateFilter, out var parsed) ? (ReportState)parsed : null;
+        _page = await Admin.GetReportsAsync(state, page, 25);
+    }
+
+    private async Task ResolveAsync(UserReport report, ReportState state)
+    {
+        var note = state == ReportState.Resolved
+            ? "Ditindaklanjuti oleh admin."
+            : "Tidak ditemukan pelanggaran.";
+
+        var result = await Admin.ResolveReportAsync(Session.UserId, report.Id, state, note);
+        _message = result.Success ? "Laporan diperbarui." : result.Error;
+        await LoadAsync(_page?.Page ?? 1);
+    }
+
+    private static string ReasonLabel(ReportReason reason) => reason switch
+    {
+        ReportReason.Spam => "Spam",
+        ReportReason.Abuse => "Penyalahgunaan",
+        ReportReason.Harassment => "Pelecehan",
+        ReportReason.Impersonation => "Peniruan identitas",
+        ReportReason.IllegalContent => "Konten ilegal",
+        _ => "Lainnya"
+    };
+
+    private static string StateLabel(ReportState state) => state switch
+    {
+        ReportState.Open => "Terbuka",
+        ReportState.UnderReview => "Ditinjau",
+        ReportState.Resolved => "Selesai",
+        _ => "Ditolak"
+    };
+}

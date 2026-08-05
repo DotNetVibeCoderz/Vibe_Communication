@@ -1,0 +1,182 @@
+@* A single-series daily-count chart.
+   Bars, not a line: the values are discrete day buckets, not a continuous signal.
+   One measure per chart — two measures of different scale get two charts, never a
+   second y-axis. A lone series needs no legend; the title names it.
+   The palette validator flags the teal step as under 3:1 against the surface, so the
+   chart ships the required relief: visible axis labels and a table view. *@
+
+<figure class="tp-chart">
+    <figcaption class="tp-chart__head">
+        <div>
+            <span class="tp-chart__title">@Title</span>
+            @if (!string.IsNullOrWhiteSpace(Subtitle))
+            {
+                <span class="tp-chart__sub">@Subtitle</span>
+            }
+        </div>
+        <span class="tp-chart__total">@Total.ToString("N0") <small>@Unit</small></span>
+    </figcaption>
+
+    @if (Points.Count == 0)
+    {
+        <p class="tp-hint">Belum ada data untuk periode ini.</p>
+    }
+    else
+    {
+        <svg class="tp-chart__svg" viewBox="0 0 @Width @Height" role="img"
+             aria-label="@Title — @Total @Unit selama @Points.Count hari terakhir" preserveAspectRatio="none">
+
+            @* Recessive gridlines: three references, no frame, no ticks. *@
+            @foreach (var fraction in new[] { 0.0, 0.5, 1.0 })
+            {
+                var y = PlotTop + PlotHeight * (1 - fraction);
+                <line x1="0" y1="@y.ToString(Culture)" x2="@Width" y2="@y.ToString(Culture)"
+                      stroke="currentColor" stroke-opacity="0.12" stroke-width="1" />
+            }
+
+            @for (var i = 0; i < Points.Count; i++)
+            {
+                var point = Points[i];
+                var barHeight = Max <= 0 ? 0 : PlotHeight * (point.Value / Max);
+                var x = i * SlotWidth;
+                var y = PlotTop + PlotHeight - barHeight;
+
+                @* 4px rounded data-end, anchored to the baseline; the 2px slot gap keeps
+                   adjacent bars from fusing into one block. *@
+                <rect x="@x.ToString(Culture)" y="@y.ToString(Culture)"
+                      width="@BarWidth.ToString(Culture)" height="@Math.Max(barHeight, 1).ToString(Culture)"
+                      rx="4" ry="4" fill="@Color" opacity="@(point.Value >= Max ? "1" : "0.82")">
+                    <title>@point.Label: @point.Value.ToString("N0") @Unit</title>
+                </rect>
+
+                @if (point.Value >= Max && Max > 0)
+                {
+                    @* Only the peak is labelled — a number on every bar is noise.
+                       Emitted as markup because Razor reserves the <text> tag name. *@
+                    @(PeakLabel(x + BarWidth / 2, y - 5, point.Value))
+                }
+            }
+        </svg>
+
+        <div class="tp-chart__axis">
+            <span>@Points[0].Label</span>
+            <span>@Points[^1].Label</span>
+        </div>
+
+        <details class="tp-chart__table">
+            <summary>Lihat angkanya</summary>
+            <div style="overflow-x:auto">
+                <table>
+                    <thead><tr><th scope="col">Tanggal</th><th scope="col">@Unit</th></tr></thead>
+                    <tbody>
+                        @foreach (var point in Points)
+                        {
+                            <tr><td>@point.Label</td><td>@point.Value.ToString("N0")</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    }
+</figure>
+
+<style>
+    .tp-chart {
+        margin: 0;
+        padding: 1.15rem 1.25rem 1rem;
+        border: 1px solid var(--tp-border);
+        border-radius: var(--tp-radius-lg);
+        background: var(--tp-bg);
+        color: var(--tp-text);
+    }
+
+    .tp-chart__head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .tp-chart__title { display: block; font-weight: 700; letter-spacing: -0.01em; }
+    .tp-chart__sub { display: block; font-size: var(--tp-step--1); color: var(--tp-text-muted); }
+
+    .tp-chart__total {
+        flex: none;
+        font-size: var(--tp-step-2);
+        font-weight: 800;
+        letter-spacing: -0.03em;
+    }
+    .tp-chart__total small {
+        font-size: var(--tp-step--1);
+        font-weight: 500;
+        color: var(--tp-text-muted);
+    }
+
+    .tp-chart__svg { width: 100%; height: 128px; display: block; }
+    .tp-chart__svg rect { transition: opacity 140ms cubic-bezier(0.22, 1, 0.36, 1); }
+    .tp-chart__svg rect:hover { opacity: 1; }
+
+    .tp-chart__peak {
+        fill: var(--tp-text-muted);
+        font-size: 9px;
+        font-weight: 700;
+        font-family: var(--tp-font);
+    }
+
+    .tp-chart__axis {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 0.35rem;
+        font-size: var(--tp-step--1);
+        color: var(--tp-text-faint);
+    }
+
+    .tp-chart__table { margin-top: 0.75rem; }
+    .tp-chart__table summary {
+        cursor: pointer;
+        font-size: var(--tp-step--1);
+        color: var(--tp-text-muted);
+    }
+    .tp-chart__table table {
+        width: 100%;
+        margin-top: 0.5rem;
+        border-collapse: collapse;
+        font-size: var(--tp-step--1);
+    }
+    .tp-chart__table th,
+    .tp-chart__table td {
+        padding: 0.25rem 0.5rem;
+        border-bottom: 1px solid var(--tp-border);
+        text-align: left;
+    }
+</style>
+
+@code {
+    private static readonly System.Globalization.CultureInfo Culture = System.Globalization.CultureInfo.InvariantCulture;
+
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter] public string? Subtitle { get; set; }
+    [Parameter] public string Unit { get; set; } = "item";
+    [Parameter] public IReadOnlyList<TimeSeriesPoint> Points { get; set; } = [];
+
+    /// <summary>One hue per chart — a single series is never a categorical palette.</summary>
+    [Parameter] public string Color { get; set; } = "var(--tp-primary)";
+
+    private const double Width = 320;
+    private const double Height = 128;
+    private const double PlotTop = 14;
+    private const double PlotHeight = Height - PlotTop - 4;
+
+    private double SlotWidth => Points.Count == 0 ? 0 : Width / Points.Count;
+
+    /// <summary>The 2px surface gap that keeps neighbouring bars visually separate.</summary>
+    private double BarWidth => Math.Max(2, SlotWidth - 2);
+
+    private double Max => Points.Count == 0 ? 0 : Math.Max(1, Points.Max(p => p.Value));
+
+    private double Total => Points.Sum(p => p.Value);
+
+    private static MarkupString PeakLabel(double x, double y, double value) =>
+        new($"""<text x="{x.ToString(Culture)}" y="{y.ToString(Culture)}" text-anchor="middle" class="tp-chart__peak">{value.ToString("N0", Culture)}</text>""");
+}

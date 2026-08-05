@@ -1,0 +1,130 @@
+@page "/activity"
+@inject IActivityLogger Logger
+@using Telepati.Admin
+@inject AdminSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>Log aktivitas</PageTitle>
+
+<header class="ad-head">
+    <div>
+        <h1>Log aktivitas</h1>
+        <p>Jejak login, pesan, perubahan grup, dan tindakan admin.</p>
+    </div>
+</header>
+
+<div class="ad-toolbar">
+    <select @bind="_kindFilter" @bind:after="() => LoadAsync(1)" aria-label="Saring jenis aktivitas">
+        <option value="">Semua jenis</option>
+        <option value="0">Login</option>
+        <option value="2">Login gagal</option>
+        <option value="3">Pesan terkirim</option>
+        <option value="5">Grup dibuat</option>
+        <option value="9">Pengguna diblokir</option>
+        <option value="10">Pengguna dilaporkan</option>
+        <option value="11">Pengaturan diubah</option>
+        <option value="14">Bot dipanggil</option>
+        <option value="15">Backup dibuat</option>
+    </select>
+    <input type="date" @bind="_from" @bind:after="() => LoadAsync(1)" aria-label="Dari tanggal" />
+    <input type="date" @bind="_to" @bind:after="() => LoadAsync(1)" aria-label="Sampai tanggal" />
+</div>
+
+<div class="ad-table__wrap">
+    <table class="ad-table">
+        <thead>
+            <tr>
+                <th scope="col">Waktu</th>
+                <th scope="col">Pengguna</th>
+                <th scope="col">Jenis</th>
+                <th scope="col">Keterangan</th>
+                <th scope="col">IP</th>
+            </tr>
+        </thead>
+        <tbody>
+            @if (_page is null)
+            {
+                <tr><td colspan="5" class="tp-hint">Memuat…</td></tr>
+            }
+            else if (_page.Items.Count == 0)
+            {
+                <tr><td colspan="5" class="tp-hint">Tidak ada aktivitas pada rentang ini.</td></tr>
+            }
+            else
+            {
+                @foreach (var log in _page.Items)
+                {
+                    <tr>
+                        <td class="tp-hint" style="white-space:nowrap">@log.CreatedAt.ToLocalTime().ToString("dd MMM HH:mm:ss")</td>
+                        <td>@(log.UserName ?? "—")</td>
+                        <td><span class="tp-chip">@KindLabel(log.Kind)</span></td>
+                        <td>@(log.Description ?? "—")</td>
+                        <td class="tp-hint">@(log.IpAddress ?? "—")</td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+</div>
+
+@if (_page is not null && _page.Total > _page.PageSize)
+{
+    <div style="display:flex;gap:.5rem;align-items:center;margin-top:1rem">
+        <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost" disabled="@(_page.Page <= 1)"
+                @onclick="() => LoadAsync(_page.Page - 1)">← Sebelumnya</button>
+        <span class="tp-hint">@_page.Total.ToString("N0") entri</span>
+        <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost" disabled="@(!_page.HasMore)"
+                @onclick="() => LoadAsync(_page.Page + 1)">Berikutnya →</button>
+    </div>
+}
+
+@code {
+    private PagedResult<ActivityLogDto>? _page;
+    private string _kindFilter = string.Empty;
+    private DateTime? _from;
+    private DateTime? _to;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await Session.EnsureLoadedAsync())
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        await LoadAsync(1);
+    }
+
+    private async Task LoadAsync(int page)
+    {
+        ActivityKind? kind = int.TryParse(_kindFilter, out var parsed) ? (ActivityKind)parsed : null;
+
+        _page = await Logger.QueryAsync(
+            null, kind,
+            _from is null ? null : new DateTimeOffset(_from.Value, TimeSpan.Zero),
+            // The "to" filter is inclusive of the whole day the user picked.
+            _to is null ? null : new DateTimeOffset(_to.Value.AddDays(1), TimeSpan.Zero),
+            page, 50);
+    }
+
+    private static string KindLabel(int kind) => kind switch
+    {
+        0 => "Login",
+        1 => "Logout",
+        2 => "Login gagal",
+        3 => "Pesan",
+        4 => "Pesan dihapus",
+        5 => "Grup dibuat",
+        6 => "Gabung grup",
+        7 => "Keluar grup",
+        8 => "Kontak ditambah",
+        9 => "Blokir",
+        10 => "Laporan",
+        11 => "Pengaturan",
+        12 => "Unggah berkas",
+        13 => "Panggilan",
+        14 => "Bot",
+        15 => "Backup",
+        _ => "Lainnya"
+    };
+}

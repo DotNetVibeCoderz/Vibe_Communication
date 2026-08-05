@@ -1,0 +1,410 @@
+@page "/mcp"
+@using Telepati.Admin
+@using Telepati.Bot
+@inject IMcpCatalogService Catalog
+@inject IMcpToolProvider Provider
+@inject AdminSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>MCP Gallery</PageTitle>
+
+<header class="ad-head">
+    <div>
+        <h1>MCP Gallery</h1>
+        <p>
+            Server MCP memberi Kang Bacot tool tambahan — desain, 3D, presentasi, dokumen, coding.
+            Semua entri di bawah dimulai dalam keadaan mati; mengaktifkan berarti menjalankan proses
+            atau membuka koneksi, jadi itu keputusan admin.
+        </p>
+    </div>
+    <button type="button" class="tp-btn tp-btn--ghost tp-btn--sm" @onclick="() => _showAddForm = !_showAddForm">
+        @(_showAddForm ? "Tutup form" : "Tambah manual")
+    </button>
+</header>
+
+@if (_message is not null)
+{
+    <div class="tp-alert @(_messageIsError ? null : "tp-alert--ok")" style="margin-bottom:1rem" role="alert">@_message</div>
+}
+
+@if (_showAddForm)
+{
+    <section class="tp-panel" style="margin-bottom:1.25rem">
+        <h3>Tambah server MCP</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0 1rem">
+            <div class="tp-field">
+                <label for="name">Nama</label>
+                <input id="name" @bind="_draftName" placeholder="Misalnya: Figma" />
+            </div>
+            <div class="tp-field">
+                <label for="category">Kategori</label>
+                <select id="category" @bind="_draftCategory">
+                    @foreach (var (value, label) in Categories)
+                    {
+                        <option value="@value">@label</option>
+                    }
+                </select>
+            </div>
+            <div class="tp-field">
+                <label for="transport">Transport</label>
+                <select id="transport" @bind="_draftTransport">
+                    <option value="0">stdio (proses anak)</option>
+                    <option value="1">HTTP</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="tp-field">
+            <label for="desc">Deskripsi</label>
+            <input id="desc" @bind="_draftDescription" placeholder="Apa yang bisa dikerjakan server ini" />
+        </div>
+
+        @if (_draftTransport == 0)
+        {
+            <div style="display:grid;grid-template-columns:1fr 2fr;gap:0 1rem">
+                <div class="tp-field">
+                    <label for="command">Perintah</label>
+                    <input id="command" @bind="_draftCommand" placeholder="npx / uvx / python" />
+                </div>
+                <div class="tp-field">
+                    <label for="args">Argumen (satu per baris)</label>
+                    <textarea id="args" rows="3" @bind="_draftArguments" placeholder="-y&#10;@@scope/paket"></textarea>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="tp-field">
+                <label for="url">URL</label>
+                <input id="url" @bind="_draftUrl" placeholder="https://contoh.com/mcp" />
+            </div>
+        }
+
+        <div class="tp-field">
+            <label for="env">Environment (KEY=value, satu per baris)</label>
+            <textarea id="env" rows="3" @bind="_draftEnvironment" placeholder="API_KEY=..."></textarea>
+        </div>
+
+        <button type="button" class="tp-btn" disabled="@_busy" @onclick="AddAsync">Tambah server</button>
+    </section>
+}
+
+<div class="ad-toolbar">
+    <input type="search" placeholder="Cari server: figma, blender, pptx…"
+           @bind="_query" @bind:event="oninput" @bind:after="LoadAsync" aria-label="Cari server MCP" />
+    <select @bind="_categoryFilter" @bind:after="LoadAsync" aria-label="Saring kategori">
+        <option value="">Semua kategori</option>
+        @foreach (var (value, label) in Categories)
+        {
+            <option value="@value">@label</option>
+        }
+    </select>
+    <span class="tp-hint">@_servers.Count(s => s.IsEnabled) dari @_servers.Count aktif</span>
+</div>
+
+<div class="ad-cards">
+    @foreach (var server in _servers)
+    {
+        <article class="tp-panel ad-card">
+            <div class="ad-card__head">
+                <div>
+                    <strong>@CategoryIcon(server.Category) @server.Name</strong>
+                    <div class="tp-hint">@CategoryLabel(server.Category) · @(server.Transport == 0 ? "stdio" : "HTTP")</div>
+                </div>
+                <span class="tp-chip @(server.IsEnabled ? "tp-chip--live" : "tp-chip--off")">
+                    @(server.IsEnabled ? "aktif" : "mati")
+                </span>
+            </div>
+
+            <p class="tp-hint" style="margin:.5rem 0">@server.Description</p>
+
+            @if (server.Transport == 0 && !string.IsNullOrWhiteSpace(server.Command))
+            {
+                <p class="tp-hint"><code>@server.Command @string.Join(' ', server.Arguments)</code></p>
+            }
+            else if (!string.IsNullOrWhiteSpace(server.Url))
+            {
+                <p class="tp-hint"><code>@server.Url</code></p>
+            }
+
+            <div class="ad-card__meta">
+                @if (server.RequiresApiKey)
+                {
+                    <span class="tp-chip @(server.IsConfigured ? "tp-chip--live" : "tp-chip--off")">
+                        🔑 @(server.IsConfigured ? "terkonfigurasi" : $"butuh {server.ApiKeyEnvironmentName}")
+                    </span>
+                }
+                @if (server.DiscoveredToolCount > 0)
+                {
+                    <span class="tp-chip">@server.DiscoveredToolCount tool</span>
+                }
+                @if (server.LastCheckSucceeded is not null)
+                {
+                    <span class="tp-chip @(server.LastCheckSucceeded == true ? "tp-chip--live" : "tp-chip--off")">
+                        @(server.LastCheckSucceeded == true ? "✓ tersambung" : "✕ gagal")
+                    </span>
+                }
+            </div>
+
+            <div class="ad-card__actions">
+                <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost" disabled="@_busy"
+                        @onclick="() => TestAsync(server)">
+                    @(_testing == server.Id ? "Menguji…" : "Uji koneksi")
+                </button>
+                <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost"
+                        @onclick="() => OpenEditor(server)">Konfigurasi</button>
+                <button type="button" class="tp-btn tp-btn--sm @(server.IsEnabled ? "tp-btn--ghost" : null)"
+                        @onclick="() => SetEnabledAsync(server, !server.IsEnabled)">
+                    @(server.IsEnabled ? "Matikan" : "Aktifkan")
+                </button>
+                @if (!string.IsNullOrWhiteSpace(server.HomepageUrl))
+                {
+                    <a class="tp-btn tp-btn--sm tp-btn--ghost" href="@server.HomepageUrl" target="_blank" rel="noopener">Docs ↗</a>
+                }
+                @if (!server.IsBuiltIn)
+                {
+                    <button type="button" class="tp-btn tp-btn--sm tp-btn--danger" @onclick="() => RemoveAsync(server)">Hapus</button>
+                }
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(server.LastCheckMessage))
+            {
+                <p class="tp-hint" style="margin-top:.5rem;color:@(server.LastCheckSucceeded == true ? "var(--tp-success)" : "var(--tp-danger)")">
+                    @server.LastCheckMessage
+                </p>
+            }
+
+            @if (_editing?.Id == server.Id)
+            {
+                <div class="ad-inspect">
+                    @if (server.IsBuiltIn)
+                    {
+                        <p class="tp-hint">
+                            Entri bawaan: perintah dan argumennya dikunci. Parameter environment,
+                            kategori, dan tautan dokumentasi tetap bisa diubah.
+                        </p>
+                    }
+
+                    <div class="tp-field">
+                        <label>Environment (KEY=value, satu per baris)</label>
+                        <textarea rows="4" @bind="_editEnvironment"
+                                  placeholder="@(server.ApiKeyEnvironmentName is null ? "KEY=value" : server.ApiKeyEnvironmentName + "=...")"></textarea>
+                        <span class="tp-hint">
+                            Nilai rahasia ditampilkan sebagai ••••••; biarkan apa adanya untuk tidak mengubahnya.
+                        </span>
+                    </div>
+
+                    @if (!server.IsBuiltIn)
+                    {
+                        <div class="tp-field">
+                            <label>Argumen (satu per baris)</label>
+                            <textarea rows="3" @bind="_editArguments"></textarea>
+                        </div>
+                    }
+
+                    <div class="tp-field">
+                        <label>Kategori</label>
+                        <select @bind="_editCategory">
+                            @foreach (var (value, label) in Categories)
+                            {
+                                <option value="@value">@label</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div style="display:flex;gap:.5rem">
+                        <button type="button" class="tp-btn tp-btn--sm" @onclick="() => SaveAsync(server)">Simpan</button>
+                        <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost" @onclick="() => _editing = null">Batal</button>
+                    </div>
+
+                    @if (server.DiscoveredTools.Count > 0)
+                    {
+                        <details style="margin-top:.75rem">
+                            <summary class="tp-hint">Tool yang tersedia (@server.DiscoveredTools.Count)</summary>
+                            <p class="tp-hint" style="margin-top:.5rem">@string.Join(" · ", server.DiscoveredTools)</p>
+                        </details>
+                    }
+                </div>
+            }
+        </article>
+    }
+</div>
+
+@code {
+    private static readonly (int Value, string Label)[] Categories =
+    [
+        (0, "Umum"), (1, "Coding"), (2, "Desain"), (3, "3D"),
+        (4, "Presentasi"), (5, "Dokumen"), (6, "Data"), (7, "Web"), (8, "Produktivitas")
+    ];
+
+    private List<McpServerDto> _servers = [];
+    private McpServerDto? _editing;
+    private Guid? _testing;
+
+    private bool _busy;
+    private bool _showAddForm;
+    private string? _message;
+    private bool _messageIsError;
+
+    private string _query = string.Empty;
+    private string _categoryFilter = string.Empty;
+
+    private string _editEnvironment = string.Empty;
+    private string _editArguments = string.Empty;
+    private int _editCategory;
+
+    private string _draftName = string.Empty;
+    private string _draftDescription = string.Empty;
+    private string _draftCommand = "npx";
+    private string _draftArguments = string.Empty;
+    private string _draftUrl = string.Empty;
+    private string _draftEnvironment = string.Empty;
+    private int _draftCategory;
+    private int _draftTransport;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await Session.EnsureLoadedAsync())
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        McpCategory? category = int.TryParse(_categoryFilter, out var parsed) ? (McpCategory)parsed : null;
+        _servers = (await Catalog.GetAllAsync(category, _query)).ToList();
+    }
+
+    private void OpenEditor(McpServerDto server)
+    {
+        if (_editing?.Id == server.Id)
+        {
+            _editing = null;
+            return;
+        }
+
+        _editing = server;
+        _editEnvironment = string.Join('\n', server.EnvironmentVariables);
+        _editArguments = string.Join('\n', server.Arguments);
+        _editCategory = server.Category;
+    }
+
+    private async Task SaveAsync(McpServerDto server)
+    {
+        var result = await Catalog.UpdateAsync(Session.UserId, server with
+        {
+            Category = _editCategory,
+            EnvironmentVariables = SplitLines(_editEnvironment),
+            Arguments = server.IsBuiltIn ? server.Arguments : SplitLines(_editArguments)
+        });
+
+        Report(result.Success, result.Success ? $"Konfigurasi '{server.Name}' disimpan." : result.Error!);
+
+        if (result.Success)
+        {
+            _editing = null;
+            await LoadAsync();
+        }
+    }
+
+    private async Task TestAsync(McpServerDto server)
+    {
+        _busy = true;
+        _testing = server.Id;
+
+        try
+        {
+            // The test dials the server with the configuration exactly as saved, so what the
+            // admin sees here is what the bot would get on its next turn.
+            var result = await Provider.TestAsync(server);
+            await Catalog.RecordCheckAsync(server.Id, result.Success, result.Message, result.Tools);
+
+            Report(result.Success, $"{server.Name}: {result.Message} ({result.ElapsedMs} ms)");
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+            _testing = null;
+        }
+    }
+
+    private async Task SetEnabledAsync(McpServerDto server, bool enabled)
+    {
+        var result = await Catalog.SetEnabledAsync(Session.UserId, server.Id, enabled);
+        Report(result.Success, result.Success
+            ? $"'{server.Name}' {(enabled ? "diaktifkan" : "dimatikan")}."
+            : result.Error!);
+        await LoadAsync();
+    }
+
+    private async Task RemoveAsync(McpServerDto server)
+    {
+        var result = await Catalog.RemoveAsync(Session.UserId, server.Id);
+        Report(result.Success, result.Success ? $"'{server.Name}' dihapus." : result.Error!);
+        await LoadAsync();
+    }
+
+    private async Task AddAsync()
+    {
+        _busy = true;
+        try
+        {
+            var result = await Catalog.AddAsync(Session.UserId, new McpServerDto
+            {
+                Name = _draftName,
+                Description = _draftDescription,
+                Category = _draftCategory,
+                Transport = _draftTransport,
+                Command = _draftCommand,
+                Arguments = SplitLines(_draftArguments),
+                Url = _draftUrl,
+                EnvironmentVariables = SplitLines(_draftEnvironment)
+            });
+
+            Report(result.Success, result.Success
+                ? $"'{result.Data!.Name}' ditambahkan. Uji koneksinya sebelum diaktifkan."
+                : result.Error!);
+
+            if (result.Success)
+            {
+                _draftName = _draftDescription = _draftArguments = _draftUrl = _draftEnvironment = string.Empty;
+                _showAddForm = false;
+                await LoadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void Report(bool success, string message)
+    {
+        _messageIsError = !success;
+        _message = message;
+    }
+
+    private static IReadOnlyList<string> SplitLines(string value) =>
+        value.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static string CategoryLabel(int category) =>
+        Categories.FirstOrDefault(c => c.Value == category).Label ?? "Umum";
+
+    private static string CategoryIcon(int category) => category switch
+    {
+        1 => "💻",
+        2 => "🎨",
+        3 => "🧊",
+        4 => "📊",
+        5 => "📄",
+        6 => "🗄️",
+        7 => "🌐",
+        8 => "🗂️",
+        _ => "🔌"
+    };
+}

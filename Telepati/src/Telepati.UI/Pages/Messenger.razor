@@ -1,0 +1,625 @@
+@page "/"
+@implements IDisposable
+@inject ITelepatiClient Client
+@inject ChatState State
+@inject ThemeState Theme
+@inject TransportSwitcher Transport
+@inject ClientOptions ClientSettings
+@inject TelepatiOptions Options
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject IServiceProvider Services
+
+<PageTitle>@Options.Branding.AppName</PageTitle>
+
+<div class="tp-shell" data-tp-pane="@(State.ActiveChat is null ? "list" : "thread")">
+
+    <nav class="tp-rail" aria-label="Navigasi utama">
+        <div class="tp-rail__brand" title="@Options.Branding.AppName">
+            @(string.IsNullOrEmpty(Theme.SeasonalMark) ? "💬" : Theme.SeasonalMark)
+        </div>
+
+        <button type="button" class="tp-rail__item" aria-current="@(_view == View.Chats ? "page" : null)"
+                title="Obrolan" @onclick="() => _view = View.Chats">
+            💬
+            @if (TotalUnread > 0)
+            {
+                <span class="tp-rail__badge">@(TotalUnread > 99 ? "99+" : TotalUnread.ToString())</span>
+            }
+        </button>
+
+        <button type="button" class="tp-rail__item" aria-current="@(_view == View.Contacts ? "page" : null)"
+                title="Kontak" @onclick="LoadContactsAsync">👥</button>
+
+        <button type="button" class="tp-rail__item" aria-current="@(_view == View.Status ? "page" : null)"
+                title="Status" @onclick="LoadStatusAsync">◍</button>
+
+        <div class="tp-rail__spacer"></div>
+
+        <button type="button" class="tp-rail__item" title="@(Theme.IsDark ? "Mode terang" : "Mode gelap")"
+                @onclick="ToggleThemeAsync">@(Theme.IsDark ? "☀️" : "🌙")</button>
+
+        <button type="button" class="tp-rail__item" aria-current="@(_view == View.Settings ? "page" : null)"
+                title="Pengaturan" @onclick="OpenSettingsAsync">⚙️</button>
+
+        <button type="button" class="tp-rail__item" title="Keluar" @onclick="SignOutAsync">⏻</button>
+    </nav>
+
+    @switch (_view)
+    {
+        case View.Contacts:
+            <div class="tp-list">
+                <div class="tp-list__head"><div class="tp-list__title">Kontak</div></div>
+                <div class="tp-search">
+                    <span class="tp-search__icon">🔍</span>
+                    <input type="search" placeholder="Cari email, telepon, atau username"
+                           @bind="_searchQuery" @bind:event="oninput" @onkeydown="OnSearchKey" aria-label="Cari pengguna" />
+                </div>
+                <div style="padding:0 1.15rem .75rem;display:flex;gap:.35rem;flex-wrap:wrap">
+                    @foreach (var mode in SearchModes)
+                    {
+                        <button type="button" class="tp-btn tp-btn--sm @(_searchMode == mode.Key ? null : "tp-btn--ghost")"
+                                @onclick="() => SetSearchModeAsync(mode.Key)">@mode.Value</button>
+                    }
+                </div>
+
+                @if (_searchMode == "nearby")
+                {
+                    <div style="padding:0 1.15rem .75rem">
+                        <label class="tp-hint" for="radius">Radius: @_radiusKm km</label>
+                        <input id="radius" type="range" style="width:100%"
+                               min="@Options.Features.MinNearbyRadiusKm" max="@Options.Features.MaxNearbyRadiusKm"
+                               step="5" @bind="_radiusKm" @bind:event="oninput" />
+                        <p class="tp-hint">Hanya menemukan orang yang mengizinkan pencarian sekitar di pengaturan mereka.</p>
+                    </div>
+                }
+
+                <div class="tp-list__scroll">
+                    @if (_searchResults.Count > 0)
+                    {
+                        <div class="tp-hint" style="padding:.25rem .75rem">Hasil pencarian</div>
+                        @foreach (var user in _searchResults)
+                        {
+                            <button type="button" class="tp-conv" @onclick="() => OpenDirectAsync(user)">
+                                <Avatar Name="@user.DisplayName" AvatarUrl="@user.AvatarUrl" Presence="user.Presence" />
+                                <div class="tp-conv__body">
+                                    <div class="tp-conv__name">@user.DisplayName</div>
+                                    <div class="tp-conv__preview">
+                                        &commat;@user.Username
+                                        @if (user.DistanceKm is not null) { <span> • @user.DistanceKm km</span> }
+                                    </div>
+                                </div>
+                            </button>
+                        }
+                    }
+                    else if (_contacts.Count == 0)
+                    {
+                        <div class="tp-empty">
+                            <span class="tp-empty__mark">👥</span>
+                            <strong>Belum ada kontak</strong>
+                            <span class="tp-hint">Cari lewat email, nomor telepon, username, atau orang di sekitar.</span>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var contact in _contacts)
+                        {
+                            <button type="button" class="tp-conv" @onclick="() => OpenDirectAsync(contact.User)">
+                                <Avatar Name="@contact.User.DisplayName" AvatarUrl="@contact.User.AvatarUrl" Presence="contact.User.Presence" />
+                                <div class="tp-conv__body">
+                                    <div class="tp-conv__name">@(contact.Alias ?? contact.User.DisplayName)</div>
+                                    <div class="tp-conv__preview">@(contact.User.About ?? $"@{contact.User.Username}")</div>
+                                </div>
+                                @if (contact.IsFavorite) { <div class="tp-conv__meta">⭐</div> }
+                            </button>
+                        }
+                    }
+                </div>
+            </div>
+            break;
+
+        case View.Status:
+            <div class="tp-list">
+                <div class="tp-list__head"><div class="tp-list__title">Status</div></div>
+                <div class="tp-list__scroll">
+                    @if (_statuses.Count == 0)
+                    {
+                        <div class="tp-empty">
+                            <span class="tp-empty__mark">◍</span>
+                            <strong>Belum ada status</strong>
+                            <span class="tp-hint">Status dari kontak kamu muncul di sini selama 24 jam.</span>
+                        </div>
+                    }
+                    else
+                    {
+                        @* One row per person, not per post — opening a ring plays that
+                           person's whole run, the way every messenger does it. *@
+                        @foreach (var group in StatusGroups)
+                        {
+                            var latest = group.Last();
+                            var unseen = group.Count(s => !s.ViewedByMe);
+
+                            <button type="button"
+                                    class="tp-conv @(_openStatusUserId == group.Key ? "tp-conv--active" : null)"
+                                    @onclick="() => OpenStatus(group.Key)">
+                                <div class="tp-story @(unseen == 0 ? "tp-story--seen" : null)">
+                                    <div class="tp-story__inner">
+                                        <Avatar Name="@latest.UserName" AvatarUrl="@latest.UserAvatarUrl" Size="sm" />
+                                    </div>
+                                </div>
+                                <div class="tp-conv__body">
+                                    <div class="tp-conv__row">
+                                        <span class="tp-conv__name">@latest.UserName</span>
+                                        <span class="tp-conv__time">@FormatStatusTime(latest.CreatedAt)</span>
+                                    </div>
+                                    <div class="tp-conv__preview">
+                                        @StatusPreview(latest)
+                                        @if (group.Count() > 1) { <span> · @group.Count() status</span> }
+                                    </div>
+                                </div>
+                                <div class="tp-conv__meta">
+                                    @if (unseen > 0)
+                                    {
+                                        <span class="tp-unread">@unseen</span>
+                                    }
+                                </div>
+                            </button>
+                        }
+                    }
+                </div>
+            </div>
+            break;
+
+        case View.Settings:
+            <div class="tp-list">
+                <div class="tp-list__head"><div class="tp-list__title">Pengaturan</div></div>
+                <div class="tp-list__scroll" style="padding:0 1.15rem">
+                    <div class="tp-panel" style="margin-bottom:1rem">
+                        <h3>Koneksi ke server</h3>
+                        <p class="tp-hint">
+                            Pilih cara aplikasi ini bicara dengan server. SignalR paling responsif,
+                            gRPC paling hemat data, REST paling kompatibel di jaringan ketat.
+                        </p>
+                        <div class="tp-field">
+                            <label for="transport">Transport</label>
+                            <select id="transport" value="@ClientSettings.Transport"
+                                    @onchange="e => SwitchTransportAsync(e.Value?.ToString())">
+                                @foreach (var option in Transport.Available)
+                                {
+                                    <option value="@option">@option</option>
+                                }
+                            </select>
+                        </div>
+                        <p class="tp-hint">
+                            Status: <span class="tp-chip @(State.IsConnected ? "tp-chip--live" : "tp-chip--off")">
+                                @(State.IsConnected ? "terhubung" : "terputus") via @State.TransportName
+                            </span>
+                        </p>
+                    </div>
+
+                    <div class="tp-panel" style="margin-bottom:1rem">
+                        <h3>Tampilan</h3>
+                        <div class="tp-field">
+                            <label for="mode">Mode warna</label>
+                            <select id="mode" value="@Theme.Mode" @onchange="e => SetThemeModeAsync(e.Value?.ToString())">
+                                <option value="system">Ikuti sistem</option>
+                                <option value="light">Terang</option>
+                                <option value="dark">Gelap</option>
+                            </select>
+                        </div>
+                        <p class="tp-hint">Tema aktif: <strong>@Theme.Current.Name</strong> @Theme.Current.IconSet</p>
+                    </div>
+
+                    @if (LocalCache is not null)
+                    {
+                        <div class="tp-panel" style="margin-bottom:1rem">
+                            <h3>Penyimpanan lokal</h3>
+                            <p class="tp-hint">
+                                Data yang sudah diambil dari server disimpan di perangkat ini, jadi aplikasi
+                                langsung terisi saat dibuka dan riwayat yang pernah dibaca tidak perlu diambil ulang.
+                                Data yang belum ada tetap diambil dari server.
+                            </p>
+
+                            <div class="tp-field">
+                                <label for="localdb">Basis data lokal</label>
+                                <select id="localdb" value="@ClientSettings.LocalDatabase.Provider"
+                                        @onchange="e => SetLocalProvider(e.Value?.ToString())">
+                                    <option value="Sqlite">SQLite (disarankan)</option>
+                                    <option value="LiteDb">LiteDB</option>
+                                    <option value="None">Matikan</option>
+                                </select>
+                                <span class="tp-hint">Berlaku setelah aplikasi dijalankan ulang.</span>
+                            </div>
+
+                            @if (_cache is not null)
+                            {
+                                <p class="tp-hint">
+                                    Aktif: <strong>@_cache.Provider</strong> ·
+                                    @_cache.ChatCount percakapan ·
+                                    @_cache.MessageCount.ToString("N0") pesan ·
+                                    @FormatBytes(_cache.SizeBytes)
+                                </p>
+                            }
+
+                            <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+                                <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost" @onclick="RefreshCacheStatsAsync">
+                                    Segarkan info
+                                </button>
+                                <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost" @onclick="PruneCacheAsync">
+                                    Rapikan data lama
+                                </button>
+                                <button type="button" class="tp-btn tp-btn--sm tp-btn--danger" @onclick="ClearCacheAsync">
+                                    Kosongkan
+                                </button>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="tp-panel" style="margin-bottom:1rem">
+                        <h3>Privasi</h3>
+                        <label style="display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem">
+                            <input type="checkbox" @bind="ClientSettings.ShareLocation" />
+                            <span>Izinkan orang menemukan saya lewat pencarian sekitar</span>
+                        </label>
+                        <label style="display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem">
+                            <input type="checkbox" @bind="ClientSettings.AllowContactImport" />
+                            <span>Izinkan impor kontak dari telepon</span>
+                        </label>
+                        <label style="display:flex;gap:.5rem;align-items:center">
+                            <input type="checkbox" @bind="ClientSettings.EnableNotificationSound" />
+                            <span>Bunyikan nada saat pesan masuk</span>
+                        </label>
+                    </div>
+
+                    <div class="tp-panel">
+                        <h3>Tentang</h3>
+                        <p class="tp-hint">
+                            @Options.Branding.AppName — @Options.Branding.Tagline<br />
+                            Dibuat oleh <strong>@Options.Branding.Company</strong>,
+                            dipimpin oleh <strong>@Options.Branding.Leader</strong>.
+                        </p>
+                        <p class="tp-hint">
+                            Ngobrol dengan bot: cari <code>&commat;@Options.Bot.Handle</code>.
+                            Ketik <code>#resetbot</code> untuk mengosongkan memori sesi,
+                            <code>#newpersona …</code> untuk mengganti kepribadiannya.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            break;
+
+        default:
+            @* TransportName needs the @ prefix: a string parameter written without it is taken
+               as a literal, which is how this once rendered the text "State.TransportName". *@
+            <ConversationList Chats="State.Chats"
+                              ActiveChatId="State.ActiveChat?.Id"
+                              Loading="State.IsLoading"
+                              IsConnected="State.IsConnected"
+                              TransportName="@State.TransportName"
+                              OnSelect="OpenChatAsync" />
+            break;
+    }
+
+    @if (_view == View.Status && _openStatusUserId is not null)
+    {
+        @* The thread pane is shared: without this branch it keeps rendering the last
+           conversation, which is what made an opened status look like a chat. *@
+        <StatusViewer Items="OpenStatusItems"
+                      MyUserId="State.Me?.Id"
+                      OnClose="CloseStatus"
+                      OnViewed="MarkStatusViewedAsync"
+                      OnFinished="NextStatusPerson" />
+    }
+    else
+    {
+    <ChatThread Chat="State.ActiveChat"
+                Messages="State.Messages"
+                TypingNames="State.TypingNames"
+                MyUserId="State.Me?.Id"
+                Loading="State.IsLoading"
+                OnReact="ReactAsync"
+                OnLoadOlder="LoadOlderAsync"
+                OnBack="CloseChat">
+        @if (State.ActiveChat is not null)
+        {
+            <MessageComposer @bind-Draft="_draft"
+                             ReplyingTo="_replyingTo"
+                             OnSend="SendAsync"
+                             OnTyping="OnTypingAsync"
+                             OnCancelReply="() => _replyingTo = null"
+                             Placeholder="@ComposerPlaceholder" />
+        }
+    </ChatThread>
+    }
+</div>
+
+@code {
+    private enum View { Chats, Contacts, Status, Settings }
+
+    private static readonly Dictionary<string, string> SearchModes = new()
+    {
+        ["username"] = "Username",
+        ["email"] = "Email",
+        ["phone"] = "Telepon",
+        ["nearby"] = "Sekitar"
+    };
+
+    private View _view = View.Chats;
+    private string _draft = string.Empty;
+    private MessageDto? _replyingTo;
+    private string _searchQuery = string.Empty;
+    private string _searchMode = "username";
+    private double _radiusKm = 10;
+
+    private List<ContactDto> _contacts = [];
+    private List<UserDto> _searchResults = [];
+    private List<StatusPostDto> _statuses = [];
+    private Guid? _openStatusUserId;
+    private LocalCacheSnapshot? _cache;
+
+    /// <summary>Null on the web, where persistence lives in the browser instead.</summary>
+    private ILocalCacheInfo? LocalCache => Services.GetService(typeof(ILocalCacheInfo)) as ILocalCacheInfo;
+
+    private int TotalUnread => State.Chats.Sum(c => c.UnreadCount);
+
+    private string ComposerPlaceholder =>
+        State.ActiveChat?.Type == 1
+            ? $"Tulis pesan… (sebut @{Options.Bot.Handle} untuk memanggil bot)"
+            : "Tulis pesan…";
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Blazor Server keeps the circuit alive across navigations, but a fresh browser
+        // session starts unauthenticated — send it to sign-in rather than an empty shell.
+        if (Client.CurrentUser is null)
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        State.Changed += OnStateChanged;
+        State.MessageArrived += OnMessageArrived;
+
+        if (!Client.IsConnected) await Client.ConnectAsync();
+        await State.LoadChatsAsync();
+    }
+
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    private async void OnMessageArrived(MessageDto message)
+    {
+        if (message.SenderId == State.Me?.Id) return;
+
+        try
+        {
+            if (ClientSettings.EnableNotificationSound) await JS.InvokeVoidAsync("telepati.playChime");
+            await JS.InvokeVoidAsync("telepati.notify", message.SenderName,
+                MarkdownRenderer.ToPreview(message.Content, 120), "/favicon.png");
+        }
+        catch (JSException)
+        {
+            // The circuit may be mid-teardown; a missed chime is not worth surfacing.
+        }
+    }
+
+    private async Task OpenChatAsync(ChatDto chat)
+    {
+        _replyingTo = null;
+        _draft = string.Empty;
+        await State.OpenChatAsync(chat);
+    }
+
+    private void CloseChat()
+    {
+        _view = View.Chats;
+        StateHasChanged();
+    }
+
+    private async Task SendAsync(string content)
+    {
+        await State.SendAsync(content, _replyingTo?.Id);
+        _replyingTo = null;
+    }
+
+    private Task OnTypingAsync(bool isTyping) => State.SetTypingAsync(isTyping);
+
+    private Task ReactAsync((Guid MessageId, string Emoji) reaction) =>
+        State.ReactAsync(reaction.MessageId, reaction.Emoji);
+
+    private Task LoadOlderAsync() => State.LoadOlderAsync();
+
+    private async Task LoadContactsAsync()
+    {
+        _view = View.Contacts;
+        _searchResults.Clear();
+        _contacts = (await Client.GetContactsAsync()).ToList();
+    }
+
+    private async Task LoadStatusAsync()
+    {
+        _view = View.Status;
+        _openStatusUserId = null;
+        _statuses = (await Client.GetStatusFeedAsync()).ToList();
+    }
+
+    // -- status viewer --------------------------------------------------------
+
+    /// <summary>One entry per person, their posts oldest-first, newest poster on top.</summary>
+    private List<IGrouping<Guid, StatusPostDto>> StatusGroups =>
+        _statuses
+            .OrderBy(s => s.CreatedAt)
+            .GroupBy(s => s.UserId)
+            .OrderByDescending(g => g.Max(s => s.CreatedAt))
+            .ToList();
+
+    private IReadOnlyList<StatusPostDto> OpenStatusItems =>
+        _openStatusUserId is null
+            ? []
+            : _statuses.Where(s => s.UserId == _openStatusUserId).OrderBy(s => s.CreatedAt).ToList();
+
+    private void OpenStatus(Guid userId) => _openStatusUserId = userId;
+
+    private void CloseStatus() => _openStatusUserId = null;
+
+    private async Task MarkStatusViewedAsync(StatusPostDto status)
+    {
+        // Own posts are never counted as views of themselves.
+        if (status.UserId == State.Me?.Id || status.ViewedByMe) return;
+
+        await Client.ViewStatusAsync(status.Id);
+
+        var index = _statuses.FindIndex(s => s.Id == status.Id);
+        if (index >= 0) _statuses[index] = _statuses[index] with { ViewedByMe = true };
+    }
+
+    /// <summary>Runs on to the next person, matching how a status feed is normally consumed.</summary>
+    private void NextStatusPerson()
+    {
+        var groups = StatusGroups;
+        var current = groups.FindIndex(g => g.Key == _openStatusUserId);
+
+        _openStatusUserId = current >= 0 && current < groups.Count - 1
+            ? groups[current + 1].Key
+            : null;
+    }
+
+    private static string StatusPreview(StatusPostDto status) => status.MediaType switch
+    {
+        1 => "Foto" + (string.IsNullOrWhiteSpace(status.Caption) ? "" : $" · {status.Caption}"),
+        2 => "Video" + (string.IsNullOrWhiteSpace(status.Caption) ? "" : $" · {status.Caption}"),
+        _ => status.Caption ?? "(tanpa teks)"
+    };
+
+    private static string FormatStatusTime(DateTimeOffset at)
+    {
+        var elapsed = DateTimeOffset.UtcNow - at;
+
+        return elapsed switch
+        {
+            { TotalMinutes: < 60 } => $"{Math.Max(1, elapsed.TotalMinutes):0}m",
+            { TotalHours: < 24 } => $"{elapsed.TotalHours:0}j",
+            _ => at.ToLocalTime().ToString("dd/MM")
+        };
+    }
+
+    private async Task SetSearchModeAsync(string mode)
+    {
+        _searchMode = mode;
+        if (mode == "nearby") await SearchAsync();
+    }
+
+    private async Task OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SearchAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        if (_searchMode != "nearby" && _searchQuery.Trim().Length < 2)
+        {
+            _searchResults.Clear();
+            return;
+        }
+
+        _searchResults = (await Client.SearchUsersAsync(new ContactSearchRequest
+        {
+            Query = _searchQuery,
+            Mode = _searchMode,
+            // Nearby needs coordinates; the server ignores them for the other modes.
+            Latitude = _searchMode == "nearby" ? -6.9175 : null,
+            Longitude = _searchMode == "nearby" ? 107.6191 : null,
+            RadiusKm = _radiusKm
+        })).ToList();
+    }
+
+    private async Task OpenDirectAsync(UserDto user)
+    {
+        var chat = await Client.OpenDirectChatAsync(user.Id);
+        if (chat is null) return;
+
+        _view = View.Chats;
+        await State.LoadChatsAsync();
+        await OpenChatAsync(chat);
+    }
+
+    private async Task SwitchTransportAsync(string? transport)
+    {
+        if (string.IsNullOrWhiteSpace(transport)) return;
+        await Transport.SwitchAsync(transport);
+        await State.LoadChatsAsync();
+    }
+
+    private async Task ToggleThemeAsync() =>
+        await SetThemeModeAsync(Theme.IsDark ? "light" : "dark");
+
+    private async Task SetThemeModeAsync(string? mode)
+    {
+        if (string.IsNullOrWhiteSpace(mode)) return;
+
+        var prefersDark = false;
+        try { prefersDark = await JS.InvokeAsync<bool>("telepati.prefersDark"); }
+        catch (JSException) { /* prerender: fall back to light */ }
+
+        Theme.SetMode(mode, prefersDark);
+        ClientSettings.ThemeMode = mode;
+    }
+
+    private async Task SignOutAsync()
+    {
+        await Client.LogoutAsync();
+        Navigation.NavigateTo("/login", forceLoad: true);
+    }
+
+    // -- local cache ----------------------------------------------------------
+
+    private void SetLocalProvider(string? provider)
+    {
+        if (string.IsNullOrWhiteSpace(provider)) return;
+
+        // The store is opened once at startup, so the switch is recorded now and takes
+        // effect on the next launch rather than swapping a database out underneath live reads.
+        ClientSettings.LocalDatabase.Provider = provider;
+    }
+
+    private async Task OpenSettingsAsync()
+    {
+        _view = View.Settings;
+        await RefreshCacheStatsAsync();
+    }
+
+    private async Task RefreshCacheStatsAsync()
+    {
+        if (LocalCache is null) return;
+        _cache = await LocalCache.GetSnapshotAsync();
+    }
+
+    private async Task PruneCacheAsync()
+    {
+        if (LocalCache is null) return;
+
+        await LocalCache.PruneAsync();
+        await RefreshCacheStatsAsync();
+    }
+
+    private async Task ClearCacheAsync()
+    {
+        if (LocalCache is null) return;
+
+        await LocalCache.ClearAsync();
+        await RefreshCacheStatsAsync();
+        await State.LoadChatsAsync();
+    }
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:0.#} KB",
+        _ => $"{bytes / (1024.0 * 1024):0.#} MB"
+    };
+
+    public void Dispose()
+    {
+        State.Changed -= OnStateChanged;
+        State.MessageArrived -= OnMessageArrived;
+    }
+}

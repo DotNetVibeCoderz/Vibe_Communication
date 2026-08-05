@@ -1,0 +1,139 @@
+@page "/maintenance"
+@inject IBackupService Backup
+@inject IStatusService Statuses
+@inject IAttachmentService Attachments
+@inject IActivityLogger Logger
+@using Telepati.Admin
+@inject AdminSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>Backup & perawatan</PageTitle>
+
+<header class="ad-head">
+    <div>
+        <h1>Backup &amp; perawatan</h1>
+        <p>Cadangkan data dan bersihkan sisa-sisa yang tidak lagi terpakai.</p>
+    </div>
+</header>
+
+@if (_message is not null)
+{
+    <div class="tp-alert @(_messageIsError ? null : "tp-alert--ok")" style="margin-bottom:1rem">@((MarkupString)_message)</div>
+}
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.85rem">
+
+    <section class="tp-panel">
+        <h2 style="font-size:var(--tp-step-1)">Backup database</h2>
+        <p class="tp-hint" style="margin:.35rem 0 1rem">
+            Menghasilkan berkas <code>.sql</code> berisi perintah INSERT biasa, jadi hasil backup
+            dari SQLite bisa dipulihkan ke SQL Server, MySQL, atau PostgreSQL.
+        </p>
+        <button type="button" class="tp-btn" disabled="@_busy" @onclick="CreateBackupAsync">
+            @(_busy ? "Membuat…" : "Buat backup sekarang")
+        </button>
+    </section>
+
+    <section class="tp-panel">
+        <h2 style="font-size:var(--tp-step-1)">Status kedaluwarsa</h2>
+        <p class="tp-hint" style="margin:.35rem 0 1rem">
+            Status hilang otomatis setelah 24 jam, tetapi barisnya baru terhapus saat dibersihkan.
+        </p>
+        <button type="button" class="tp-btn tp-btn--ghost" disabled="@_busy" @onclick="PurgeStatusAsync">
+            Bersihkan status
+        </button>
+    </section>
+
+    <section class="tp-panel">
+        <h2 style="font-size:var(--tp-step-1)">Berkas yatim</h2>
+        <p class="tp-hint" style="margin:.35rem 0 1rem">
+            Berkas yang terunggah tetapi pesannya tidak pernah jadi dikirim. Yang lebih tua dari
+            satu hari aman dihapus.
+        </p>
+        <button type="button" class="tp-btn tp-btn--ghost" disabled="@_busy" @onclick="PurgeOrphansAsync">
+            Bersihkan berkas
+        </button>
+    </section>
+
+    <section class="tp-panel">
+        <h2 style="font-size:var(--tp-step-1)">Log lama</h2>
+        <p class="tp-hint" style="margin:.35rem 0 1rem">
+            Hapus entri log aktivitas yang lebih tua dari batas berikut.
+        </p>
+        <div class="tp-field">
+            <label for="days">Simpan berapa hari terakhir?</label>
+            <input id="days" type="number" min="7" max="3650" @bind="_retentionDays" />
+        </div>
+        <button type="button" class="tp-btn tp-btn--ghost" disabled="@_busy" @onclick="PurgeLogsAsync">
+            Bersihkan log
+        </button>
+    </section>
+</div>
+
+@code {
+    private bool _busy;
+    private string? _message;
+    private bool _messageIsError;
+    private int _retentionDays = 90;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await Session.EnsureLoadedAsync()) Navigation.NavigateTo("/login");
+    }
+
+    private async Task CreateBackupAsync()
+    {
+        _busy = true;
+        try
+        {
+            var result = await Backup.CreateBackupAsync(Session.UserId);
+            _messageIsError = !result.Success;
+
+            _message = result.Success
+                ? $"Backup selesai: <strong>{result.FileName}</strong> ({result.SizeBytes / 1024.0:0.#} KB). " +
+                  $"<a href=\"{result.Url}\" target=\"_blank\" rel=\"noopener\">Unduh</a>"
+                : $"Backup gagal: {result.Error}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Task PurgeStatusAsync() => RunAsync(async () =>
+    {
+        var removed = await Statuses.PurgeExpiredAsync();
+        return $"{removed} status kedaluwarsa dihapus.";
+    });
+
+    private Task PurgeOrphansAsync() => RunAsync(async () =>
+    {
+        var removed = await Attachments.PurgeOrphansAsync(TimeSpan.FromDays(1));
+        return $"{removed} berkas yatim dihapus.";
+    });
+
+    private Task PurgeLogsAsync() => RunAsync(async () =>
+    {
+        var removed = await Logger.PurgeOlderThanAsync(DateTimeOffset.UtcNow.AddDays(-Math.Max(7, _retentionDays)));
+        return $"{removed} entri log dihapus.";
+    });
+
+    private async Task RunAsync(Func<Task<string>> action)
+    {
+        _busy = true;
+        try
+        {
+            _messageIsError = false;
+            _message = await action();
+        }
+        catch (Exception e)
+        {
+            _messageIsError = true;
+            _message = $"Gagal: {e.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

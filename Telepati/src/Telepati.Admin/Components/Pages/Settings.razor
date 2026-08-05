@@ -1,0 +1,149 @@
+@page "/settings"
+@inject ISettingsService SettingsService
+@using Telepati.Admin
+@inject AdminSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>Pengaturan</PageTitle>
+
+<header class="ad-head">
+    <div>
+        <h1>Pengaturan aplikasi</h1>
+        <p>
+            Nilai di sini menimpa appsettings.json tanpa perlu deploy ulang.
+            Kosongkan lalu simpan untuk kembali ke nilai berkas.
+        </p>
+    </div>
+    <button type="button" class="tp-btn" disabled="@_saving" @onclick="SaveAsync">
+        @(_saving ? "Menyimpan…" : "Simpan perubahan")
+    </button>
+</header>
+
+@if (_message is not null)
+{
+    <div class="tp-alert @(_messageIsError ? null : "tp-alert--ok")" style="margin-bottom:1rem">@_message</div>
+}
+
+@if (_settings is null)
+{
+    <p class="tp-hint">Memuat pengaturan…</p>
+}
+else
+{
+    <div class="ad-toolbar">
+        <input type="search" placeholder="Cari kunci pengaturan" @bind="_filter" @bind:event="oninput" aria-label="Cari pengaturan" />
+    </div>
+
+    @foreach (var group in Grouped)
+    {
+        <section class="tp-panel" style="margin-bottom:1rem">
+            <h2 style="font-size:var(--tp-step-1);margin-bottom:.85rem">@group.Key</h2>
+
+            @foreach (var setting in group)
+            {
+                <div class="tp-field">
+                    <label for="@setting.Key">
+                        @ShortLabel(setting.Key)
+                        <code class="tp-hint" style="font-weight:400"> @setting.Key</code>
+                    </label>
+
+                    @if (setting.ValueType == "Boolean")
+                    {
+                        <select id="@setting.Key" value="@_edits[setting.Key]"
+                                @onchange="e => _edits[setting.Key] = e.Value?.ToString() ?? string.Empty">
+                            <option value="true">Aktif</option>
+                            <option value="false">Nonaktif</option>
+                        </select>
+                    }
+                    else
+                    {
+                        <input id="@setting.Key"
+                               type="@(setting.IsSecret ? "password" : "text")"
+                               value="@_edits[setting.Key]"
+                               placeholder="@(setting.IsSecret ? "•••••• (tersembunyi)" : "")"
+                               @onchange="e => _edits[setting.Key] = e.Value?.ToString() ?? string.Empty" />
+                    }
+                </div>
+            }
+        </section>
+    }
+}
+
+@code {
+    private IReadOnlyList<SettingDto>? _settings;
+    private readonly Dictionary<string, string> _edits = new(StringComparer.OrdinalIgnoreCase);
+    private string _filter = string.Empty;
+    private bool _saving;
+    private string? _message;
+    private bool _messageIsError;
+
+    private IEnumerable<IGrouping<string, SettingDto>> Grouped =>
+        (_settings ?? [])
+        .Where(s => string.IsNullOrWhiteSpace(_filter) || s.Key.Contains(_filter, StringComparison.OrdinalIgnoreCase))
+        .GroupBy(s => s.Category)
+        .OrderBy(g => g.Key);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await Session.EnsureLoadedAsync())
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _settings = await SettingsService.GetAllAsync();
+        _edits.Clear();
+
+        foreach (var setting in _settings)
+        {
+            // Secrets are never echoed back into the form; an empty box means "leave as-is".
+            _edits[setting.Key] = setting.IsSecret ? string.Empty : setting.Value ?? string.Empty;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_settings is null) return;
+
+        _saving = true;
+        _message = null;
+
+        try
+        {
+            var changed = _settings
+                .Where(s => _edits.TryGetValue(s.Key, out var value)
+                            && !(s.IsSecret && string.IsNullOrEmpty(value))
+                            && value != (s.Value ?? string.Empty))
+                .Select(s => s with { Value = _edits[s.Key] })
+                .ToList();
+
+            if (changed.Count == 0)
+            {
+                _messageIsError = false;
+                _message = "Tidak ada perubahan untuk disimpan.";
+                return;
+            }
+
+            await SettingsService.SetManyAsync(changed);
+            _messageIsError = false;
+            _message = $"{changed.Count} pengaturan disimpan. Perubahan langsung berlaku.";
+            await LoadAsync();
+        }
+        catch (Exception e)
+        {
+            _messageIsError = true;
+            _message = $"Gagal menyimpan: {e.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private static string ShortLabel(string key) => key.Split(':').LastOrDefault() ?? key;
+}

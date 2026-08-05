@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Telepati.Admin/Telepati.Admin.csproj" />
+    <Project Path="src/Telepati.Bot/Telepati.Bot.csproj" />
+    <Project Path="src/Telepati.Client.Core/Telepati.Client.Core.csproj" />
+    <Project Path="src/Telepati.Client.Data/Telepati.Client.Data.csproj" />
+    <Project Path="src/Telepati.Desktop/Telepati.Desktop.csproj" />
+    <Project Path="src/Telepati.Domain/Telepati.Domain.csproj" />
+    <Project Path="src/Telepati.Infrastructure/Telepati.Infrastructure.csproj" />
+    <Project Path="src/Telepati.Mobile/Telepati.Mobile.csproj" />
+    <Project Path="src/Telepati.Server/Telepati.Server.csproj" />
+    <Project Path="src/Telepati.Shared/Telepati.Shared.csproj" />
+    <Project Path="src/Telepati.UI/Telepati.UI.csproj" />
+    <Project Path="src/Telepati.Web/Telepati.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Telepati.Tests/Telepati.Tests.csproj" />
+  </Folder>
+</Solution>

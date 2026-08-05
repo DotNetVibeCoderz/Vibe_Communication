@@ -1,0 +1,168 @@
+@page "/chats"
+@inject IAdminService Admin
+@using Telepati.Admin
+@inject AdminSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>Percakapan</PageTitle>
+
+<header class="ad-head">
+    <div>
+        <h1>Percakapan</h1>
+        <p>Grup, channel, dan chat langsung yang ada di sistem.</p>
+    </div>
+</header>
+
+<div class="ad-toolbar">
+    <input type="search" placeholder="Cari judul atau handle" @bind="_search" @bind:event="oninput" aria-label="Cari percakapan" />
+    <select @bind="_typeFilter" aria-label="Saring berdasarkan jenis">
+        <option value="">Semua jenis</option>
+        <option value="0">Chat langsung</option>
+        <option value="1">Grup</option>
+        <option value="2">Channel</option>
+        <option value="3">Bot</option>
+    </select>
+    <button type="button" class="tp-btn tp-btn--sm" @onclick="() => LoadAsync(1)">Terapkan</button>
+</div>
+
+<div class="ad-table__wrap" style="margin-bottom:1.5rem">
+    <table class="ad-table">
+        <thead>
+            <tr>
+                <th scope="col">Percakapan</th>
+                <th scope="col">Jenis</th>
+                <th scope="col">Anggota</th>
+                <th scope="col">Pesan terakhir</th>
+                <th scope="col">Enkripsi</th>
+                <th scope="col"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @if (_page is null)
+            {
+                <tr><td colspan="6" class="tp-hint">Memuat…</td></tr>
+            }
+            else if (_page.Items.Count == 0)
+            {
+                <tr><td colspan="6" class="tp-hint">Tidak ada percakapan yang cocok.</td></tr>
+            }
+            else
+            {
+                @foreach (var chat in _page.Items)
+                {
+                    <tr>
+                        <td>
+                            <div style="font-weight:650">@(string.IsNullOrWhiteSpace(chat.Title) ? "(tanpa judul)" : chat.Title)</div>
+                            @if (!string.IsNullOrWhiteSpace(chat.Handle))
+                            {
+                                <div class="tp-hint">&num;@chat.Handle</div>
+                            }
+                        </td>
+                        <td>@TypeLabel(chat.Type)</td>
+                        <td>@chat.MemberCount</td>
+                        <td class="tp-hint">@(chat.LastMessageAt?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "—")</td>
+                        <td>@(chat.IsEncrypted ? "🔒 Aktif" : "—")</td>
+                        <td>
+                            @if (chat.Type is 1 or 2)
+                            {
+                                <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost"
+                                        @onclick="() => LoadInsightsAsync(chat.Id)">Statistik</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+</div>
+
+@if (_page is not null && _page.Total > _page.PageSize)
+{
+    <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:1.5rem">
+        <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost" disabled="@(_page.Page <= 1)"
+                @onclick="() => LoadAsync(_page.Page - 1)">← Sebelumnya</button>
+        <span class="tp-hint">Halaman @_page.Page</span>
+        <button type="button" class="tp-btn tp-btn--sm tp-btn--ghost" disabled="@(!_page.HasMore)"
+                @onclick="() => LoadAsync(_page.Page + 1)">Berikutnya →</button>
+    </div>
+}
+
+@if (_insights is not null)
+{
+    <section class="tp-panel">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem">
+            <div>
+                <h2 style="font-size:var(--tp-step-1)">Statistik: @_insights.Title</h2>
+                <p class="tp-hint">
+                    @_insights.MemberCount anggota · @_insights.MessageCount.ToString("N0") pesan total ·
+                    @_insights.Messages7d.ToString("N0") dalam 7 hari
+                </p>
+            </div>
+            <button type="button" class="tp-iconbtn" title="Tutup" @onclick="() => _insights = null">✕</button>
+        </div>
+
+        <div class="ad-grid2" style="margin:1rem 0 0">
+            <TrendChart Title="Aktivitas grup"
+                        Subtitle="pesan per hari, 14 hari terakhir"
+                        Unit="pesan"
+                        Points="_insights.ActivityTrend"
+                        Color="var(--tp-primary)" />
+
+            <div class="tp-panel" style="box-shadow:none">
+                <h3 style="font-size:var(--tp-step-0);margin-bottom:.75rem">Kontributor teratas</h3>
+                @if (_insights.TopContributors.Count == 0)
+                {
+                    <p class="tp-hint">Belum ada pesan di grup ini.</p>
+                }
+                else
+                {
+                    <ol style="margin:0;padding-left:1.15rem">
+                        @foreach (var contributor in _insights.TopContributors)
+                        {
+                            <li style="margin:.25rem 0">
+                                @contributor.DisplayName
+                                <span class="tp-hint">— @contributor.MessageCount.ToString("N0") pesan</span>
+                            </li>
+                        }
+                    </ol>
+                }
+            </div>
+        </div>
+    </section>
+}
+
+@code {
+    private PagedResult<ChatDto>? _page;
+    private GroupInsightsDto? _insights;
+    private string _search = string.Empty;
+    private string _typeFilter = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await Session.EnsureLoadedAsync())
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        await LoadAsync(1);
+    }
+
+    private async Task LoadAsync(int page)
+    {
+        ChatType? type = int.TryParse(_typeFilter, out var parsed) ? (ChatType)parsed : null;
+        _page = await Admin.GetChatsAsync(type, string.IsNullOrWhiteSpace(_search) ? null : _search, page, 25);
+    }
+
+    private async Task LoadInsightsAsync(Guid chatId) => _insights = await Admin.GetGroupInsightsAsync(chatId);
+
+    private static string TypeLabel(int type) => type switch
+    {
+        0 => "Chat langsung",
+        1 => "Grup",
+        2 => "Channel",
+        3 => "Bot",
+        4 => "Pesan tersimpan",
+        _ => "—"
+    };
+}

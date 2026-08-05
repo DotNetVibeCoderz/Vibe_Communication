@@ -1,0 +1,117 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@using Telepati.Admin
+@inject AdminSession Session
+@inject ThemeState Theme
+@inject NavigationManager Navigation
+@inject TelepatiOptions Options
+
+@if (!_ready)
+{
+    @* The identity is read from the cookie before anything else renders; showing the shell
+       first would flash an empty console on every page load. *@
+    <div class="tp-root" style="@Theme.ToCssVariables()" data-tp-dark="@Theme.IsDark.ToString().ToLowerInvariant()">
+        <div class="tp-empty" style="min-height:100dvh"><span class="tp-empty__mark">◌</span></div>
+    </div>
+}
+else if (!Session.IsAuthenticated)
+{
+    @* Every page except sign-in requires an admin; the layout is the single gate. *@
+    <div class="tp-root" style="@Theme.ToCssVariables()" data-tp-dark="@Theme.IsDark.ToString().ToLowerInvariant()">
+        @Body
+    </div>
+}
+else
+{
+    <div class="ad-shell tp-root" style="@Theme.ToCssVariables()" data-tp-dark="@Theme.IsDark.ToString().ToLowerInvariant()">
+        <aside class="ad-side">
+            <div class="ad-brand">
+                <span class="ad-brand__mark">🛠️</span>
+                <div>
+                    <strong>@Options.Branding.AppName</strong>
+                    <span class="tp-hint">Konsol admin</span>
+                </div>
+            </div>
+
+            <nav class="ad-nav">
+                @foreach (var item in NavItems)
+                {
+                    <NavLink class="ad-nav__item" href="@item.Href" Match="@(item.Href == "/" ? NavLinkMatch.All : NavLinkMatch.Prefix)">
+                        <span class="ad-nav__icon">@item.Icon</span>
+                        <span>@item.Label</span>
+                    </NavLink>
+                }
+            </nav>
+
+            <div class="ad-side__foot">
+                <button type="button" class="tp-btn tp-btn--ghost tp-btn--sm" style="width:100%;margin-bottom:.5rem"
+                        @onclick="ToggleTheme">
+                    @(Theme.IsDark ? "☀️ Mode terang" : "🌙 Mode gelap")
+                </button>
+
+                <div class="ad-user">
+                    <Avatar Name="@(Session.User!.DisplayName)" AvatarUrl="@Session.User.AvatarUrl" Size="sm" />
+                    <div style="min-width:0">
+                        <div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                            @Session.User.DisplayName
+                        </div>
+                        <div class="tp-hint">@RoleLabel</div>
+                    </div>
+
+                    @* Signing out clears the cookie, so it posts to the endpoint too. *@
+                    <form method="post" action="@AuthEndpoints.SignOutPath" style="display:contents">
+                        <button type="submit" class="tp-iconbtn" title="Keluar">⏻</button>
+                    </form>
+                </div>
+            </div>
+        </aside>
+
+        <main class="ad-main">
+            @Body
+        </main>
+    </div>
+}
+
+@code {
+    private record NavItem(string Href, string Icon, string Label);
+
+    private static readonly NavItem[] NavItems =
+    [
+        new("/", "📊", "Dashboard"),
+        new("/users", "👥", "Pengguna"),
+        new("/chats", "💬", "Percakapan"),
+        new("/skills", "🧩", "Skills Gallery"),
+        new("/mcp", "🔌", "MCP Gallery"),
+        new("/reports", "🚩", "Laporan"),
+        new("/activity", "📜", "Log aktivitas"),
+        new("/themes", "🎨", "Tema"),
+        new("/settings", "⚙️", "Pengaturan"),
+        new("/maintenance", "🧰", "Backup & perawatan")
+    ];
+
+    private bool _ready;
+
+    private string RoleLabel => Session.User?.Role switch
+    {
+        3 => "Super Admin",
+        2 => "Admin",
+        1 => "Moderator",
+        _ => "Pengguna"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        Theme.Changed += OnChanged;
+
+        await Session.EnsureLoadedAsync();
+        await Theme.LoadAsync();
+
+        _ready = true;
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    private void ToggleTheme() => Theme.SetMode(Theme.IsDark ? "light" : "dark", false);
+
+    public void Dispose() => Theme.Changed -= OnChanged;
+}

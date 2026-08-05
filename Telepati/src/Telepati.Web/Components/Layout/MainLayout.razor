@@ -1,0 +1,21 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject ThemeState Theme
+
+@* The theme's colours are pushed onto the root as CSS variables, so switching
+   skin — including a seasonal one the admin turned on — repaints without new CSS. *@
+<div class="tp-root" style="@Theme.ToCssVariables()" data-tp-dark="@Theme.IsDark.ToString().ToLowerInvariant()">
+    @Body
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        Theme.Changed += OnThemeChanged;
+        await Theme.LoadAsync();
+    }
+
+    private void OnThemeChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Theme.Changed -= OnThemeChanged;
+}

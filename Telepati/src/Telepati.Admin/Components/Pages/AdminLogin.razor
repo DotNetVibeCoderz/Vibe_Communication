@@ -1,0 +1,67 @@
+@page "/login"
+@using Telepati.Admin
+@inject TelepatiOptions Options
+@inject NavigationManager Navigation
+
+<PageTitle>Masuk konsol admin</PageTitle>
+
+@* A plain form posting to a real endpoint, not a Blazor submit handler: issuing the
+   authentication cookie needs the HttpContext, which an interactive circuit no longer has. *@
+<div style="display:grid;place-items:center;min-height:100dvh;background:var(--tp-surface);padding:1.5rem">
+    <div class="tp-panel" style="width:min(420px,100%)">
+        <h1 style="font-size:var(--tp-step-2)">Konsol admin @Options.Branding.AppName</h1>
+        <p class="tp-hint" style="margin-bottom:1.25rem">Masuk dengan akun berperan Admin atau Super Admin.</p>
+
+        @if (Error is not null)
+        {
+            <div class="tp-alert" style="margin-bottom:1rem" role="alert">@Error</div>
+        }
+
+        @if (TwoFactorRequired)
+        {
+            <div class="tp-alert tp-alert--ok" style="margin-bottom:1rem">
+                Masukkan kode 6 digit dari aplikasi autentikator kamu.
+            </div>
+        }
+
+        <form method="post" action="@AuthEndpoints.SignInPath">
+            <div class="tp-field">
+                <label for="identifier">Username atau email</label>
+                <input id="identifier" name="identifier" value="@Identifier"
+                       autocomplete="username" placeholder="admin" required />
+            </div>
+            <div class="tp-field">
+                <label for="password">Password</label>
+                <input id="password" name="password" type="password" autocomplete="current-password" required />
+            </div>
+
+            @if (TwoFactorRequired)
+            {
+                <div class="tp-field">
+                    <label for="code">Kode 2FA</label>
+                    <input id="code" name="code" inputmode="numeric" maxlength="6" />
+                </div>
+            }
+            else
+            {
+                <input type="hidden" name="code" value="" />
+            }
+
+            <button type="submit" class="tp-btn" style="width:100%">Masuk</button>
+        </form>
+
+        <p class="tp-hint" style="margin-top:1rem">
+            Demo: <code>kangfadhil</code> / <code>Telepati123!</code>
+        </p>
+    </div>
+</div>
+
+@code {
+    // The sign-in endpoint reports failures by redirecting back here with a query string,
+    // because a redirect is the only channel a form POST leaves open.
+    [SupplyParameterFromQuery(Name = "error")] private string? Error { get; set; }
+    [SupplyParameterFromQuery(Name = "twofactor")] private string? TwoFactor { get; set; }
+    [SupplyParameterFromQuery(Name = "identifier")] private string? Identifier { get; set; }
+
+    private bool TwoFactorRequired => TwoFactor == "1";
+}

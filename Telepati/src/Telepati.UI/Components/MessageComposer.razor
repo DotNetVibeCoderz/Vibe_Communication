@@ -1,0 +1,151 @@
+@implements IDisposable
+
+@* The composer. Enter sends, Shift+Enter breaks the line, and the send button
+   carries the ripple — the one place the wave motif fires on a user action. *@
+
+<div class="tp-composer">
+    @if (ReplyingTo is not null)
+    {
+        <div class="tp-bubble__reply" style="flex:1">
+            <div style="display:flex;justify-content:space-between;gap:.5rem">
+                <span>Membalas <strong>@ReplyingTo.SenderName</strong>: @MarkdownRenderer.ToPreview(ReplyingTo.Content, 50)</span>
+                <button type="button" class="tp-iconbtn" style="width:24px;height:24px"
+                        title="Batal membalas" @onclick="() => OnCancelReply.InvokeAsync()">✕</button>
+            </div>
+        </div>
+    }
+
+    <button type="button" class="tp-iconbtn" title="Lampirkan file" @onclick="() => OnAttach.InvokeAsync()">📎</button>
+
+    <div class="tp-composer__field">
+        <textarea @ref="_textarea"
+                  rows="1"
+                  placeholder="@Placeholder"
+                  value="@Draft"
+                  disabled="@Disabled"
+                  aria-label="Tulis pesan"
+                  @oninput="OnInput"
+                  @onkeydown="OnKeyDown"></textarea>
+
+        <button type="button" class="tp-iconbtn" title="Emoji" @onclick="ToggleEmoji">😊</button>
+    </div>
+
+    <button type="button"
+            class="tp-send @(_sending ? "is-sending" : null)"
+            title="Kirim (Enter)"
+            disabled="@(Disabled || string.IsNullOrWhiteSpace(Draft))"
+            @onclick="SendAsync">➤</button>
+</div>
+
+@if (_emojiOpen)
+{
+    <div class="tp-panel" style="margin:0 1.15rem 1rem;display:flex;flex-wrap:wrap;gap:.35rem">
+        @foreach (var emoji in QuickEmojis)
+        {
+            <button type="button" class="tp-iconbtn" @onclick="() => AppendEmoji(emoji)">@emoji</button>
+        }
+    </div>
+}
+
+@code {
+    private static readonly string[] QuickEmojis =
+    [
+        "😀", "😂", "🥰", "😍", "😎", "🤔", "😅", "😭",
+        "👍", "🙏", "🔥", "🎉", "❤️", "💪", "👏", "🤝",
+        "☕", "🍚", "🚀", "🌙", "✨", "😴", "🥲", "🫶"
+    ];
+
+    [Parameter] public string Draft { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> DraftChanged { get; set; }
+    [Parameter] public EventCallback<string> OnSend { get; set; }
+    [Parameter] public EventCallback OnAttach { get; set; }
+    [Parameter] public EventCallback OnCancelReply { get; set; }
+    [Parameter] public EventCallback<bool> OnTyping { get; set; }
+    [Parameter] public MessageDto? ReplyingTo { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "Tulis pesan…";
+
+    private ElementReference _textarea;
+    private bool _emojiOpen;
+    private bool _sending;
+    private bool _typingSignalled;
+    private Timer? _typingTimer;
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        Draft = e.Value?.ToString() ?? string.Empty;
+        await DraftChanged.InvokeAsync(Draft);
+        await SignalTypingAsync();
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        // Shift+Enter is a newline; plain Enter sends. Anything else would surprise
+        // someone coming from WhatsApp or Telegram.
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendAsync();
+        }
+    }
+
+    private async Task SendAsync()
+    {
+        if (Disabled || string.IsNullOrWhiteSpace(Draft)) return;
+
+        var content = Draft;
+        Draft = string.Empty;
+        _emojiOpen = false;
+
+        // The ripple runs for one cycle; the class is removed once it has played out.
+        _sending = true;
+        _ = ResetRippleAsync();
+
+        await StopTypingAsync();
+        await DraftChanged.InvokeAsync(Draft);
+        await OnSend.InvokeAsync(content);
+    }
+
+    private async Task ResetRippleAsync()
+    {
+        await Task.Delay(650);
+        _sending = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleEmoji() => _emojiOpen = !_emojiOpen;
+
+    private async Task AppendEmoji(string emoji)
+    {
+        Draft += emoji;
+        await DraftChanged.InvokeAsync(Draft);
+    }
+
+    /// <summary>
+    /// The typing signal is sent once per burst and retracted after a pause, rather than on
+    /// every keystroke — otherwise a fast typist floods the hub.
+    /// </summary>
+    private async Task SignalTypingAsync()
+    {
+        if (!_typingSignalled)
+        {
+            _typingSignalled = true;
+            await OnTyping.InvokeAsync(true);
+        }
+
+        _typingTimer?.Dispose();
+        _typingTimer = new Timer(async _ => await StopTypingAsync(), null, 2500, Timeout.Infinite);
+    }
+
+    private async Task StopTypingAsync()
+    {
+        _typingTimer?.Dispose();
+        _typingTimer = null;
+
+        if (!_typingSignalled) return;
+
+        _typingSignalled = false;
+        await OnTyping.InvokeAsync(false);
+    }
+
+    public void Dispose() => _typingTimer?.Dispose();
+}

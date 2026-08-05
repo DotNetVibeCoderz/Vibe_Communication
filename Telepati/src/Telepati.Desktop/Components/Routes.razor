@@ -1,0 +1,8 @@
+@* Every routable page comes from Telepati.UI — the desktop app adds no pages of its own. *@
+<Router AppAssembly="typeof(Program).Assembly"
+        AdditionalAssemblies="new[] { typeof(Telepati.UI.Pages.Messenger).Assembly }">
+    <Found Context="routeData">
+        <RouteView RouteData="routeData" DefaultLayout="typeof(ShellLayout)" />
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+</Router>
