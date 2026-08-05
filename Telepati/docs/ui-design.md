@@ -79,7 +79,7 @@ Bawaan yang sudah tersedia:
 | Kemerdekaan 🇮🇩 | 15–18 Agustus | Merah putih |
 | Natal 🎄 | 20–27 Desember | Merah hijau hangat |
 
-![Galeri tema di konsol admin](screenshots/12-admin-tema.png)
+![Galeri tema di konsol admin](screenshots/13-admin-tema.png)
 
 Membuat tema baru: pilih enam warna, isi emoji sebagai ikon aksen, centang "musiman", tentukan tanggalnya. Tombol **Pratinjau** mengecat konsol admin dengan draf itu supaya warnanya bisa dinilai di tempat.
 
@@ -156,7 +156,7 @@ Ini lantai, bukan tambahan:
 
 ## Grafik
 
-![Dashboard admin](screenshots/10-admin-dashboard.png)
+![Dashboard admin](screenshots/11-admin-dashboard.png)
 
 Grafik dashboard mengikuti aturan yang ketat:
 

@@ -4,7 +4,7 @@ Server memaparkan permukaan yang sama lewat tiga transport. Pilih salah satu —
 
 Swagger interaktif: **https://localhost:7180/swagger**
 
-![Swagger UI](screenshots/15-swagger.png)
+![Swagger UI](screenshots/19-swagger.png)
 
 ---
 

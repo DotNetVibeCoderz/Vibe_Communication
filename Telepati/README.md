@@ -34,10 +34,10 @@ Dua keputusan membentuk seluruh arsitekturnya:
 |---|---|
 | ![Mode gelap](docs/screenshots/03-chat-gelap.png) | ![Kang Bacot menjawab dalam Markdown](docs/screenshots/05-bot.png) |
 | **Mode gelap** — enam token warna diganti, bukan sekadar dibalik | **Kang Bacot** — jawaban Markdown dengan tabel dan blok kode |
-| ![Pencarian orang di sekitar](docs/screenshots/07-kontak-sekitar.png) | ![Pengaturan klien](docs/screenshots/09-pengaturan.png) |
+| ![Pencarian orang di sekitar](docs/screenshots/07-kontak-sekitar.png) | ![Pengaturan klien](docs/screenshots/10-pengaturan.png) |
 | **Cari orang di sekitar** — radius 5–100 km, hanya yang mengizinkan | **Pengaturan** — transport, tema, penyimpanan lokal, privasi |
 
-![Dashboard admin](docs/screenshots/10-admin-dashboard.png)
+![Dashboard admin](docs/screenshots/11-admin-dashboard.png)
 
 Lebih lengkap di [docs/screenshots/](docs/screenshots/) — 21 gambar, semuanya diambil dari
 aplikasi yang benar-benar berjalan.
@@ -174,10 +174,10 @@ Two decisions shape the whole architecture:
 |---|---|
 | ![Dark mode](docs/screenshots/03-chat-gelap.png) | ![Kang Bacot answering in Markdown](docs/screenshots/05-bot.png) |
 | **Dark mode** — six colour tokens replaced, not inverted | **Kang Bacot** — Markdown replies with tables and code blocks |
-| ![Nearby people search](docs/screenshots/07-kontak-sekitar.png) | ![Client settings](docs/screenshots/09-pengaturan.png) |
+| ![Nearby people search](docs/screenshots/07-kontak-sekitar.png) | ![Client settings](docs/screenshots/10-pengaturan.png) |
 | **Find people nearby** — 5–100 km radius, opt-in only | **Settings** — transport, theme, local storage, privacy |
 
-![Admin dashboard](docs/screenshots/10-admin-dashboard.png)
+![Admin dashboard](docs/screenshots/11-admin-dashboard.png)
 
 More in [docs/screenshots/](docs/screenshots/) — 21 images, all captured from the running apps.
 

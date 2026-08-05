@@ -10,7 +10,7 @@ Tiga platform, dua mekanisme berbeda — karena kendalanya memang berbeda.
 | **Desktop** & **Mobile** | Berkas basis data: **SQLite** (bawaan) atau **LiteDB** | Punya sistem berkas; akses langsung tanpa perantara |
 | **Web** | **IndexedDB** di browser | Tidak punya sistem berkas; IndexedDB adalah satu-satunya penyimpanan browser yang cocok untuk thread percakapan |
 
-![Pengaturan penyimpanan lokal](screenshots/09-pengaturan.png)
+![Pengaturan penyimpanan lokal](screenshots/10-pengaturan.png)
 
 ---
 
