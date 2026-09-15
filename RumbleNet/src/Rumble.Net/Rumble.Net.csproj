@@ -13,7 +13,7 @@
     <PackageTags>mumble;voip;voice;opus;audio;positional-audio;bot;rust;gravicode</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageReleaseNotes>Preview release. Native binaries included: win-x64. Linux, macOS, win-arm64, Android and iOS binaries are produced by the CI workflow or build/build-native.* and will ship in the next preview. See https://github.com/DotNetVibeCoderz/Vibe_Communication/tree/main/RumbleNet</PackageReleaseNotes>
+    <PackageReleaseNotes>Preview release built and tested by CI. Native binaries: win-x64, win-arm64, linux-x64, linux-arm64, osx-x64, osx-arm64. Android and iOS: build with build/build-native.*. See https://github.com/DotNetVibeCoderz/Vibe_Communication/tree/main/RumbleNet</PackageReleaseNotes>
     <PackageProjectUrl>https://github.com/DotNetVibeCoderz/Vibe_Communication/tree/main/RumbleNet</PackageProjectUrl>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>

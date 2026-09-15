@@ -115,7 +115,7 @@ Mulai dari **[docs/README.md](docs/README.md)**. Dokumentasi teknis ditulis dala
 
 [![NuGet](https://img.shields.io/nuget/vpre/Rumble.Net)](https://www.nuget.org/packages/Rumble.Net) `dotnet add package Rumble.Net --prerelease`
 
-**0.1.0-preview.1** di NuGet sudah menyertakan inti native untuk **win-x64**. Untuk platform lain, build dari source (`build/build-native.*`) sampai preview berikutnya menyertakan binary hasil CI.
+Paket NuGet sudah menyertakan inti native untuk **Windows, Linux, dan macOS (x64 dan arm64)** yang di-build dan dites oleh CI. Untuk Android dan iOS, build intinya dengan `build/build-native.*`.
 
 Versi 0.1.0 sudah lengkap untuk protokol klien dan terverifikasi *end-to-end* terhadap mock server bawaan di Windows x64. Validasi terhadap server Murmur produksi, build native untuk mobile, dan bridge game engine masih dalam proses. Semua dicatat secara jujur di Progress.md.
 

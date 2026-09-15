@@ -130,7 +130,7 @@ Project tracking lives in [PLAN.md](PLAN.md) (roadmap) and [Progress.md](Progres
 
 [![NuGet](https://img.shields.io/nuget/vpre/Rumble.Net)](https://www.nuget.org/packages/Rumble.Net) `dotnet add package Rumble.Net --prerelease`
 
-**0.1.0-preview.1** on NuGet includes the native core for **win-x64**. On other platforms, build from source (`build/build-native.*`) until the next preview ships binaries from CI.
+The NuGet package includes the native core for **Windows, Linux and macOS (x64 and arm64)**, built and tested by CI. For Android and iOS, build the core with `build/build-native.*`.
 
 Version 0.1.0 is feature complete for the client protocol and verified end to end against the bundled mock server on Windows x64. Validation against production Murmur servers, the mobile native builds and the game engine bridges is still open. Progress.md tracks these items honestly.
 

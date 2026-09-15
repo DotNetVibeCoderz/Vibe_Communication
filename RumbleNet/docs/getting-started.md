@@ -7,7 +7,7 @@ dotnet add package Rumble.Net --prerelease
 dotnet add package Rumble.Net.Bots --prerelease   # optional: bot framework and AI chat
 ```
 
-The package ships `rumble_native` under `runtimes/{rid}/native`, so you don't need anything else at runtime. The current preview (0.1.0-preview.1) includes **win-x64** only. To build from source instead, see [building-and-packaging.md](building-and-packaging.md).
+The package ships `rumble_native` under `runtimes/{rid}/native`, so you don't need anything else at runtime. Since 0.1.0-preview.2 the package includes Windows, Linux and macOS for both x64 and arm64. 0.1.0-preview.1 shipped win-x64 only. To build from source instead, see [building-and-packaging.md](building-and-packaging.md).
 
 ## Connect
 

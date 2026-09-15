@@ -19,16 +19,23 @@ The roadmap is in [PLAN.md](PLAN.md). This file records what exists and how it w
 | **Live server** | ✅ | Tested against a production Murmur 1.5.0 server with a password and 83 channels. TLS login, sync, encrypted UDP (10 ms ping), and server-loopback voice (151 frames decoded) all worked through both the SDK and RumbleApp. |
 | Benchmarks | ✅ | End-to-end latency p95 42.7 ms (< 50 ms target). Criterion and FFI numbers are in `docs/testing-and-benchmarks.md`. |
 | Documentation | ✅ | `docs/` (12 guides with screenshots), README in English and Indonesian, THIRD-PARTY-NOTICES |
-| CI workflow | 🟡 | `.github/workflows/rumblenet-ci.yml` at the repository root (6 native targets, tests on 3 OSes, gallery run, pack). It triggers on changes under `RumbleNet/`; the first GitHub run is pending. |
-| NuGet packages | ✅ (preview) | `Rumble.Net` and `Rumble.Net.Bots` **0.1.0-preview.1** on nuget.org. Before publishing, both were installed from a local feed into a new console app, which connected to the mock server and got an EchoBot reply. The native binary is included for **win-x64 only**. win-arm64 needs clang on the build machine, and Linux and macOS need the CI runners. |
+| CI workflow | ✅ | `.github/workflows/rumblenet-ci.yml`: run 34973752150 was green. It covers 6 native builds (win, linux and osx, each x64 and arm64), .NET tests and all gallery samples on Windows, Linux and macOS, and a pack step that checks all 6 native binaries are included. Pushing a `rumblenet-v*` tag also publishes with the `NUGET_API_KEY` secret. |
+| Linux and macOS | ✅ (CI) | Native builds, Rust tests (linux-x64, osx-arm64), .NET tests and gallery samples pass on GitHub runners |
+| NuGet packages | ✅ (preview) | **0.1.0-preview.2** was released by CI with all 6 desktop native binaries. 0.1.0-preview.1 was published locally with win-x64 only; before publishing it was installed into a fresh app from a local feed and tested there. |
 | RumbleApp Android, iOS, macOS | 🟡 | Project, permissions and native library hooks are in place. The mobile native builds and on-device runs haven't happened yet. |
-| Linux and macOS native | 🟡 | Build scripts and CI matrix exist. Only Windows x64 has been built locally. |
 | Unity bridge | 🟡 | UPM package written against `rumble.h`, not yet compiled in Unity |
 | Unreal bridge | 🟡 | UE plugin written against `rumble.h`, not yet compiled in Unreal |
 | CELT/Speex decoding | ⏳ (non-goal) | Frames are parsed and concealed. Opus is required by all modern servers. |
 | DTLS | n/a | Mumble uses OCB2-AES over UDP keyed through TLS, not DTLS. That scheme is implemented. See `docs/security.md`. |
 
 ## Log
+
+### 2026-09-15 (CI release)
+- CI publish job added (tag `rumblenet-v*` or manual run with `publish=true`, using the `NUGET_API_KEY` secret).
+- osx-x64 moved to an Apple silicon runner (macos-13 jobs stalled in the queue).
+- Fixed a race in the gallery event-stream sample that failed on all CI operating systems.
+- Run 34973752150 was green. Tagged `rumblenet-v0.1.0-preview.2`.
+- Removed the live test server entry from the local RumbleApp data.
 
 ### 2026-09-15 (release)
 - Moved the solution into the `Vibe_Communication` repository under `RumbleNet/`. CI moved to `.github/workflows/rumblenet-ci.yml` at the repository root.
