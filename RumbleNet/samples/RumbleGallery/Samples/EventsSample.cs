@@ -30,15 +30,20 @@ public static class EventsSample
         });
 
         // A second client produces some activity.
+        Task<UserLeftEvent> guestLeft;
         await using (var guest = new RumbleClient(ctx.CreateOptions("Guest")))
         {
             await guest.ConnectAsync(ctx.Token);
             await guest.JoinChannelAsync("AFK", ctx.Token);
             guest.SetComment("just visiting");
             await Task.Delay(300, ctx.Token);
+
+            // Start waiting *before* the guest leaves, otherwise the event can arrive before we listen.
+            var guestSession = guest.Self!.Session;
+            guestLeft = watcher.WaitForEventAsync<UserLeftEvent>(e => e.Session == guestSession, TimeSpan.FromSeconds(10), ctx.Token);
         }
 
-        await watcher.WaitForEventAsync<UserLeftEvent>(timeout: TimeSpan.FromSeconds(5), cancellationToken: ctx.Token);
+        await guestLeft;
         await streamCts.CancelAsync();
         try
         {
