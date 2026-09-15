@@ -3,10 +3,20 @@
 on:
   push:
     branches: [main]
+    # Pushing a tag such as rumblenet-v0.1.0-preview.2 builds every platform and publishes that version to NuGet.
+    tags: ['rumblenet-v*']
     paths: ['RumbleNet/**', '.github/workflows/rumblenet-ci.yml']
   pull_request:
     paths: ['RumbleNet/**', '.github/workflows/rumblenet-ci.yml']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the packed version (from Directory.Build.props) to nuget.org
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
 
 defaults:
   run:
@@ -24,7 +34,8 @@ jobs:
           - { os: windows-latest, rid: win-arm64, triple: aarch64-pc-windows-msvc, file: rumble_native.dll, test: false }
           - { os: ubuntu-latest, rid: linux-x64, triple: x86_64-unknown-linux-gnu, file: librumble_native.so, test: true }
           - { os: ubuntu-24.04-arm, rid: linux-arm64, triple: aarch64-unknown-linux-gnu, file: librumble_native.so, test: false }
-          - { os: macos-13, rid: osx-x64, triple: x86_64-apple-darwin, file: librumble_native.dylib, test: false }
+          # Intel macOS runners (macos-13) are being retired; cross-compile x86_64 on Apple silicon instead.
+          - { os: macos-latest, rid: osx-x64, triple: x86_64-apple-darwin, file: librumble_native.dylib, test: false }
           - { os: macos-latest, rid: osx-arm64, triple: aarch64-apple-darwin, file: librumble_native.dylib, test: true }
     steps:
       - uses: actions/checkout@v4
@@ -96,11 +107,60 @@ jobs:
             mkdir -p "src/Rumble.Net/runtimes/$rid/native"
             cp "$dir"/* "src/Rumble.Net/runtimes/$rid/native/"
           done
+      - name: Verify all native binaries are staged
+        shell: bash
+        run: |
+          missing=0
+          for f in win-x64/native/rumble_native.dll win-arm64/native/rumble_native.dll \
+                   linux-x64/native/librumble_native.so linux-arm64/native/librumble_native.so \
+                   osx-x64/native/librumble_native.dylib osx-arm64/native/librumble_native.dylib; do
+            if [ -f "src/Rumble.Net/runtimes/$f" ]; then echo "ok      $f"; else echo "MISSING $f"; missing=1; fi
+          done
+          exit $missing
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/rumblenet-v* ]]; then
+            echo "args=-p:Version=${GITHUB_REF#refs/tags/rumblenet-v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "args=" >> "$GITHUB_OUTPUT"
+          fi
       - name: Pack
         run: |
-          dotnet pack src/Rumble.Net/Rumble.Net.csproj -c Release -o artifacts -p:RumbleSkipNativeBuild=true
-          dotnet pack src/Rumble.Net.Bots/Rumble.Net.Bots.csproj -c Release -o artifacts -p:RumbleSkipNativeBuild=true
+          dotnet pack src/Rumble.Net/Rumble.Net.csproj -c Release -o artifacts -p:RumbleSkipNativeBuild=true ${{ steps.version.outputs.args }}
+          dotnet pack src/Rumble.Net.Bots/Rumble.Net.Bots.csproj -c Release -o artifacts -p:RumbleSkipNativeBuild=true ${{ steps.version.outputs.args }}
+      - name: Verify package contents
+        shell: bash
+        run: |
+          pkg=$(ls artifacts/Rumble.Net.[0-9]*.nupkg)
+          unzip -l "$pkg" | grep runtimes/
+          test "$(unzip -l "$pkg" | grep -c 'runtimes/.*/native/')" -eq 6
       - uses: actions/upload-artifact@v4
         with:
           name: nuget
-          path: RumbleNet/artifacts/*.nupkg
+          path: |
+            RumbleNet/artifacts/*.nupkg
+            RumbleNet/artifacts/*.snupkg
+
+  publish:
+    name: Publish to NuGet
+    needs: pack
+    if: startsWith(github.ref, 'refs/tags/rumblenet-v') || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          name: nuget
+          path: packages
+      - name: Push packages
+        working-directory: packages
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          for pkg in *.nupkg; do
+            dotnet nuget push "$pkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          done

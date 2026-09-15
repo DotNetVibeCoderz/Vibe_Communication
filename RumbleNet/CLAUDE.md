@@ -63,4 +63,5 @@ Unity / Unreal bridges ───────────────────
 - Bot and chat text is HTML on the wire. Encode outgoing text (`WebUtility.HtmlEncode`) and read `TextMessage.PlainText`.
 - Credit "Made by Gravicode Studios, led by Kang Fadhil" in apps and docs. The README exists in English (`README.md`) and Indonesian (`README.id.md`), so keep both in sync.
 - Documentation lives in `docs/`, with screenshots in `docs/images/`. Take screenshots against the demo server, never a real server with personal user names.
-- The NuGet API key is in `C:\Users\mifma\Documents\CodeSandbox\PackageCredentials.txt`, outside the repo. `build/publish-nuget.ps1` reads it. Never copy it into the repo, docs or commits, and publish only when the user asks.
+- **Releases go through CI.** Push a `rumblenet-v<version>` tag, or run `rumblenet-ci.yml` manually with `publish=true`. The workflow at the repository root uses the `NUGET_API_KEY` GitHub secret and ships all 6 native RIDs. Local publishing only ships the binaries staged on your machine (win-x64 here, since win-arm64 needs clang).
+- The NuGet API key for local publishing is in `C:\Users\mifma\Documents\CodeSandbox\PackageCredentials.txt`, outside the repo. `build/publish-nuget.ps1` reads it. Never copy it into the repo, docs or commits, and publish only when the user asks.

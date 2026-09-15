@@ -40,7 +40,31 @@ Two packages are produced:
 
 For a release that covers every platform, use the **CI workflow** (`.github/workflows/rumblenet-ci.yml` at the root of the Vibe_Communication repository). It builds the native library on Windows (x64 and arm64), Linux (x64 and arm64) and macOS (x64 and arm64), runs the tests on all three operating systems, stages every RID, and uploads the `nuget` artifact.
 
-### Publishing
+### Publishing from CI (recommended)
+
+The workflow publishes to nuget.org with the `NUGET_API_KEY` repository secret. It only publishes after the following succeed:
+
+- the native builds for all 6 RIDs
+- the .NET tests on Windows, Linux and macOS
+- the gallery smoke run
+- a check that the package contains all 6 native binaries
+
+There are two ways to trigger a release:
+
+```bash
+# 1. Tag a release. The version comes from the tag.
+git tag rumblenet-v0.1.0-preview.2
+git push origin rumblenet-v0.1.0-preview.2
+
+# 2. Run the workflow manually with publish = true. The version comes from Directory.Build.props.
+gh workflow run rumblenet-ci.yml -f publish=true
+```
+
+Pushes to `main` and pull requests build, test and pack, but never publish.
+
+### Publishing locally
+
+This publishes only the native binaries staged on your machine.
 
 ```powershell
 ./build/publish-nuget.ps1 -CredentialsFile C:\path\outside\repo\PackageCredentials.txt
