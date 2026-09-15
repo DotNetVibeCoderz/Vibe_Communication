@@ -13,7 +13,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 authors = ["Gravicode Studios <https://github.com/gravicode>"]
-repository = "https://github.com/gravicode/Rumble.Net"
+repository = "https://github.com/DotNetVibeCoderz/Vibe_Communication"
 rust-version = "1.85"
 
 [profile.release]

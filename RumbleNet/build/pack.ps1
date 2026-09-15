@@ -17,7 +17,10 @@ $artifacts = Join-Path $root 'artifacts'
 
 if (-not $SkipTests) {
     Push-Location (Join-Path $root 'native')
-    try { cargo test --workspace; if ($LASTEXITCODE -ne 0) { throw 'cargo test failed' } } finally { Pop-Location }
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'   # cargo writes progress to stderr
+    try { cargo test --workspace 2>&1 | ForEach-Object { "$_" }; if ($LASTEXITCODE -ne 0) { throw 'cargo test failed' } }
+    finally { $ErrorActionPreference = $previous; Pop-Location }
     dotnet test --project (Join-Path $root 'tests/Rumble.Net.Tests/Rumble.Net.Tests.csproj') -c $Configuration
     if ($LASTEXITCODE -ne 0) { throw 'dotnet test failed' }
 }

@@ -6,7 +6,7 @@
   "Description": "Mumble voice chat with positional audio powered by the Rumble.Net Rust core. Made by Gravicode Studios, led by Kang Fadhil.",
   "Category": "Networking",
   "CreatedBy": "Gravicode Studios",
-  "CreatedByURL": "https://github.com/gravicode/Rumble.Net",
+  "CreatedByURL": "https://github.com/DotNetVibeCoderz/Vibe_Communication",
   "CanContainContent": false,
   "Modules": [
     {

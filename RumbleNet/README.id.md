@@ -28,15 +28,15 @@ var teramai = client.Channels.MaxBy(c => c.TotalUserCount);   // LINQ atas model
 
 **RumbleApp** adalah aplikasi voice chat Mumble yang dibangun dengan .NET MAUI Blazor Hybrid. Setiap baris pengguna menampilkan jejak suara berwarna amber secara live, dan strip transmit ikut menyala amber saat Anda sedang bicara.
 
-![Layar suara RumbleApp terhubung ke server demo](docs/images/rumbleapp-voice.png)
+![Layar suara RumbleApp terhubung ke server demo](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-voice.png)
 
 | Server | Pengaturan | Mobile: channel | Mobile: chat |
 |---|---|---|---|
-| ![Server](docs/images/rumbleapp-servers.png) | ![Pengaturan](docs/images/rumbleapp-settings.png) | ![Channel mobile](docs/images/rumbleapp-mobile-channels.png) | ![Chat mobile](docs/images/rumbleapp-mobile-chat.png) |
+| ![Server](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-servers.png) | ![Pengaturan](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-settings.png) | ![Channel mobile](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-mobile-channels.png) | ![Chat mobile](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-mobile-chat.png) |
 
 **RumbleGallery** adalah galeri contoh SDK berbasis Avalonia yang bisa dijalankan langsung. Setiap contoh menampilkan kode sumbernya apa adanya beserta output live-nya.
 
-![RumbleGallery menjalankan contoh suara](docs/images/rumblegallery.png)
+![RumbleGallery menjalankan contoh suara](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumblegallery.png)
 
 ## Fitur
 
@@ -112,6 +112,10 @@ Detail ada di [docs/testing-and-benchmarks.md](docs/testing-and-benchmarks.md).
 Mulai dari **[docs/README.md](docs/README.md)**. Dokumentasi teknis ditulis dalam bahasa Inggris. Pelacakan proyek ada di [PLAN.md](PLAN.md) (roadmap) dan [Progress.md](Progress.md) (status).
 
 ## Status
+
+[![NuGet](https://img.shields.io/nuget/vpre/Rumble.Net)](https://www.nuget.org/packages/Rumble.Net) `dotnet add package Rumble.Net --prerelease`
+
+**0.1.0-preview.1** di NuGet sudah menyertakan inti native untuk **win-x64**. Untuk platform lain, build dari source (`build/build-native.*`) sampai preview berikutnya menyertakan binary hasil CI.
 
 Versi 0.1.0 sudah lengkap untuk protokol klien dan terverifikasi *end-to-end* terhadap mock server bawaan di Windows x64. Validasi terhadap server Murmur produksi, build native untuk mobile, dan bridge game engine masih dalam proses. Semua dicatat secara jujur di Progress.md.
 

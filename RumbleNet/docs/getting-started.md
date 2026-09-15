@@ -3,11 +3,11 @@
 ## Install
 
 ```powershell
-dotnet add package Rumble.Net
-dotnet add package Rumble.Net.Bots   # optional: bot framework and AI chat
+dotnet add package Rumble.Net --prerelease
+dotnet add package Rumble.Net.Bots --prerelease   # optional: bot framework and AI chat
 ```
 
-The package ships `rumble_native` for each runtime identifier under `runtimes/{rid}/native`, so you don't need anything else at runtime. To build from source instead, see [building-and-packaging.md](building-and-packaging.md).
+The package ships `rumble_native` under `runtimes/{rid}/native`, so you don't need anything else at runtime. The current preview (0.1.0-preview.1) includes **win-x64** only. To build from source instead, see [building-and-packaging.md](building-and-packaging.md).
 
 ## Connect
 

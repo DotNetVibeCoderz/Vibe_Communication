@@ -28,15 +28,15 @@ var busiest = client.Channels.MaxBy(c => c.TotalUserCount);   // LINQ over the l
 
 **RumbleApp** is a Mumble voice client built with .NET MAUI Blazor Hybrid. Each user row shows a live amber voice trace, and the transmit strip turns amber while you're on air.
 
-![RumbleApp voice screen connected to the demo server](docs/images/rumbleapp-voice.png)
+![RumbleApp voice screen connected to the demo server](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-voice.png)
 
 | Servers | Settings | Mobile: channels | Mobile: chat |
 |---|---|---|---|
-| ![Servers](docs/images/rumbleapp-servers.png) | ![Settings](docs/images/rumbleapp-settings.png) | ![Mobile channels](docs/images/rumbleapp-mobile-channels.png) | ![Mobile chat](docs/images/rumbleapp-mobile-chat.png) |
+| ![Servers](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-servers.png) | ![Settings](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-settings.png) | ![Mobile channels](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-mobile-channels.png) | ![Mobile chat](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-mobile-chat.png) |
 
 **RumbleGallery** is an Avalonia gallery of runnable SDK samples. Each one shows its exact source code and live output.
 
-![RumbleGallery running the voice sample](docs/images/rumblegallery.png)
+![RumbleGallery running the voice sample](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumblegallery.png)
 
 ## Features
 
@@ -127,6 +127,10 @@ Start at **[docs/README.md](docs/README.md)**:
 Project tracking lives in [PLAN.md](PLAN.md) (roadmap) and [Progress.md](Progress.md) (status).
 
 ## Status
+
+[![NuGet](https://img.shields.io/nuget/vpre/Rumble.Net)](https://www.nuget.org/packages/Rumble.Net) `dotnet add package Rumble.Net --prerelease`
+
+**0.1.0-preview.1** on NuGet includes the native core for **win-x64**. On other platforms, build from source (`build/build-native.*`) until the next preview ships binaries from CI.
 
 Version 0.1.0 is feature complete for the client protocol and verified end to end against the bundled mock server on Windows x64. Validation against production Murmur servers, the mobile native builds and the game engine bridges is still open. Progress.md tracks these items honestly.
 

@@ -13,7 +13,8 @@
     <PackageTags>mumble;voip;voice;opus;audio;positional-audio;bot;rust;gravicode</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageProjectUrl>https://github.com/gravicode/Rumble.Net</PackageProjectUrl>
+    <PackageReleaseNotes>Preview release. Native binaries included: win-x64. Linux, macOS, win-arm64, Android and iOS binaries are produced by the CI workflow or build/build-native.* and will ship in the next preview. See https://github.com/DotNetVibeCoderz/Vibe_Communication/tree/main/RumbleNet</PackageReleaseNotes>
+    <PackageProjectUrl>https://github.com/DotNetVibeCoderz/Vibe_Communication/tree/main/RumbleNet</PackageProjectUrl>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
 
@@ -35,7 +36,9 @@
     <InternalsVisibleTo Include="Rumble.Net.Benchmarks" />
     <None Include="$(RepositoryRoot)README.md" Pack="true" PackagePath="\" Visible="false" />
     <!-- Every RID produced by build/build-native.* is packed under runtimes/{rid}/native. -->
-    <None Include="runtimes\**\*" Pack="true" PackagePath="runtimes" Visible="false" />
+    <!-- Replace the SDK's default None item (which has no Pack metadata and would win the de-duplication). -->
+    <None Remove="runtimes\**" />
+    <None Include="runtimes\**\*" Pack="true" PackagePath="runtimes\" Visible="false" />
     <None Include="$(RepositoryRoot)native\include\rumble.h" Pack="true" PackagePath="native\include" Visible="false" />
   </ItemGroup>
 
@@ -51,13 +54,13 @@
   </Target>
 
   <!-- Flow the host native library to the output of this project and of every project referencing it. -->
-  <Target Name="IncludeRumbleNative" BeforeTargets="AssignTargetPaths" AfterTargets="BuildRumbleNative">
+  <!-- ContentWithTargetPath (not Content/None) so this copy never interferes with what gets packed. -->
+  <Target Name="IncludeRumbleNative" BeforeTargets="GetCopyToOutputDirectoryItems" AfterTargets="BuildRumbleNative">
     <ItemGroup>
-      <Content Include="$(RumbleRuntimesDir)$(RumbleHostRid)\native\$(RumbleNativeFile)"
-               Link="$(RumbleNativeFile)"
-               CopyToOutputDirectory="PreserveNewest"
-               Pack="false"
-               Condition="Exists('$(RumbleRuntimesDir)$(RumbleHostRid)\native\$(RumbleNativeFile)')" />
+      <ContentWithTargetPath Include="$(RumbleRuntimesDir)$(RumbleHostRid)\native\$(RumbleNativeFile)"
+                             TargetPath="$(RumbleNativeFile)"
+                             CopyToOutputDirectory="PreserveNewest"
+                             Condition="Exists('$(RumbleRuntimesDir)$(RumbleHostRid)\native\$(RumbleNativeFile)')" />
     </ItemGroup>
   </Target>
 

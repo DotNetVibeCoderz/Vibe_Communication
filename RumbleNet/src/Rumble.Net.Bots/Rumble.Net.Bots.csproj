@@ -9,6 +9,7 @@
     <PackageTags>mumble;bot;ai;chatbot;voice;rumble</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/DotNetVibeCoderz/Vibe_Communication/tree/main/RumbleNet</PackageProjectUrl>
   </PropertyGroup>
 
   <ItemGroup>

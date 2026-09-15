@@ -33,13 +33,19 @@ foreach ($rid in $Rids) {
     if (-not $t) { throw "Unknown RID '$rid'. Known: $($targets.Keys -join ', ')" }
 
     Write-Host "==> $rid ($($t.Triple))" -ForegroundColor Cyan
-    rustup target add $t.Triple | Out-Null
     $features = if ($NoMockServer) { @('--no-default-features') } else { @() }
     Push-Location $native
+    # rustup and cargo report progress on stderr; in Windows PowerShell that must not be treated as a failure.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     try {
-        cargo build --release -p rumble-ffi --target $t.Triple @features
+        rustup target add $t.Triple 2>&1 | Out-Null
+        cargo build --release -p rumble-ffi --target $t.Triple @features 2>&1 | ForEach-Object { "$_" } | Select-String -Pattern '^(error|warning: unused)|Finished' | ForEach-Object { Write-Host "    $_" }
         if ($LASTEXITCODE -ne 0) { throw "cargo build failed for $rid" }
-    } finally { Pop-Location }
+    } finally {
+        $ErrorActionPreference = $previous
+        Pop-Location
+    }
 
     $source = Join-Path $native "target/$($t.Triple)/release/$($t.File)"
     $dest = Join-Path $runtimes "$rid/native"

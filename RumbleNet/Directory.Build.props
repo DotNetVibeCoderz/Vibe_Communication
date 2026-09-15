@@ -3,12 +3,13 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.1.0</Version>
+    <Version>0.1.0-preview.1</Version>
     <Authors>Gravicode Studios</Authors>
     <Company>Gravicode Studios</Company>
     <Product>Rumble.Net</Product>
     <Copyright>© 2026 Gravicode Studios — led by Kang Fadhil</Copyright>
-    <RepositoryUrl>https://github.com/gravicode/Rumble.Net</RepositoryUrl>
+    <RepositoryUrl>https://github.com/DotNetVibeCoderz/Vibe_Communication</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
     <RepositoryRoot>$(MSBuildThisFileDirectory)</RepositoryRoot>
     <NativeRoot>$(MSBuildThisFileDirectory)native\</NativeRoot>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
