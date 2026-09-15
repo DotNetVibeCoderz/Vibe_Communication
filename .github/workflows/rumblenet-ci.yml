@@ -1,0 +1,106 @@
+﻿name: RumbleNet CI
+
+on:
+  push:
+    branches: [main]
+    paths: ['RumbleNet/**', '.github/workflows/rumblenet-ci.yml']
+  pull_request:
+    paths: ['RumbleNet/**', '.github/workflows/rumblenet-ci.yml']
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: RumbleNet
+
+jobs:
+  native:
+    name: Native ${{ matrix.rid }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64, triple: x86_64-pc-windows-msvc, file: rumble_native.dll, test: true }
+          - { os: windows-latest, rid: win-arm64, triple: aarch64-pc-windows-msvc, file: rumble_native.dll, test: false }
+          - { os: ubuntu-latest, rid: linux-x64, triple: x86_64-unknown-linux-gnu, file: librumble_native.so, test: true }
+          - { os: ubuntu-24.04-arm, rid: linux-arm64, triple: aarch64-unknown-linux-gnu, file: librumble_native.so, test: false }
+          - { os: macos-13, rid: osx-x64, triple: x86_64-apple-darwin, file: librumble_native.dylib, test: false }
+          - { os: macos-latest, rid: osx-arm64, triple: aarch64-apple-darwin, file: librumble_native.dylib, test: true }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.triple }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: RumbleNet/native
+      - name: Linux audio headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - name: cargo test
+        if: matrix.test
+        working-directory: RumbleNet/native
+        run: cargo test --workspace
+      - name: cargo build
+        working-directory: RumbleNet/native
+        run: cargo build --release -p rumble-ffi --target ${{ matrix.triple }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.rid }}
+          path: RumbleNet/native/target/${{ matrix.triple }}/release/${{ matrix.file }}
+
+  dotnet:
+    name: .NET tests (${{ matrix.os }})
+    needs: native
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64 }
+          - { os: ubuntu-latest, rid: linux-x64 }
+          - { os: macos-latest, rid: osx-arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-${{ matrix.rid }}
+          path: RumbleNet/src/Rumble.Net/runtimes/${{ matrix.rid }}/native
+      - name: Test
+        run: dotnet test --project tests/Rumble.Net.Tests/Rumble.Net.Tests.csproj -c Release -p:RumbleSkipNativeBuild=true
+      - name: Run gallery samples
+        shell: bash
+        run: dotnet run -c Release --project samples/RumbleGallery -p:RumbleSkipNativeBuild=true -- --run-all
+
+  pack:
+    name: Pack NuGet
+    needs: dotnet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: RumbleNet/staging
+      - name: Stage runtimes
+        shell: bash
+        run: |
+          for dir in staging/native-*; do
+            rid="${dir#staging/native-}"
+            mkdir -p "src/Rumble.Net/runtimes/$rid/native"
+            cp "$dir"/* "src/Rumble.Net/runtimes/$rid/native/"
+          done
+      - name: Pack
+        run: |
+          dotnet pack src/Rumble.Net/Rumble.Net.csproj -c Release -o artifacts -p:RumbleSkipNativeBuild=true
+          dotnet pack src/Rumble.Net.Bots/Rumble.Net.Bots.csproj -c Release -o artifacts -p:RumbleSkipNativeBuild=true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget
+          path: RumbleNet/artifacts/*.nupkg

@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Rumble.Net.Benchmarks/Rumble.Net.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/RumbleApp/RumbleApp.csproj" />
+    <Project Path="samples/RumbleGallery/RumbleGallery.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Rumble.Net.Bots/Rumble.Net.Bots.csproj" />
+    <Project Path="src/Rumble.Net/Rumble.Net.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Rumble.Net.Tests/Rumble.Net.Tests.csproj" />
+  </Folder>
+</Solution>

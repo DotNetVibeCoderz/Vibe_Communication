@@ -1,0 +1,143 @@
+@page "/settings"
+@using Rumble.Net
+@using Rumble.Net.Models
+@inject SettingsStore Store
+@inject VoiceSession Voice
+
+<PageTitle>Settings · RumbleApp</PageTitle>
+
+<div class="page page-narrow">
+    <div class="page-head">
+        <div>
+            <h1>Settings</h1>
+            <p>Changes to audio apply the next time you connect.</p>
+        </div>
+    </div>
+
+    <section class="settings-section">
+        <h2>Your name</h2>
+        <div class="field">
+            <label for="name" class="label">Default name</label>
+            <input id="name" value="@S.DefaultUsername" placeholder="Used when a server entry has no name"
+                   @onchange="e => Store.Update(s => s with { DefaultUsername = e.Value?.ToString() ?? string.Empty })" />
+        </div>
+    </section>
+
+    <section class="settings-section">
+        <h2>Sending voice</h2>
+        <div class="segmented" role="group" aria-label="Transmit mode">
+            <button aria-pressed="@(S.TransmitMode == TransmitMode.PushToTalk ? "true" : "false")" @onclick="() => Voice.SetTransmitMode(TransmitMode.PushToTalk)">Push to talk</button>
+            <button aria-pressed="@(S.TransmitMode == TransmitMode.VoiceActivity ? "true" : "false")" @onclick="() => Voice.SetTransmitMode(TransmitMode.VoiceActivity)">When I speak</button>
+            <button aria-pressed="@(S.TransmitMode == TransmitMode.Continuous ? "true" : "false")" @onclick="() => Voice.SetTransmitMode(TransmitMode.Continuous)">Always</button>
+        </div>
+
+        <div class="settings-grid">
+            <div class="field">
+                <label for="vad" class="label">Speech threshold <span class="mono">@S.VoiceActivityThresholdDb.ToString("0") dB</span></label>
+                <input id="vad" type="range" min="-70" max="-15" step="1" value="@S.VoiceActivityThresholdDb"
+                       @onchange="e => Store.Update(s => s with { VoiceActivityThresholdDb = float.Parse(e.Value!.ToString()!, System.Globalization.CultureInfo.InvariantCulture) })" />
+                <span class="hint">Lower picks up quiet speech; higher ignores background noise.</span>
+            </div>
+            <div class="field">
+                <label for="quality" class="label">Voice quality</label>
+                <select id="quality" value="@S.Bitrate" @onchange="e => Store.Update(s => s with { Bitrate = int.Parse(e.Value!.ToString()!) })">
+                    <option value="24000">Low data (24 kbit/s)</option>
+                    <option value="40000">Balanced (40 kbit/s)</option>
+                    <option value="48000">Clear (48 kbit/s)</option>
+                    <option value="72000">Studio (72 kbit/s)</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="fpp" class="label">Latency</label>
+                <select id="fpp" value="@S.FramesPerPacket" @onchange="e => Store.Update(s => s with { FramesPerPacket = int.Parse(e.Value!.ToString()!) })">
+                    <option value="1">Lowest (10 ms packets)</option>
+                    <option value="2">Low (20 ms packets)</option>
+                    <option value="4">Saves data (40 ms packets)</option>
+                </select>
+            </div>
+        </div>
+
+        <label class="toggle"><input type="checkbox" checked="@S.NoiseGate" @onchange="e => Store.Update(s => s with { NoiseGate = (bool)e.Value! })" /> Silence background noise between words</label>
+    </section>
+
+    <section class="settings-section">
+        <h2>Devices</h2>
+        @if (_devices is null)
+        {
+            <p class="notice">@(_deviceProblem ?? "Looking for audio devices…")</p>
+        }
+        else
+        {
+            <div class="settings-grid">
+                <div class="field">
+                    <label for="in" class="label">Microphone</label>
+                    <select id="in" value="@(S.InputDeviceId ?? string.Empty)" @onchange="e => Store.Update(s => s with { InputDeviceId = Blank(e.Value) })">
+                        <option value="">System default</option>
+                        @foreach (var d in _devices.Where(d => d.IsInput))
+                        {
+                            <option value="@d.Id">@d.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="out" class="label">Speakers</label>
+                    <select id="out" value="@(S.OutputDeviceId ?? string.Empty)" @onchange="e => Store.Update(s => s with { OutputDeviceId = Blank(e.Value) })">
+                        <option value="">System default</option>
+                        @foreach (var d in _devices.Where(d => d.IsOutput))
+                        {
+                            <option value="@d.Id">@d.Name</option>
+                        }
+                    </select>
+                </div>
+            </div>
+        }
+        <label class="toggle"><input type="checkbox" checked="@S.PositionalAudio" @onchange="e => Store.Update(s => s with { PositionalAudio = (bool)e.Value! })" /> Positional audio (hear game players from where they stand)</label>
+        <label class="toggle"><input type="checkbox" checked="@S.ForceTcpVoice" @onchange="e => Store.Update(s => s with { ForceTcpVoice = (bool)e.Value! })" /> Send voice over TCP (use on networks that block UDP)</label>
+    </section>
+
+    <section class="settings-section">
+        <h2>Identity</h2>
+        <p style="margin:0;color:var(--ink-soft)">A certificate lets servers recognize you, so you can register your name and keep permissions.</p>
+        @if (S.CertificateFingerprint is { } fingerprint)
+        {
+            <span class="label">Your certificate fingerprint</span>
+            <div class="fingerprint mono">@fingerprint</div>
+            <div><button class="btn btn-danger" @onclick="RemoveCertificate">Remove certificate</button></div>
+        }
+        else
+        {
+            <div><button class="btn btn-primary" @onclick="CreateCertificate">Create certificate</button></div>
+        }
+    </section>
+</div>
+
+@code {
+    private IReadOnlyList<AudioDevice>? _devices;
+    private string? _deviceProblem;
+
+    private AppSettings S => Store.Current;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _devices = await Task.Run(RumbleNative.GetAudioDevices);
+        }
+        catch (RumbleException ex)
+        {
+            _deviceProblem = $"Audio devices are unavailable: {ex.Message}";
+        }
+    }
+
+    private static string? Blank(object? value) => string.IsNullOrEmpty(value?.ToString()) ? null : value.ToString();
+
+    private void CreateCertificate()
+    {
+        var name = string.IsNullOrWhiteSpace(S.DefaultUsername) ? "RumbleApp user" : S.DefaultUsername;
+        var cert = RumbleNative.GenerateCertificate(name);
+        Store.Update(s => s with { CertificatePem = cert.CertificatePem, PrivateKeyPem = cert.PrivateKeyPem, CertificateFingerprint = cert.Sha1Fingerprint });
+    }
+
+    private void RemoveCertificate() =>
+        Store.Update(s => s with { CertificatePem = null, PrivateKeyPem = null, CertificateFingerprint = null });
+}

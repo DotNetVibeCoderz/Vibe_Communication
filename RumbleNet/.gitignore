@@ -1,0 +1,27 @@
+# Rust
+native/target/
+
+# .NET
+bin/
+obj/
+artifacts/
+*.user
+*.suo
+.vs/
+TestResults/
+BenchmarkDotNet.Artifacts/
+
+# Native binaries copied by the build (rebuilt from source)
+src/Rumble.Net/runtimes/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Secrets
+*.pfx
+*.snk
+PackageCredentials.txt

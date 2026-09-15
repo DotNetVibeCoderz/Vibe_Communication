@@ -1,0 +1,148 @@
+@using Rumble.Net
+@inject VoiceSession Session
+@inject SettingsStore Settings
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@{
+    var me = Session.Client?.Self;
+    var mode = Settings.Current.TransmitMode;
+    var level = Math.Clamp((Session.InputLevelDb + 60f) / 60f, 0f, 1f);
+    var threshold = Math.Clamp((Settings.Current.VoiceActivityThresholdDb + 60f) / 60f, 0f, 1f);
+    var muted = me?.SelfMute == true || me?.SelfDeaf == true;
+}
+
+<footer class="transmit">
+    <div class="left">
+        <button class="btn btn-toggle" aria-pressed="@(me?.SelfMute == true ? "true" : "false")" @onclick="Session.ToggleMute" disabled="@(me is null)"
+                title="@(me?.SelfMute == true ? "Unmute microphone" : "Mute microphone")">
+            <Icon Name="@(me?.SelfMute == true ? "mic-off" : "mic")" />
+        </button>
+        <button class="btn btn-toggle" aria-pressed="@(me?.SelfDeaf == true ? "true" : "false")" @onclick="Session.ToggleDeafen" disabled="@(me is null)"
+                title="@(me?.SelfDeaf == true ? "Undeafen" : "Deafen")">
+            <Icon Name="@(me?.SelfDeaf == true ? "deaf" : "headphones")" />
+        </button>
+        <div class="meter @(Session.IsTransmitting ? "hot" : null)" title="Microphone level">
+            <span class="label">Input <span class="mono">@Session.InputLevelDb.ToString("0") dB</span></span>
+            <div class="bar">
+                <div class="fill" style="width:@((level * 100).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                @if (mode == TransmitMode.VoiceActivity)
+                {
+                    <div class="threshold" style="left:@((threshold * 100).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <button class="ptt @(_pointerDown ? "down" : null) @(Session.IsTransmitting ? "on" : null)"
+            disabled="@(me is null || muted)"
+            @onpointerdown="PointerDown" @onpointerup="PointerUp" @onpointerleave="PointerUp" @onpointercancel="PointerUp"
+            aria-label="@PttLabel">
+        <span>
+            <span class="k">@PttLabel</span>
+            <span class="h">@PttHint</span>
+        </span>
+    </button>
+
+    <div class="right">
+        <div class="segmented mode" role="group" aria-label="Transmit mode">
+            <button aria-pressed="@(mode == TransmitMode.PushToTalk ? "true" : "false")" @onclick="() => Session.SetTransmitMode(TransmitMode.PushToTalk)">Push</button>
+            <button aria-pressed="@(mode == TransmitMode.VoiceActivity ? "true" : "false")" @onclick="() => Session.SetTransmitMode(TransmitMode.VoiceActivity)">Voice</button>
+            <button aria-pressed="@(mode == TransmitMode.Continuous ? "true" : "false")" @onclick="() => Session.SetTransmitMode(TransmitMode.Continuous)">Open</button>
+        </div>
+    </div>
+</footer>
+
+@code {
+    private DotNetObjectReference<TransmitStrip>? _ref;
+    private bool _pointerDown;
+
+    private string PttLabel => Session.Client?.Self switch
+    {
+        null => "OFFLINE",
+        { SelfDeaf: true } => "DEAFENED",
+        { SelfMute: true } => "MUTED",
+        _ when Session.IsTransmitting => "ON AIR",
+        _ => Settings.Current.TransmitMode switch
+        {
+            TransmitMode.PushToTalk => "HOLD TO TALK",
+            TransmitMode.VoiceActivity => "VOICE ACTIVATED",
+            _ => "OPEN MIC",
+        },
+    };
+
+    private string PttHint => Settings.Current.TransmitMode switch
+    {
+        TransmitMode.PushToTalk => "or hold Space",
+        TransmitMode.VoiceActivity => "hold to talk anyway",
+        _ => "sending all the time",
+    };
+
+    // Parameterless components are not re-rendered by their parent, so listen to the session directly.
+    protected override void OnInitialized()
+    {
+        Session.Changed += OnSessionChanged;
+        Session.Tick += OnSessionChanged;
+    }
+
+    private void OnSessionChanged() => InvokeAsync(StateHasChanged);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _ref = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("rumble.attachPushToTalk", _ref);
+        }
+    }
+
+    [JSInvokable]
+    public void SetPushToTalk(bool held)
+    {
+        if (Settings.Current.TransmitMode == TransmitMode.PushToTalk)
+        {
+            Session.PushToTalk = held;
+        }
+    }
+
+    private void PointerDown()
+    {
+        _pointerDown = true;
+        Session.PushToTalk = true;
+        if (Settings.Current.TransmitMode != TransmitMode.PushToTalk && Session.Client is { } client)
+        {
+            // In voice/open modes the key forces a transmission while held.
+            client.Audio.TransmitMode = TransmitMode.PushToTalk;
+        }
+    }
+
+    private void PointerUp()
+    {
+        if (!_pointerDown)
+        {
+            return;
+        }
+
+        _pointerDown = false;
+        Session.PushToTalk = false;
+        if (Session.Client is { } client)
+        {
+            client.Audio.TransmitMode = Settings.Current.TransmitMode;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Session.Changed -= OnSessionChanged;
+        Session.Tick -= OnSessionChanged;
+        try
+        {
+            await JS.InvokeVoidAsync("rumble.detachPushToTalk");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+
+        _ref?.Dispose();
+    }
+}

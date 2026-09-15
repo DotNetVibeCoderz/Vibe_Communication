@@ -1,0 +1,29 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/rumble-protocol",
+    "crates/rumble-audio",
+    "crates/rumble-client",
+    "crates/rumble-ffi",
+    "crates/rumble-mock-server",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["Gravicode Studios <https://github.com/gravicode>"]
+repository = "https://github.com/gravicode/Rumble.Net"
+rust-version = "1.85"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+# Keep unwinding: the FFI layer converts panics into error codes instead of aborting the host .NET process.
+panic = "unwind"
+strip = "symbols"
+
+[profile.bench]
+lto = "thin"
+debug = false

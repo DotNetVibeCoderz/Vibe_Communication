@@ -1,0 +1,28 @@
+[package]
+name = "rumble-client"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+base64 = "0.23.1"
+bytes = "1.12.1"
+hex = "0.4.3"
+parking_lot = "0.12.5"
+rand = "0.10.2"
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
+ring = "0.17.14"
+rumble-audio = { version = "0.1.0", path = "../rumble-audio" }
+rumble-protocol = { version = "0.1.0", path = "../rumble-protocol" }
+rustls = { version = "0.23.44", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-pki-types = "1.15.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha1 = "0.11.0"
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "io-util"] }
+tokio-rustls = { version = "0.26.5", default-features = false, features = ["ring", "tls12", "logging"] }
+tracing = "0.1.44"
+webpki-roots = "1.0.9"
+
+[dev-dependencies]
+rumble-mock-server = { path = "../rumble-mock-server" }

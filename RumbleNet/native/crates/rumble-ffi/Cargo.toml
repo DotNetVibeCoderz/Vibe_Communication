@@ -1,0 +1,28 @@
+[package]
+name = "rumble-ffi"
+description = "C ABI for Rumble.Net (consumed by the .NET SDK, Unity and Unreal bridges)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "rumble_native"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[features]
+default = ["mock-server"]
+# Embeds the in-process mock Mumble server (used by tests, RumbleGallery and offline demos).
+mock-server = ["dep:rumble-mock-server"]
+
+[dependencies]
+rumble-client = { path = "../rumble-client" }
+rumble-mock-server = { path = "../rumble-mock-server", optional = true }
+parking_lot = "0.12.5"
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "net", "time", "sync", "macros"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry", "std"] }
+bytes = "1.12.1"
+serde = { version = "1.0.229", features = ["derive"] }

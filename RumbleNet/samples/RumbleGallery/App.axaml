@@ -1,0 +1,88 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="RumbleGallery.App"
+             RequestedThemeVariant="Default">
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="PanelBrush" Color="#D8DCD5" />
+                    <SolidColorBrush x:Key="StripBrush" Color="#EEF0EA" />
+                    <SolidColorBrush x:Key="SunkBrush" Color="#E2E6DF" />
+                    <SolidColorBrush x:Key="RuleBrush" Color="#C2C8BF" />
+                    <SolidColorBrush x:Key="InkBrush" Color="#1E292D" />
+                    <SolidColorBrush x:Key="InkSoftBrush" Color="#57656B" />
+                    <SolidColorBrush x:Key="TealBrush" Color="#2C7A80" />
+                    <SolidColorBrush x:Key="OnTealBrush" Color="#FFFFFF" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="PanelBrush" Color="#1B2226" />
+                    <SolidColorBrush x:Key="StripBrush" Color="#242D32" />
+                    <SolidColorBrush x:Key="SunkBrush" Color="#1F272B" />
+                    <SolidColorBrush x:Key="RuleBrush" Color="#34414A" />
+                    <SolidColorBrush x:Key="InkBrush" Color="#E6EAE3" />
+                    <SolidColorBrush x:Key="InkSoftBrush" Color="#97A4A7" />
+                    <SolidColorBrush x:Key="TealBrush" Color="#5AAFB5" />
+                    <SolidColorBrush x:Key="OnTealBrush" Color="#10272A" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <SolidColorBrush x:Key="AmberBrush" Color="#E3A21A" />
+            <SolidColorBrush x:Key="BrickBrush" Color="#C8553F" />
+            <SolidColorBrush x:Key="CodeBackgroundBrush" Color="#1E292D" />
+            <SolidColorBrush x:Key="ConsoleBrush" Color="#172024" />
+            <FontFamily x:Key="LabelFont">avares://RumbleGallery/Assets/Fonts#Chakra Petch</FontFamily>
+            <FontFamily x:Key="MonoFont">avares://RumbleGallery/Assets/Fonts#IBM Plex Mono</FontFamily>
+        </ResourceDictionary>
+    </Application.Resources>
+
+    <Application.Styles>
+        <FluentTheme />
+        <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml" />
+
+        <Style Selector="TextBlock.label">
+            <Setter Property="FontFamily" Value="{StaticResource LabelFont}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="LetterSpacing" Value="1.4" />
+            <Setter Property="Foreground" Value="{DynamicResource InkSoftBrush}" />
+        </Style>
+        <Style Selector="TextBlock.title">
+            <Setter Property="FontFamily" Value="{StaticResource LabelFont}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="FontSize" Value="26" />
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+        </Style>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="{DynamicResource TealBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource OnTealBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Padding" Value="18,8" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+        <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource TealBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource OnTealBrush}" />
+            <Setter Property="Opacity" Value="0.9" />
+        </Style>
+        <Style Selector="Button.quiet">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource RuleBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="14,8" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+        <Style Selector="ListBox.samples ListBoxItem">
+            <Setter Property="Padding" Value="12,10" />
+            <Setter Property="Margin" Value="0,1" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+        <Style Selector="ListBox.samples ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource StripBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource TealBrush}" />
+            <Setter Property="BorderThickness" Value="3,0,0,0" />
+        </Style>
+    </Application.Styles>
+</Application>

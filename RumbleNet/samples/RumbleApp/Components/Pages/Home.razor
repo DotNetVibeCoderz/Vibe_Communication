@@ -1,0 +1,235 @@
+@page "/"
+@using Rumble.Net
+@using Rumble.Net.Models
+@inject ServerStore Store
+@inject SettingsStore Settings
+@inject VoiceSession Voice
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Servers · RumbleApp</PageTitle>
+
+<div class="page page-narrow">
+    <div class="page-head">
+        <div>
+            <h1>Servers</h1>
+            <p>Connect to a Mumble server, or try the demo server that runs inside the app.</p>
+        </div>
+        <button class="btn btn-primary" @onclick="StartAdd"><Icon Name="plus" /> Add server</button>
+    </div>
+
+    @if (Voice.Problem is { } problem)
+    {
+        <p class="notice problem">@problem</p>
+    }
+
+    @if (Voice.Client is not null && Voice.Server is { } current)
+    {
+        <p class="notice">
+            You are connected to <strong>@current.Name</strong>.
+            <a href="session" style="color:var(--teal);font-weight:600;margin-left:6px">Open voice</a>
+        </p>
+    }
+
+    @if (_editing is not null)
+    {
+        <form class="editor" @onsubmit="SaveEdit">
+            <h2>@(_isNew ? "Add server" : $"Edit {_editing.Name}")</h2>
+            <div class="field">
+                <label class="label" for="s-name">Name</label>
+                <input id="s-name" @bind="_editing.Name" placeholder="e.g. Friday raid" required />
+            </div>
+            <div class="row">
+                <div class="field">
+                    <label class="label" for="s-host">Address</label>
+                    <input id="s-host" @bind="_editing.Host" placeholder="voice.example.org" required autocapitalize="off" spellcheck="false" />
+                </div>
+                <div class="field">
+                    <label class="label" for="s-port">Port</label>
+                    <input id="s-port" type="number" min="1" max="65535" @bind="_editing.Port" />
+                </div>
+            </div>
+            <div class="row">
+                <div class="field">
+                    <label class="label" for="s-user">Your name</label>
+                    <input id="s-user" @bind="_editing.Username" placeholder="@(string.IsNullOrWhiteSpace(Settings.Current.DefaultUsername) ? "Choose a name" : Settings.Current.DefaultUsername)" autocapitalize="off" />
+                </div>
+                <div class="field">
+                    <label class="label" for="s-pass">Password</label>
+                    <input id="s-pass" type="password" @bind="_editing.Password" placeholder="Only if required" />
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-primary" type="submit">Save server</button>
+                <button class="btn btn-quiet" type="button" @onclick="() => _editing = null">Cancel</button>
+            </div>
+        </form>
+    }
+
+    <div class="server-list" style="margin-top:18px">
+        <article class="server demo">
+            <span class="led"></span>
+            <div>
+                <div class="name">@Store.Demo.Name</div>
+                <div class="meta"><span>Runs on this device</span><span>EchoBot in the Lobby repeats what you say</span></div>
+            </div>
+            <div class="actions">
+                <button class="btn btn-primary" disabled="@Voice.IsBusy" @onclick="() => Connect(Store.Demo)">@ConnectLabel(Store.Demo)</button>
+            </div>
+        </article>
+
+        @foreach (var server in Store.Servers)
+        {
+            _status.TryGetValue(server.Id, out var status);
+            <article class="server @(status?.Online == true ? "online" : null)">
+                <span class="led"></span>
+                <div style="min-width:0">
+                    <div class="name">@server.Name</div>
+                    <div class="meta">
+                        <span class="mono">@server.Host:@server.Port</span>
+                        @if (status is null)
+                        {
+                            <span>Checking…</span>
+                        }
+                        else if (status.Online)
+                        {
+                            <span class="mono">@status.Users/@status.MaxUsers users</span>
+                            <span class="mono">@status.PingMs.ToString("0") ms</span>
+                        }
+                        else
+                        {
+                            <span>Not responding</span>
+                        }
+                    </div>
+                </div>
+                <div class="actions">
+                    <button class="btn btn-primary" disabled="@Voice.IsBusy" @onclick="() => Connect(server)">@ConnectLabel(server)</button>
+                    <button class="btn btn-quiet" title="Edit @server.Name" @onclick="() => StartEdit(server)"><Icon Name="edit" /></button>
+                    <button class="btn btn-quiet btn-danger" title="Remove @server.Name" @onclick="() => Store.Remove(server.Id)"><Icon Name="trash" /></button>
+                </div>
+            </article>
+        }
+    </div>
+
+    @if (Store.Servers.Count == 0 && _editing is null)
+    {
+        <p style="color:var(--ink-soft);margin-top:16px">
+            No saved servers yet. Add one with its address, or connect to the demo server above.
+        </p>
+    }
+
+    <div class="credits">Made by <strong>Gravicode Studios</strong>, led by <strong>Kang Fadhil</strong>.</div>
+</div>
+
+@code {
+    private sealed class Draft
+    {
+        public Guid Id { get; set; } = Guid.NewGuid();
+        public string Name { get; set; } = string.Empty;
+        public string Host { get; set; } = string.Empty;
+        public int Port { get; set; } = 64738;
+        public string Username { get; set; } = string.Empty;
+        public string? Password { get; set; }
+    }
+
+    private sealed record Status(bool Online, uint Users, uint MaxUsers, float PingMs);
+
+    private readonly Dictionary<Guid, Status> _status = [];
+    private Draft? _editing;
+    private bool _isNew;
+    private Guid? _connecting;
+
+    protected override void OnInitialized()
+    {
+        Store.Changed += Refresh;
+        Voice.Changed += OnVoiceChanged;
+        _ = QueryAllAsync();
+    }
+
+    private void OnVoiceChanged() => InvokeAsync(StateHasChanged);
+
+    private void Refresh()
+    {
+        _ = QueryAllAsync();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task QueryAllAsync()
+    {
+        await Task.WhenAll(Store.Servers.Select(async server =>
+        {
+            Status status;
+            try
+            {
+                var info = await RumbleClient.QueryServerAsync(server.Host, server.Port, TimeSpan.FromSeconds(2));
+                status = new Status(true, info.Users, info.MaxUsers, info.PingMs);
+            }
+            catch (Exception)
+            {
+                status = new Status(false, 0, 0, 0);
+            }
+
+            _status[server.Id] = status;
+            await InvokeAsync(StateHasChanged);
+        }));
+    }
+
+    private string ConnectLabel(SavedServer server) =>
+        _connecting == server.Id && Voice.IsBusy ? "Connecting…"
+        : Voice.IsConnected && Voice.Server?.Id == server.Id ? "Connected"
+        : "Connect";
+
+    private async Task Connect(SavedServer server)
+    {
+        if (Voice.IsConnected && Voice.Server?.Id == server.Id)
+        {
+            Nav.NavigateTo("session");
+            return;
+        }
+
+        _connecting = server.Id;
+        await Voice.ConnectAsync(server);
+        _connecting = null;
+        if (Voice.IsConnected)
+        {
+            Nav.NavigateTo("session");
+        }
+    }
+
+    private void StartAdd()
+    {
+        _isNew = true;
+        _editing = new Draft();
+    }
+
+    private void StartEdit(SavedServer server)
+    {
+        _isNew = false;
+        _editing = new Draft { Id = server.Id, Name = server.Name, Host = server.Host, Port = server.Port, Username = server.Username, Password = server.Password };
+    }
+
+    private void SaveEdit()
+    {
+        if (_editing is not { } d || string.IsNullOrWhiteSpace(d.Host))
+        {
+            return;
+        }
+
+        Store.Save(new SavedServer
+        {
+            Id = d.Id,
+            Name = string.IsNullOrWhiteSpace(d.Name) ? d.Host.Trim() : d.Name.Trim(),
+            Host = d.Host.Trim(),
+            Port = Math.Clamp(d.Port, 1, 65535),
+            Username = d.Username.Trim(),
+            Password = string.IsNullOrEmpty(d.Password) ? null : d.Password,
+        });
+        _editing = null;
+    }
+
+    public void Dispose()
+    {
+        Store.Changed -= Refresh;
+        Voice.Changed -= OnVoiceChanged;
+    }
+}

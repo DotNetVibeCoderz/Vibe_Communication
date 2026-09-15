@@ -1,0 +1,36 @@
+@page "/about"
+@using Rumble.Net
+
+<PageTitle>About · RumbleApp</PageTitle>
+
+<div class="page page-narrow">
+    <div class="page-head">
+        <div>
+            <span class="label">RumbleApp 1.0</span>
+            <h1>Voice chat for Mumble servers</h1>
+            <p>Talk, chat and see who is speaking on any Mumble server, on desktop and mobile.</p>
+        </div>
+    </div>
+
+    <section class="settings-section">
+        <h2>Under the hood</h2>
+        <div class="settings-grid">
+            <div class="field"><span class="label">Voice engine</span><span class="mono">Rumble.Net native @_native</span></div>
+            <div class="field"><span class="label">SDK</span><span class="mono">Rumble.Net @_sdk</span></div>
+            <div class="field"><span class="label">Codec</span><span>Opus, 48 kHz</span></div>
+            <div class="field"><span class="label">Security</span><span>TLS (rustls) · OCB2-AES128 voice</span></div>
+        </div>
+        <p style="margin:0;color:var(--ink-soft)">
+            The engine is written in Rust for low latency and memory safety, and exposed to .NET through Rumble.Net.
+        </p>
+    </section>
+
+    <div class="credits">
+        Made by <strong>Gravicode Studios</strong>, led by <strong>Kang Fadhil</strong>.
+    </div>
+</div>
+
+@code {
+    private readonly string _native = RumbleNative.Version;
+    private readonly string _sdk = typeof(RumbleClient).Assembly.GetName().Version?.ToString(3) ?? "?";
+}

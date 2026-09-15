@@ -1,0 +1,19 @@
+@* Signature element: a live amber level ribbon built from decoded voice frames. *@
+<svg class="trace @(Live ? "live" : null)" viewBox="0 0 @(VoiceTrace.Length * 3) 22" preserveAspectRatio="none" role="img" aria-label="@(Live ? "Talking" : "Silent")">
+    @{
+        var i = 0;
+        foreach (var level in Trace.Levels())
+        {
+            var h = Math.Max(1.5f, level * 22f);
+            <rect x="@(i * 3)" y="@F(11 - h / 2)" width="2" height="@F(h)" rx="1" class="@(level > 0.85f ? "hot" : null)" />
+            i++;
+        }
+    }
+</svg>
+
+@code {
+    [Parameter, EditorRequired] public VoiceTrace Trace { get; set; } = default!;
+    [Parameter] public bool Live { get; set; }
+
+    private static string F(float v) => v.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+}

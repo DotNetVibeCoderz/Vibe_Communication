@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="456" height="456" viewBox="0 0 456 456" version="1.1" xmlns="http://www.w3.org/2000/svg">
+    <!-- Voice trace: the RumbleApp signature. -->
+    <g fill="#E3A21A">
+        <rect x="118" y="206" width="22" height="44" rx="11" />
+        <rect x="158" y="170" width="22" height="116" rx="11" />
+        <rect x="198" y="128" width="22" height="200" rx="11" />
+        <rect x="238" y="152" width="22" height="152" rx="11" />
+        <rect x="278" y="186" width="22" height="84" rx="11" />
+        <rect x="318" y="212" width="22" height="32" rx="11" />
+    </g>
+</svg>

@@ -1,0 +1,65 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+    <PropertyGroup>
+        <TargetFrameworks>net10.0-android</TargetFrameworks>
+        <TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('linux'))">$(TargetFrameworks);net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+        <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net10.0-windows10.0.19041.0</TargetFrameworks>
+
+        <OutputType>Exe</OutputType>
+        <RootNamespace>RumbleApp</RootNamespace>
+        <UseMaui>true</UseMaui>
+        <SingleProject>true</SingleProject>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <EnableDefaultCssItems>false</EnableDefaultCssItems>
+        <Nullable>enable</Nullable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <MauiXamlInflator>SourceGen</MauiXamlInflator>
+
+        <ApplicationTitle>RumbleApp</ApplicationTitle>
+        <ApplicationId>com.gravicode.rumbleapp</ApplicationId>
+        <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+        <ApplicationVersion>1</ApplicationVersion>
+        <Company>Gravicode Studios</Company>
+        <Description>Mumble voice chat client built on Rumble.Net. Made by Gravicode Studios, led by Kang Fadhil.</Description>
+
+        <WindowsPackageType>None</WindowsPackageType>
+
+        <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
+        <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+        <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
+        <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
+        <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#1E292D" />
+        <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#1E292D" BaseSize="160,160" />
+        <MauiFont Include="Resources\Fonts\*" />
+        <MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.12" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\Rumble.Net\Rumble.Net.csproj" />
+    </ItemGroup>
+
+    <!--
+      Mobile native libraries are produced by build/build-native.* (android-arm64, ios-arm64) and staged
+      under src/Rumble.Net/runtimes. Desktop libraries flow automatically through the project reference.
+    -->
+    <PropertyGroup>
+        <RumbleRuntimes>$(MSBuildThisFileDirectory)..\..\src\Rumble.Net\runtimes\</RumbleRuntimes>
+    </PropertyGroup>
+    <ItemGroup Condition="$(TargetFramework.Contains('-android'))">
+        <AndroidNativeLibrary Include="$(RumbleRuntimes)android-arm64\native\librumble_native.so" Abi="arm64-v8a" Condition="Exists('$(RumbleRuntimes)android-arm64\native\librumble_native.so')" />
+    </ItemGroup>
+    <ItemGroup Condition="$(TargetFramework.Contains('-ios'))">
+        <NativeReference Include="$(RumbleRuntimes)ios-arm64\native\librumble_native.a" Kind="Static" ForceLoad="true" Condition="Exists('$(RumbleRuntimes)ios-arm64\native\librumble_native.a')" />
+    </ItemGroup>
+
+</Project>

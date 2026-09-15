@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsAotCompatible>true</IsAotCompatible>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <RootNamespace>Rumble.Net</RootNamespace>
+
+    <PackageId>Rumble.Net</PackageId>
+    <Title>Rumble.Net — Mumble SDK for .NET</Title>
+    <Description>Enterprise-grade Mumble voice chat SDK for .NET with a high-performance, memory-safe Rust core: Opus voice, positional audio, OCB2-AES encrypted UDP, rustls TLS, auto-reconnect, channel/user management, bots and plugins. Made by Gravicode Studios, led by Kang Fadhil.</Description>
+    <PackageTags>mumble;voip;voice;opus;audio;positional-audio;bot;rust;gravicode</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/gravicode/Rumble.Net</PackageProjectUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+
+    <!-- Native core -->
+    <RumbleHostRid>$(NETCoreSdkRuntimeIdentifier)</RumbleHostRid>
+    <RumbleNativeFile Condition="$([MSBuild]::IsOSPlatform('Windows'))">rumble_native.dll</RumbleNativeFile>
+    <RumbleNativeFile Condition="$([MSBuild]::IsOSPlatform('OSX'))">librumble_native.dylib</RumbleNativeFile>
+    <RumbleNativeFile Condition="'$(RumbleNativeFile)' == ''">librumble_native.so</RumbleNativeFile>
+    <RumbleRuntimesDir>$(MSBuildProjectDirectory)\runtimes\</RumbleRuntimesDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Rumble.Net.Tests" />
+    <InternalsVisibleTo Include="Rumble.Net.Benchmarks" />
+    <None Include="$(RepositoryRoot)README.md" Pack="true" PackagePath="\" Visible="false" />
+    <!-- Every RID produced by build/build-native.* is packed under runtimes/{rid}/native. -->
+    <None Include="runtimes\**\*" Pack="true" PackagePath="runtimes" Visible="false" />
+    <None Include="$(RepositoryRoot)native\include\rumble.h" Pack="true" PackagePath="native\include" Visible="false" />
+  </ItemGroup>
+
+  <!--
+    Builds the Rust core for the host platform with cargo (incremental, ~1 s when up to date) and
+    copies it to runtimes/{host-rid}/native. Set RumbleSkipNativeBuild=true to use prebuilt binaries.
+  -->
+  <Target Name="BuildRumbleNative" BeforeTargets="PrepareForBuild" Condition="'$(RumbleSkipNativeBuild)' != 'true'">
+    <Exec Command="cargo build --release -p rumble-ffi" WorkingDirectory="$(NativeRoot)" ConsoleToMSBuild="false" />
+    <Copy SourceFiles="$(NativeRoot)target\release\$(RumbleNativeFile)"
+          DestinationFolder="$(RumbleRuntimesDir)$(RumbleHostRid)\native"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- Flow the host native library to the output of this project and of every project referencing it. -->
+  <Target Name="IncludeRumbleNative" BeforeTargets="AssignTargetPaths" AfterTargets="BuildRumbleNative">
+    <ItemGroup>
+      <Content Include="$(RumbleRuntimesDir)$(RumbleHostRid)\native\$(RumbleNativeFile)"
+               Link="$(RumbleNativeFile)"
+               CopyToOutputDirectory="PreserveNewest"
+               Pack="false"
+               Condition="Exists('$(RumbleRuntimesDir)$(RumbleHostRid)\native\$(RumbleNativeFile)')" />
+    </ItemGroup>
+  </Target>
+
+</Project>

@@ -1,0 +1,22 @@
+[package]
+name = "rumble-mock-server"
+description = "Minimal in-process Mumble server for Rumble.Net integration tests, samples and benchmarks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "rumble-mock-server"
+path = "src/main.rs"
+
+[dependencies]
+rumble-protocol = { path = "../rumble-protocol" }
+bytes = "1.12.1"
+parking_lot = "0.12.5"
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
+rustls = { version = "0.23.44", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "io-util", "signal"] }
+tokio-rustls = { version = "0.26.5", default-features = false, features = ["ring", "tls12", "logging"] }
+tracing = "0.1.44"

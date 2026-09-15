@@ -1,0 +1,87 @@
+@inject VoiceSession Session
+@inject IJSRuntime JS
+@implements IDisposable
+
+<section class="chat-pane pane" aria-label="Chat">
+    <div class="chat-head">
+        <Icon Name="chat" Class="icon-sm" />
+        @if (Session.PrivateTarget is { } target)
+        {
+            <span class="to">Private chat with @target.Name</span>
+            <button class="btn btn-quiet" style="margin-left:auto" @onclick="() => Session.PrivateTarget = null">Back to @(Session.ChatChannel?.Name ?? "channel")</button>
+        }
+        else
+        {
+            <span class="to">@(Session.ChatChannel?.Name ?? "Channel")</span>
+            <span class="label" style="margin-left:auto">Channel chat</span>
+        }
+    </div>
+
+    <div class="chat-log" @ref="_log">
+        @if (Session.Chat.Count == 0)
+        {
+            <p class="chat-empty">Messages you send here go to everyone in @(Session.ChatChannel?.Name ?? "your channel").</p>
+        }
+        @foreach (var entry in Session.Chat)
+        {
+            switch (entry.Kind)
+            {
+                case ChatKind.System:
+                    <div class="msg sys">@entry.Text</div>
+                    break;
+                default:
+                    var css = entry.Kind switch { ChatKind.Outgoing => "out", ChatKind.Private => "pm", _ => "in" };
+                    <div class="msg @css">
+                        <div class="who">
+                            <strong>@entry.Author</strong>
+                            @if (entry.Destination is { } d)
+                            {
+                                <span class="mono">@d</span>
+                            }
+                            <span class="mono">@entry.Time.ToString("HH:mm")</span>
+                        </div>
+                        <div class="text">@entry.Text</div>
+                    </div>
+                    break;
+            }
+        }
+    </div>
+
+    <form class="compose" @onsubmit="Send">
+        <input @bind="_draft" @bind:event="oninput" placeholder="@Placeholder" aria-label="Message" maxlength="5000" disabled="@(!Session.IsConnected)" />
+        <button class="btn btn-primary" type="submit" disabled="@(!Session.IsConnected || string.IsNullOrWhiteSpace(_draft))">
+            <Icon Name="send" /> Send
+        </button>
+    </form>
+</section>
+
+@code {
+    private ElementReference _log;
+    private string _draft = string.Empty;
+    private int _renderedCount;
+
+    // Parameterless components are not re-rendered by their parent, so listen to the session directly.
+    protected override void OnInitialized() => Session.Changed += OnSessionChanged;
+
+    private void OnSessionChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Session.Changed -= OnSessionChanged;
+
+    private string Placeholder => Session.PrivateTarget is { } t ? $"Message {t.Name}" : $"Message {Session.ChatChannel?.Name ?? "channel"}";
+
+    private void Send()
+    {
+        Session.SendMessage(_draft);
+        _draft = string.Empty;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var count = Session.Chat.Count;
+        if (count != _renderedCount)
+        {
+            _renderedCount = count;
+            await JS.InvokeVoidAsync("rumble.scrollToEnd", _log);
+        }
+    }
+}

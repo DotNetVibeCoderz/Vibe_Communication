@@ -1,0 +1,18 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "Rumble.Net Voice",
+  "Description": "Mumble voice chat with positional audio powered by the Rumble.Net Rust core. Made by Gravicode Studios, led by Kang Fadhil.",
+  "Category": "Networking",
+  "CreatedBy": "Gravicode Studios",
+  "CreatedByURL": "https://github.com/gravicode/Rumble.Net",
+  "CanContainContent": false,
+  "Modules": [
+    {
+      "Name": "RumbleNet",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ]
+}

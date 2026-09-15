@@ -1,0 +1,12 @@
+{
+  "name": "Gravicode.Rumble",
+  "rootNamespace": "Gravicode.Rumble",
+  "references": [],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": true,
+  "overrideReferences": false,
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "noEngineReferences": false
+}

@@ -1,0 +1,104 @@
+@using Rumble.Net.Models
+@inject VoiceSession Session
+
+@{
+    var here = Session.Client?.Self?.ChannelId == Channel.Id;
+    var users = Channel.Users.ToList();
+    var children = Channel.Children.ToList();
+    var total = Channel.TotalUserCount;
+}
+
+<div class="channel @(here ? "here" : null) @(_collapsed ? "collapsed" : null)">
+    <button class="channel-head" @onclick="Toggle" @ondblclick="Join" title="Double-click to join @Channel.Name">
+        @if (children.Count > 0 || users.Count > 0)
+        {
+            <Icon Name="chevron" Class="chev" />
+        }
+        else
+        {
+            <span style="width:16px"></span>
+        }
+        <span class="cname">@Channel.Name</span>
+        @if (Channel.IsEnterRestricted && !Channel.CanEnter)
+        {
+            <Icon Name="lock" Class="icon-sm" />
+        }
+        <span class="join" role="button" @onclick="Join" @onclick:stopPropagation="true">Join</span>
+        @if (total > 0)
+        {
+            <span class="count mono">@total</span>
+        }
+    </button>
+
+    @if (!_collapsed)
+    {
+        <div class="channel-body">
+            @foreach (var user in users)
+            {
+                var talking = user.IsTalking || (user.IsSelf && Session.IsTransmitting);
+                var trace = Session.TraceFor(user.Session);
+                <div class="user @(talking ? "talking" : null) @(SelectedSession == user.Session ? "selected" : null)"
+                     @onclick="() => OnSelectUser.InvokeAsync(user)" role="button" tabindex="0">
+                    <span class="avatar">
+                        @if (user.Texture is { Length: > 0 } texture)
+                        {
+                            <img src="data:image/png;base64,@Convert.ToBase64String(texture)" alt="" />
+                        }
+                        else
+                        {
+                            @Initials(user.Name)
+                        }
+                    </span>
+                    <span class="uname">
+                        @user.Name
+                        @if (user.IsSelf)
+                        {
+                            <span class="you">YOU</span>
+                        }
+                    </span>
+                    <span class="badges">
+                        @if (user.Deaf || user.SelfDeaf)
+                        {
+                            <span title="@(user.Deaf ? "Deafened by an admin" : "Deafened")"><Icon Name="deaf" /></span>
+                        }
+                        else if (user.Mute || user.SelfMute || user.Suppress)
+                        {
+                            <span title="@(user.Mute ? "Muted by an admin" : user.Suppress ? "Cannot speak here" : "Muted")"><Icon Name="mic-off" /></span>
+                        }
+                        @if (Session.Client?.Audio.IsUserMuted(user) == true)
+                        {
+                            <span class="soft" title="Muted for you"><Icon Name="headphones" /></span>
+                        }
+                    </span>
+                    <TraceView Trace="trace" Live="talking" />
+                </div>
+
+                @if (SelectedSession == user.Session && ToolsFor is not null)
+                {
+                    @ToolsFor(user)
+                }
+            }
+
+            @foreach (var child in children)
+            {
+                <ChannelNode Channel="child" SelectedSession="SelectedSession" OnSelectUser="OnSelectUser" ToolsFor="ToolsFor" />
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Channel Channel { get; set; } = default!;
+    [Parameter] public uint? SelectedSession { get; set; }
+    [Parameter] public EventCallback<User> OnSelectUser { get; set; }
+    [Parameter] public RenderFragment<User>? ToolsFor { get; set; }
+
+    private bool _collapsed;
+
+    private void Toggle() => _collapsed = !_collapsed;
+
+    private Task Join() => Session.JoinChannelAsync(Channel);
+
+    private static string Initials(string name) =>
+        string.IsNullOrWhiteSpace(name) ? "?" : string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(p => char.ToUpperInvariant(p[0])));
+}

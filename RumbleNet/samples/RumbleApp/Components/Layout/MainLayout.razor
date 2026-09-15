@@ -1,0 +1,29 @@
+@inherits LayoutComponentBase
+@inject VoiceSession Voice
+@implements IDisposable
+
+<div class="shell">
+    <nav class="rail" aria-label="Main">
+        <div class="mark">RUMBLE<span></span></div>
+        <NavLink href="" Match="NavLinkMatch.All"><Icon Name="servers" />SERVERS</NavLink>
+        @if (Voice.Client is not null)
+        {
+            <NavLink href="session"><Icon Name="session" />VOICE</NavLink>
+        }
+        <div class="spacer"></div>
+        <NavLink href="settings"><Icon Name="settings" />SETTINGS</NavLink>
+        <NavLink href="about"><Icon Name="about" />ABOUT</NavLink>
+    </nav>
+
+    <main style="min-width:0;min-height:0;overflow:hidden">
+        @Body
+    </main>
+</div>
+
+@code {
+    protected override void OnInitialized() => Voice.Changed += OnChanged;
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Voice.Changed -= OnChanged;
+}

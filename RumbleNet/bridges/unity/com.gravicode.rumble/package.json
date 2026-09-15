@@ -1,0 +1,13 @@
+{
+  "name": "com.gravicode.rumble",
+  "version": "0.1.0",
+  "displayName": "Rumble.Net Voice (Mumble)",
+  "description": "Mumble voice chat for Unity powered by the Rumble.Net Rust core: Opus voice, positional audio, encrypted UDP, channels and text chat. Made by Gravicode Studios, led by Kang Fadhil.",
+  "unity": "2022.3",
+  "author": {
+    "name": "Gravicode Studios",
+    "url": "https://github.com/gravicode/Rumble.Net"
+  },
+  "keywords": ["mumble", "voice", "voip", "positional-audio", "multiplayer"],
+  "license": "MIT"
+}
