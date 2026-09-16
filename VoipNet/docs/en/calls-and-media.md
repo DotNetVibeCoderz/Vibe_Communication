@@ -106,7 +106,7 @@ Mixing happens at 16 kHz inside the engine, per participant (mix-minus), with sa
 using var recorder = CallRecorder.Start(call, "call.mp3", RecordingFormat.Mp3, RecordingLayout.Stereo);
 ```
 
-Stereo puts the remote party on the left and this endpoint on the right. When MP3 encoding is unavailable on a platform, the recorder writes WAV and reports the new path.
+Stereo puts the remote party on the left and this endpoint on the right. MP3 encoding uses the bundled LAME encoder, which is Windows-only; on Linux and macOS the recorder writes WAV and reports the new path in `recorder.Path`.
 
 ## Security
 

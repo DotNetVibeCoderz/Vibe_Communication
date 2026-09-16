@@ -113,7 +113,22 @@ public sealed class EnterpriseTests
         customerCall.SendAudio(TestHelpers.Tone(16000, 1500), 16000);
         await TestHelpers.WaitUntilAsync(() => supervisorHeard > 10, TimeSpan.FromSeconds(8), "supervisor hears the customer");
 
-        await Task.Delay(1800);
+        // Wait until the customer's tone has fully played out at the agent (slow runners buffer more),
+        // so anything the agent hears afterwards can only come from the supervisor.
+        await TestHelpers.WaitUntilAsync(() => customerCall.QueuedAudioMs == 0, TimeSpan.FromSeconds(10), "customer audio sent");
+        var quietDeadline = DateTime.UtcNow.AddSeconds(10);
+        var lastHeard = heard;
+        var quietSince = DateTime.UtcNow;
+        while (DateTime.UtcNow - quietSince < TimeSpan.FromMilliseconds(700) && DateTime.UtcNow < quietDeadline)
+        {
+            await Task.Delay(50);
+            if (heard != lastHeard)
+            {
+                lastHeard = heard;
+                quietSince = DateTime.UtcNow;
+            }
+        }
+
         Interlocked.Exchange(ref heard, 0);
         supervisorLeg.SendAudio(TestHelpers.Tone(16000, 1200, 700), 16000);
         await Task.Delay(1600);

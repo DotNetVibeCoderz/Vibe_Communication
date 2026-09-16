@@ -203,7 +203,15 @@ public sealed class CallRecorder : IDisposable
         Format = format;
         _sampleRate = call.SampleRate > 0 ? call.SampleRate : 8000;
 
-        if (format == RecordingFormat.Mp3)
+        // The bundled LAME encoder only ships Windows binaries. On other platforms it can fail later,
+        // inside the audio callback, so fall back to WAV up front instead of producing an empty file.
+        if (format == RecordingFormat.Mp3 && !OperatingSystem.IsWindows())
+        {
+            _logger.LogInformation("MP3 encoding is only available on Windows; recording {Path} as WAV", path);
+            Format = RecordingFormat.Wav;
+            Path = System.IO.Path.ChangeExtension(path, ".wav");
+        }
+        else if (format == RecordingFormat.Mp3)
         {
             try
             {
@@ -216,6 +224,7 @@ public sealed class CallRecorder : IDisposable
                 _mp3Writer = null;
                 _mp3Stream?.Dispose();
                 _mp3Stream = null;
+                File.Delete(path);
                 Format = RecordingFormat.Wav;
                 Path = System.IO.Path.ChangeExtension(path, ".wav");
             }

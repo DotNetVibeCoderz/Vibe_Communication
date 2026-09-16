@@ -106,7 +106,7 @@ Pencampuran berlangsung pada 16 kHz di dalam engine, per peserta (mix-minus), de
 using var recorder = CallRecorder.Start(call, "call.mp3", RecordingFormat.Mp3, RecordingLayout.Stereo);
 ```
 
-Stereo menaruh pihak lawan di kanal kiri dan endpoint ini di kanal kanan. Bila encoder MP3 tidak tersedia di suatu platform, recorder menulis WAV dan melaporkan path barunya.
+Stereo menaruh pihak lawan di kanal kiri dan endpoint ini di kanal kanan. Encoding MP3 memakai encoder LAME bawaan yang hanya tersedia di Windows; di Linux dan macOS recorder menulis WAV dan melaporkan path barunya di `recorder.Path`.
 
 ## Keamanan
 

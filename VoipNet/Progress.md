@@ -96,7 +96,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | --- | --- |
 | IVR builder with AI dialog | ✅ |
 | Queue management, agent monitoring, supervisor listen/whisper | ✅ |
-| Recording WAV/MP3, analytics dashboards | ✅ |
+| Recording WAV/MP3 (MP3 on Windows; WAV elsewhere · MP3 di Windows, WAV di platform lain), analytics dashboards | ✅ |
 | TLS, SRTP, ZRTP, end-to-end encryption | 🟡 SRTP ✅ · TLS ⏳ · ZRTP ⏳ |
 | CRM integration via AI functions | ✅ |
 
