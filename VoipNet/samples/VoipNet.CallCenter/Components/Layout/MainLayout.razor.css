@@ -1,0 +1,48 @@
+.shell {
+    min-height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+}
+
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 28px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--hairline);
+}
+
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-cable { width: 5px; height: 30px; border-radius: 3px; background: var(--green); }
+.brand-name { font-size: 22px; }
+
+nav { display: flex; gap: 4px; }
+nav ::deep a {
+    color: var(--ink);
+    text-decoration: none;
+    font-weight: 500;
+    padding: 8px 14px;
+    border-radius: 4px;
+}
+nav ::deep a.active { background: var(--rack); }
+
+main { padding: 24px 28px; }
+
+footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 28px;
+    font-size: 12px;
+    color: var(--ink-soft);
+    background: var(--panel);
+    border-top: 1px solid var(--hairline);
+}
+
+@media (max-width: 640px) {
+    .topbar { flex-direction: column; align-items: flex-start; padding: 12px 16px; }
+    main { padding: 16px; }
+    footer { flex-direction: column; padding: 8px 16px; }
+}

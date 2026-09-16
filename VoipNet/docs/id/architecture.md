@@ -1,0 +1,75 @@
+# Arsitektur
+
+🇬🇧 [English](../en/architecture.md) · Dibuat oleh Gravicode Studios, dipimpin oleh Kang Fadhil
+
+```
+┌──────────────────────────── .NET 10 ─────────────────────────────┐
+│ VoipNet.Enterprise  IvrRunner · CallCenterService · Recording     │
+│ VoipNet.AI          konektor IChatClient · STT/TTS · VoiceAgent   │
+│ VoipNet.Audio       perangkat OpenAL · WAV/MP3 · VAD · resampler  │
+│ VoipNet.Core        VoipClient · VoipCall · VoipConference        │
+│                     Diagnostik: PcapWriter · RtpStreamAnalyzer    │
+│    │  P/Invoke (LibraryImport), callback function pointer         │
+├────┼──────────────────────── C ABI ───────────────────────────────┤
+│    ▼                        Rust (voipnet-core)                    │
+│ ffi.rs        handle, konfigurasi/event JSON, audio zero-copy      │
+│ sip/          transport (UDP/TCP) · message · auth · endpoint (UA) │
+│ sdp.rs        offer/answer · negosiasi codec                       │
+│ media/        session (thread, pacing, ICE, SRTP) · conference    │
+│ rtp/          packet · jitter buffer adaptif                       │
+│ codec/        G.711 · G.722 · L16 · DTMF (RFC 4733, Goertzel) · PLC │
+│ srtp.rs       AES-CM-128 + HMAC-SHA1-80, replay window, ROC        │
+│ stun.rs       STUN · kandidat ICE · alokasi TURN                   │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+## Engine native
+
+**Endpoint (`sip/endpoint.rs`).** Satu user agent SIP per `VoipClient`. Endpoint memegang transport, transaksi client dan server (dikunci berdasarkan branch + method, sehingga CANCEL tidak pernah bentrok dengan INVITE-nya), dialog, registrasi dengan digest authentication, dan semua panggilan. Thread timer 50 ms menjalankan retransmisi RFC 3261 (T1/T2), retransmisi 2xx sampai ACK, refresh registrasi pada 85% masa berlaku, NAT keep-alive, dan pembersihan panggilan yang sudah selesai.
+
+**Thread dan lock.** Thread transport mem-parse dan mendistribusikan pesan; state disimpan di balik satu mutex. Event tidak pernah dipicu selama mutex itu dipegang: event dikirim lewat channel ke thread dispatcher khusus, sehingga handler aplikasi boleh memanggil kembali engine tanpa deadlock. Callback audio berasal dari thread media dan juga dipanggil di luar lock media.
+
+**Media session (`media/session.rs`).** Setiap panggilan punya satu socket UDP (RTP dan RTCP digabung) dan dua thread:
+
+- *receive*: STUN (cek ICE), unprotect SRTP, parse RTP, telephone-event, memasukkan ke jitter buffer, payload pass-through ke aplikasi;
+- *playout*: setiap interval paket mengambil frame dari jitter buffer, men-decode atau menyamarkan paket hilang, mendeteksi DTMF in-band, mengirim PCM ke .NET, mencampur konferensi, lalu mengirim tepat satu frame dari antrean keluar.
+
+Audio keluar **diantrekan dan diberi tempo**: `SendAudio` boleh dipanggil dengan data sekaligus (misalnya keluaran TTS) dan engine mengirim satu frame per ptime. `ClearAudio` membuang antrean untuk barge-in. Input pada sample rate apa pun di-resample ke rate codec.
+
+**Jitter buffer (`rtp/jitter.rs`).** Mengurutkan berdasarkan nomor urut yang diperluas, menghitung jitter antar-kedatangan RFC 3550, dan menetapkan kedalaman target sekitar tiga kali jitter ditambah satu frame, di antara batas minimum dan maksimum. Paket hilang dilaporkan agar decoder bisa menyamarkannya; kelebihan kedalaman yang berlangsung lama dipangkas agar latensi tetap rendah.
+
+**Keamanan.** Konteks SRTP dikunci dengan SDES (`a=crypto`). Derivasi kunci sesuai test vector RFC 3711, roll-over counter diperkirakan sesuai §3.3.1, dan replay window 64 paket menolak duplikat. `SrtpMode.Mandatory` menawarkan RTP/SAVP; `Optional` menawarkan kunci di RTP/AVP; `Disabled` menolak RTP/SAVP dengan 488.
+
+## Batas native ↔ .NET
+
+C ABI (`ffi.rs`) sengaja dibuat kecil:
+
+- konfigurasi dan event berupa JSON (jarang, kaya, mudah dikembangkan);
+- audio berupa pointer `int16*` dan panjangnya (jalur panas, tanpa salinan dan marshalling);
+- statistik berupa struct blittable.
+
+.NET mengikat dengan source generation `LibraryImport` dan callback `delegate* unmanaged` bertanda `[UnmanagedCallersOnly]`; client di-pin dengan `GCHandle` selama endpoint hidup. Exception tidak pernah menyeberang ke Rust.
+
+## Lapisan .NET
+
+`VoipClient` mengubah event engine menjadi event bertipe dan objek `VoipCall`. Setiap panggilan menyediakan:
+
+- `AudioReceived` — delegate `ReadOnlySpan<short>` untuk pemrosesan tanpa alokasi;
+- `ReadAudioAsync()` — `IAsyncEnumerable<AudioSegment>` untuk pipeline (pengenalan suara, model realtime);
+- task `Connected` dan `Completion` untuk kode `async` yang linear.
+
+Atur `VoipClientOptions.EventSynchronizationContext` di aplikasi UI agar event tiba di thread UI.
+
+## Loop AI
+
+```
+audio panggilan ──► ISpeechToText ──► IChatClient (+tools) ──► pemotong kalimat ──► ITextToSpeech ──► SendAudio
+      ▲                 │ hasil sementara saat agen berbicara                                           │
+      └─────────────────┴──────────── barge-in: batalkan giliran + ClearAudio ◄─────────────────────────┘
+```
+
+`VoiceAgent` tetap mendengarkan saat berbicara: loop pengenalan suara dan giliran agen berjalan bersamaan, sehingga transkrip sementara langsung membatalkan giliran dan membersihkan audio yang antre. Jawaban diucapkan per kalimat saat model melakukan streaming. `RealtimeVoiceAgent` mengganti seluruh rantai dengan satu web socket ke model speech-to-speech.
+
+## Contact center
+
+`CallCenterService` menaruh penelepon di antrean berurut prioritas, memesan agen berdasarkan strategi (round robin, paling lama idle, panggilan paling sedikit, berbasis skill), menelepon agen, lalu menjembatani kedua leg dalam konferensi. Karena jembatan tetap di aplikasi, perekaman, supervisor listen-in (`Monitor`), dan metrik tetap berfungsi. `IvrRunner` menjalankan graf `IvrFlow` dan dapat menyerahkan panggilan ke handler async apa pun — biasanya `VoiceAgent`.

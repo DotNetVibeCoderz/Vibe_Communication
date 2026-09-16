@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <RootNamespace>VoipNet.CallCenter</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VoipNet.Core\VoipNet.Core.csproj" />
+    <ProjectReference Include="..\..\src\VoipNet.Audio\VoipNet.Audio.csproj" />
+    <ProjectReference Include="..\..\src\VoipNet.AI\VoipNet.AI.csproj" />
+    <ProjectReference Include="..\..\src\VoipNet.Enterprise\VoipNet.Enterprise.csproj" />
+  </ItemGroup>
+
+</Project>

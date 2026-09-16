@@ -1,0 +1,216 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:theme="using:VoipNet.Samples.Theme">
+
+  <!--
+    "Patch Bay" — the visual language of a telecom rack. Cool aluminium surfaces, ink text, and the
+    colours of patch cables as the only vocabulary for call state. Cobalt is reserved for actions.
+  -->
+  <Styles.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <Color x:Key="RackColor">#DDE3E6</Color>
+          <Color x:Key="PanelColor">#F4F6F7</Color>
+          <Color x:Key="PanelRaisedColor">#FFFFFF</Color>
+          <Color x:Key="InkColor">#0F1B24</Color>
+          <Color x:Key="InkSoftColor">#4A5A66</Color>
+          <Color x:Key="HairlineColor">#C5CED4</Color>
+          <Color x:Key="TraceBackColor">#E9EEF1</Color>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <Color x:Key="RackColor">#10171D</Color>
+          <Color x:Key="PanelColor">#172129</Color>
+          <Color x:Key="PanelRaisedColor">#1E2A33</Color>
+          <Color x:Key="InkColor">#E8EEF2</Color>
+          <Color x:Key="InkSoftColor">#9AAAB5</Color>
+          <Color x:Key="HairlineColor">#2B3944</Color>
+          <Color x:Key="TraceBackColor">#121A20</Color>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+
+      <Color x:Key="CobaltColor">#2F5BFF</Color>
+      <Color x:Key="CobaltPressedColor">#2448D6</Color>
+      <Color x:Key="CableAmberColor">#F2A516</Color>
+      <Color x:Key="CableGreenColor">#1E9E6A</Color>
+      <Color x:Key="CableRedColor">#D8413A</Color>
+      <Color x:Key="CableVioletColor">#7A5CFA</Color>
+
+      <SolidColorBrush x:Key="RackBrush" Color="{DynamicResource RackColor}" />
+      <SolidColorBrush x:Key="PanelBrush" Color="{DynamicResource PanelColor}" />
+      <SolidColorBrush x:Key="PanelRaisedBrush" Color="{DynamicResource PanelRaisedColor}" />
+      <SolidColorBrush x:Key="InkBrush" Color="{DynamicResource InkColor}" />
+      <SolidColorBrush x:Key="InkSoftBrush" Color="{DynamicResource InkSoftColor}" />
+      <SolidColorBrush x:Key="HairlineBrush" Color="{DynamicResource HairlineColor}" />
+      <SolidColorBrush x:Key="TraceBackBrush" Color="{DynamicResource TraceBackColor}" />
+      <SolidColorBrush x:Key="CobaltBrush" Color="{StaticResource CobaltColor}" />
+      <SolidColorBrush x:Key="CobaltPressedBrush" Color="{StaticResource CobaltPressedColor}" />
+      <SolidColorBrush x:Key="CableAmberBrush" Color="{StaticResource CableAmberColor}" />
+      <SolidColorBrush x:Key="CableGreenBrush" Color="{StaticResource CableGreenColor}" />
+      <SolidColorBrush x:Key="CableRedBrush" Color="{StaticResource CableRedColor}" />
+      <SolidColorBrush x:Key="CableVioletBrush" Color="{StaticResource CableVioletColor}" />
+
+      <FontFamily x:Key="DisplayFont">avares://VoipNet.Samples.Theme/Fonts#Bricolage Grotesque</FontFamily>
+      <FontFamily x:Key="BodyFont">avares://VoipNet.Samples.Theme/Fonts#IBM Plex Sans</FontFamily>
+      <FontFamily x:Key="MonoFont">avares://VoipNet.Samples.Theme/Fonts#IBM Plex Mono</FontFamily>
+
+      <CornerRadius x:Key="PanelRadius">6</CornerRadius>
+    </ResourceDictionary>
+  </Styles.Resources>
+
+  <Style Selector="Window, UserControl">
+    <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
+    <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+  </Style>
+  <Style Selector="Window">
+    <Setter Property="Background" Value="{DynamicResource RackBrush}" />
+  </Style>
+
+  <!-- Type scale: display for names and numbers that matter, mono for addresses and figures. -->
+  <Style Selector="TextBlock.display">
+    <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
+    <Setter Property="FontWeight" Value="Bold" />
+    <Setter Property="FontSize" Value="30" />
+    <Setter Property="LetterSpacing" Value="-0.6" />
+  </Style>
+  <Style Selector="TextBlock.title">
+    <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="FontSize" Value="20" />
+  </Style>
+  <Style Selector="TextBlock.eyebrow">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="LetterSpacing" Value="1.4" />
+    <Setter Property="Foreground" Value="{DynamicResource InkSoftBrush}" />
+  </Style>
+  <Style Selector="TextBlock.mono">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+  <Style Selector="TextBlock.soft">
+    <Setter Property="Foreground" Value="{DynamicResource InkSoftBrush}" />
+  </Style>
+
+  <!-- Panels sit in the rack like modules: raised surface, hairline edge. -->
+  <Style Selector="Border.module">
+    <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{StaticResource PanelRadius}" />
+    <Setter Property="Padding" Value="20" />
+  </Style>
+  <Style Selector="Border.raised">
+    <Setter Property="Background" Value="{DynamicResource PanelRaisedBrush}" />
+  </Style>
+
+  <!-- The patch cable: a coloured rule on the left edge that encodes call state. -->
+  <Style Selector="Border.cable">
+    <Setter Property="Width" Value="5" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Background" Value="{DynamicResource HairlineBrush}" />
+  </Style>
+  <Style Selector="Border.cable.ringing">
+    <Setter Property="Background" Value="{StaticResource CableAmberBrush}" />
+  </Style>
+  <Style Selector="Border.cable.connected">
+    <Setter Property="Background" Value="{StaticResource CableGreenBrush}" />
+  </Style>
+  <Style Selector="Border.cable.ended">
+    <Setter Property="Background" Value="{StaticResource CableRedBrush}" />
+  </Style>
+  <Style Selector="Border.cable.ai">
+    <Setter Property="Background" Value="{StaticResource CableVioletBrush}" />
+  </Style>
+
+  <!-- Buttons -->
+  <Style Selector="Button">
+    <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Padding" Value="14,8" />
+  </Style>
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{StaticResource CobaltBrush}" />
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+  <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource CobaltPressedBrush}" />
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+  <Style Selector="Button.danger">
+    <Setter Property="Background" Value="{StaticResource CableRedBrush}" />
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+  <Style Selector="Button.danger:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="#B8352F" />
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+  <Style Selector="Button.go">
+    <Setter Property="Background" Value="{StaticResource CableGreenBrush}" />
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+  <Style Selector="Button.go:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="#188556" />
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+  <Style Selector="Button.quiet">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="ToggleButton">
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Padding" Value="14,8" />
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <Style Selector="ToggleButton:checked /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource CableAmberBrush}" />
+    <Setter Property="Foreground" Value="#0F1B24" />
+  </Style>
+
+  <!-- Keypad keys: display face, square, with the letters below like a real handset. -->
+  <Style Selector="Button.key">
+    <Setter Property="Width" Value="64" />
+    <Setter Property="Height" Value="54" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Background" Value="{DynamicResource PanelRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
+    <Setter Property="FontSize" Value="22" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <Style Selector="TextBox">
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
+  </Style>
+  <Style Selector="TextBox.mono">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+  </Style>
+
+  <!-- A pill that names a state in its cable colour. -->
+  <Style Selector="Border.pill">
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="9,2" />
+    <Setter Property="Background" Value="{DynamicResource TraceBackBrush}" />
+  </Style>
+  <Style Selector="Border.pill > TextBlock">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="11" />
+  </Style>
+
+  <Style Selector="theme|TraceLine">
+    <Setter Property="Background" Value="{DynamicResource TraceBackBrush}" />
+    <Setter Property="Stroke" Value="{StaticResource CableGreenBrush}" />
+    <Setter Property="Height" Value="46" />
+  </Style>
+
+  <Style Selector="SelectableTextBlock.code">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="12.5" />
+    <Setter Property="LineHeight" Value="19" />
+  </Style>
+</Styles>

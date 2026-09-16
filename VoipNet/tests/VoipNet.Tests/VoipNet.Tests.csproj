@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>VoipNet.Tests</RootNamespace>
+    <!-- xunit.v3 runs on Microsoft.Testing.Platform, which is how dotnet test works on .NET 10. -->
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <UseVSTest>false</UseVSTest>
+    <!-- These tests use their own generous timeouts rather than the ambient test token. -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VoipNet.Core\VoipNet.Core.csproj" />
+    <ProjectReference Include="..\..\src\VoipNet.Audio\VoipNet.Audio.csproj" />
+    <ProjectReference Include="..\..\src\VoipNet.AI\VoipNet.AI.csproj" />
+    <ProjectReference Include="..\..\src\VoipNet.Enterprise\VoipNet.Enterprise.csproj" />
+  </ItemGroup>
+
+</Project>

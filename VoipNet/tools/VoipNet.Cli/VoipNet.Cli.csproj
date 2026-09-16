@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>voipnet</AssemblyName>
+    <RootNamespace>VoipNet.Cli</RootNamespace>
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>voipnet</ToolCommandName>
+    <PackageId>VoipNet.Cli</PackageId>
+    <Description>Voip.NET command line tools: SIP tester (ping, register, call, listen, message) and RTP analyzer for captures and live streams.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="Spectre.Console" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VoipNet.Core\VoipNet.Core.csproj" />
+    <ProjectReference Include="..\..\src\VoipNet.Audio\VoipNet.Audio.csproj" />
+  </ItemGroup>
+
+</Project>

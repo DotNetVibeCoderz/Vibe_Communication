@@ -1,0 +1,148 @@
+# AI: models, speech and agents
+
+🇮🇩 [Bahasa Indonesia](../id/ai.md) · Made by Gravicode Studios, led by Kang Fadhil
+
+![Voice agent in the Gallery](../images/gallery-voice-agent.png)
+
+## Language models
+
+Every connector implements `Microsoft.Extensions.AI.IChatClient`, so logging, caching, OpenTelemetry and function invocation middleware from the Microsoft.Extensions.AI ecosystem all apply, and Semantic Kernel can consume them directly.
+
+| Client | Covers |
+| --- | --- |
+| `OpenAiChatClient` | OpenAI, Azure OpenAI (`OpenAiChatOptions.ForAzure`), DeepSeek, OpenRouter, vLLM, Ollama, LM Studio — any `/chat/completions` server |
+| `AnthropicChatClient` | Claude via the Messages API |
+| `GeminiChatClient` | Google Gemini via `generateContent` |
+
+All support streaming, system instructions, temperature/top-p/max tokens and tool calling.
+
+```csharp
+IChatClient chat = new OpenAiChatClient(OpenAiChatOptions.ForAzure(
+    endpoint: "https://my-resource.openai.azure.com/", apiKey: key, deployment: "gpt-5-mini"));
+
+// Reasoning models (GPT-5, o-series) get max_completion_tokens automatically.
+// For voice, keep them fast:
+var options = OpenAiChatOptions.ForAzure(endpoint, key, "gpt-5-mini");
+options.ReasoningEffort = "minimal";
+
+var deepseek = new OpenAiChatClient(new OpenAiChatOptions
+{
+    BaseUri = new Uri("https://api.deepseek.com/"), ApiKey = key, Model = "deepseek-chat",
+});
+
+var claude = new AnthropicChatClient(new AnthropicChatOptions { ApiKey = key, Model = "claude-sonnet-5" });
+var gemini = new GeminiChatClient(new GeminiChatOptions { ApiKey = key, Model = "gemini-2.0-flash" });
+```
+
+### Tools (AI functions)
+
+```csharp
+var ticket = AIFunctionFactory.Create(
+    (string customer, string problem) => crm.OpenTicket(customer, problem),
+    "open_ticket", "Opens a support ticket.");
+
+using var client = new ChatClientBuilder(chat).UseFunctionInvocation().Build();
+var answer = await client.GetResponseAsync("Internet Rina mati, buatkan tiket.", new ChatOptions { Tools = [ticket] });
+```
+
+`CallControlTools.Create(call, agent)` gives the model `transfer_call`, `end_call`, `send_dtmf`, `set_hold` and `get_call_quality`. `CrmToolset.Create(connector)` adds `crm_lookup_customer`, `crm_recent_tickets`, `crm_create_ticket` and `crm_add_note`.
+
+### Semantic Kernel
+
+Semantic Kernel accepts any `IChatClient`, so the connectors plug straight into kernels, agents and plugins:
+
+```csharp
+var builder = Kernel.CreateBuilder();
+builder.Services.AddSingleton<IChatClient>(chat);
+builder.Services.AddSingleton<IChatCompletionService>(chat.AsChatCompletionService());
+var kernel = builder.Build();
+```
+
+Kernel functions can then be handed to the voice agent as tools through `ChatOptions.Tools`.
+
+## Speech
+
+```csharp
+public interface ISpeechToText
+{
+    IAsyncEnumerable<TranscriptSegment> TranscribeAsync(IAsyncEnumerable<AudioChunk> audio, SpeechRecognitionOptions? options, CancellationToken ct);
+    Task<string> TranscribeOnceAsync(ReadOnlyMemory<byte> pcm, int sampleRate, SpeechRecognitionOptions? options, CancellationToken ct);
+}
+
+public interface ITextToSpeech
+{
+    int PreferredSampleRate { get; }
+    IAsyncEnumerable<AudioChunk> SynthesizeAsync(string text, SpeechSynthesisOptions? options, CancellationToken ct);
+}
+```
+
+Audio is always 16-bit mono PCM; the engine converts sample rates.
+
+| Provider | STT | TTS | Notes |
+| --- | --- | --- | --- |
+| Deepgram | `DeepgramSpeechToText` — web socket streaming with interim results | — | lowest barge-in latency |
+| OpenAI | `OpenAiSpeechToText` | `OpenAiTextToSpeech` (PCM 24 kHz, streamed) | works with compatible servers |
+| ElevenLabs | `ElevenLabsSpeechToText` (Scribe) | `ElevenLabsTextToSpeech` (PCM at 8–44.1 kHz, streamed) | expressive voices |
+| Google Cloud | `GoogleCloudSpeechToText` | `GoogleCloudTextToSpeech` (LINEAR16) | API key or OAuth token; `telephony` model |
+| Amazon | — | `AmazonPollyTextToSpeech` (PCM 8/16 kHz, SigV4 signed, no AWS SDK) | Transcribe is on the roadmap |
+| ElBruno.Realtime | `ElBrunoRealtimeSpeechToText` (web socket) | `ElBrunoRealtimeTextToSpeech` (HTTP PCM) | self-hosted, open source |
+
+Providers without a streaming recogniser derive from `BufferedSpeechToText`: a voice activity detector cuts utterances (with 300 ms pre-roll) and each utterance is transcribed as it ends.
+
+### ElBruno.Realtime protocol
+
+- Recognition: `ws://host/stt?sample_rate=16000&language=id`; send binary 16-bit PCM frames; receive text frames `{"text": "...", "final": true}`.
+- Synthesis: `POST http://host/tts` with `{"text", "voice", "sample_rate", "speed", "format": "pcm_s16le"}`; the response body is raw PCM.
+
+## VoiceAgent
+
+```csharp
+var agent = new VoiceAgent(chat, speechToText, textToSpeech, new VoiceAgentOptions
+{
+    Greeting = "Halo, dengan Gravicode Net.",
+    SystemPrompt = "Kamu agen layanan pelanggan. Jawab singkat.",
+    Language = "id-ID",
+    BargeIn = true,
+    SilencePrompt = TimeSpan.FromSeconds(12),
+    SilenceHangup = TimeSpan.FromSeconds(40),
+    HandoffTarget = "sip:tier2@pbx",
+    EnableCallControlTools = true,
+    ChatOptions = new ChatOptions { Tools = [.. CrmToolset.Create(crm)] },
+}, new JsonFileConversationStore("conversations"));
+
+agent.CallerSaid += (_, t) => log.Info($"caller: {t}");
+agent.AgentSaid += (_, t) => log.Info($"agent: {t}");
+agent.Interrupted += (_, _) => log.Info("barge-in");
+await agent.RunAsync(call);
+```
+
+How it behaves:
+
+- **Streaming answers.** Model output is cut into sentences and each sentence is synthesised as soon as it is complete.
+- **Barge-in.** Recognition keeps running while the agent speaks; an interim transcript cancels the turn and clears queued audio.
+- **Memory.** With a conversation store, the last `RestoreTurns` turns are restored for a returning caller (keyed by `ConversationKey` or the caller URI).
+- **Hand-off.** `HandOffAsync(target, announcement)` speaks, waits for the audio to finish and transfers. The model can do the same with `transfer_call`.
+- **Silence handling.** A prompt after `SilencePrompt`, hang-up after `SilenceHangup`.
+
+With DI, `AddVoiceAgent` registers a `VoiceAgentFactory` that builds one agent per call with per-call adjustments.
+
+## RealtimeVoiceAgent
+
+```csharp
+var realtime = new RealtimeVoiceAgent(new RealtimeVoiceOptions
+{
+    ApiKey = openAiKey, Model = "gpt-realtime", Voice = "alloy",
+    Instructions = "You are a friendly receptionist.", Greeting = "Hello, how can I help?",
+});
+await realtime.RunAsync(call);
+```
+
+Call audio is resampled to 24 kHz and streamed to the model; response audio is streamed back into the call. Server-side voice activity detection triggers `ClearAudio` when the caller interrupts.
+
+## Choosing an approach
+
+| Need | Use |
+| --- | --- |
+| Lowest latency, one vendor is fine | `RealtimeVoiceAgent` |
+| Choice of model and voice, tools, memory, on-premises options | `VoiceAgent` with Deepgram/ElBruno + any model + ElevenLabs/Polly |
+| Deterministic menus first, AI for open questions | `IvrRunner` with `IvrAction.Handoff` → `VoiceAgent` |

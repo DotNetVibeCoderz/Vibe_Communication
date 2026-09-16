@@ -1,0 +1,25 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/VoipNet.CallCenter/VoipNet.CallCenter.csproj" />
+    <Project Path="samples/VoipNet.Gallery/VoipNet.Gallery.csproj" />
+    <Project Path="samples/VoipNet.IvrStudio/VoipNet.IvrStudio.csproj" />
+    <Project Path="samples/VoipNet.RealtimeAgent/VoipNet.RealtimeAgent.csproj" />
+    <Project Path="samples/VoipNet.Softphone/VoipNet.Softphone.csproj" />
+  </Folder>
+  <Folder Name="/samples/Shared/">
+    <Project Path="samples/Shared/VoipNet.Samples.Theme/VoipNet.Samples.Theme.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/VoipNet.AI/VoipNet.AI.csproj" />
+    <Project Path="src/VoipNet.Audio/VoipNet.Audio.csproj" />
+    <Project Path="src/VoipNet.Core/VoipNet.Core.csproj" />
+    <Project Path="src/VoipNet.Enterprise/VoipNet.Enterprise.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/VoipNet.Tests/VoipNet.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/VoipNet.Cli/VoipNet.Cli.csproj" />
+    <Project Path="tools/VoipNet.DocShots/VoipNet.DocShots.csproj" />
+  </Folder>
+</Solution>

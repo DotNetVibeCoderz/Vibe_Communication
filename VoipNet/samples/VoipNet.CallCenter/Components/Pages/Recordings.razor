@@ -1,0 +1,52 @@
+@page "/recordings"
+@inject ContactCentre Centre
+
+<PageTitle>Recordings · Voip.NET Call Centre</PageTitle>
+
+<article class="module raised">
+    <div class="head">
+        <div>
+            <div class="eyebrow">Quality review</div>
+            <h1 class="display">Recordings</h1>
+            <p class="soft">Every inbound call is recorded in stereo MP3: the caller on the left channel, the agent bridge on the right.</p>
+        </div>
+        <button class="btn" @onclick="Load">Refresh</button>
+    </div>
+
+    @if (_items.Count == 0)
+    {
+        <p class="empty">No recordings yet. Calls appear here once they end.</p>
+    }
+    else
+    {
+        <table class="grid">
+            <thead><tr><th>When</th><th>Call</th><th>Queue</th><th class="num">Length</th><th>Listen</th></tr></thead>
+            <tbody>
+                @foreach (var r in _items)
+                {
+                    <tr>
+                        <td class="mono">@r.StartedAt.ToLocalTime().ToString("dd MMM HH:mm:ss")</td>
+                        <td>Caller @r.CallId.ToString("000")</td>
+                        <td>@r.Tags.GetValueOrDefault("queue", "—")</td>
+                        <td class="num">@r.Duration.ToString(@"m\:ss")</td>
+                        <td><audio controls preload="none" src="@Url(r)"></audio></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</article>
+
+@code {
+    private List<RecordingInfo> _items = [];
+
+    protected override void OnInitialized() => Load();
+
+    private void Load() => _items = Centre.Recordings?.List(100).ToList() ?? [];
+
+    private string Url(RecordingInfo info)
+    {
+        var relative = Path.GetRelativePath(Centre.RecordingsFolder, info.Path).Replace('\\', '/');
+        return $"recordings/{relative}";
+    }
+}

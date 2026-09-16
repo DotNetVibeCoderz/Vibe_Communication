@@ -1,0 +1,90 @@
+.queues {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.queue-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.queue-name { font-size: 30px; text-transform: capitalize; }
+.sla { text-align: right; }
+.sla-value { font-size: 52px; color: var(--green); }
+.sla-value.bad { color: var(--red); }
+
+.figures {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 10px;
+    margin: 18px 0 0;
+    padding-top: 14px;
+    border-top: 1px solid var(--hairline);
+}
+.figures dd { margin: 2px 0 0; font-size: 15px; }
+
+.middle {
+    display: grid;
+    grid-template-columns: minmax(300px, 1fr) minmax(0, 2fr);
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.section-head h3 { font-size: 20px; }
+
+.lines { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
+.line-label { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
+
+/* Signature: each waiting caller is a cable that grows towards — and past — the answer target. */
+.wire { position: relative; height: 8px; margin-top: 6px; border-radius: 4px; background: var(--trace); }
+.wire-fill { height: 100%; border-radius: 4px; background: var(--amber); transition: width .45s linear; }
+.wire-fill.late { background: var(--red); }
+.wire-target { position: absolute; top: -4px; bottom: -4px; left: 50%; width: 2px; background: var(--ink); opacity: .55; }
+
+.agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+.agent {
+    background: var(--raised);
+    border: 1px solid var(--hairline);
+    border-left-width: 5px;
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    display: grid;
+    gap: 4px;
+}
+.agent-top, .agent-state, .agent-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.agent-detail { font-size: 13px; min-height: 20px; }
+.agent-foot { font-size: 12px; margin-top: 4px; }
+
+.bottom { display: grid; grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
+.side { display: grid; gap: 16px; }
+.small { font-size: 13px; margin: 0 0 12px; }
+.row { display: flex; gap: 8px; margin-top: 12px; }
+input[type="range"] { width: 100%; accent-color: var(--cobalt); }
+
+.mos { font-weight: 500; }
+.mos.good { color: var(--green); }
+.mos.fair { color: var(--amber); }
+.mos.poor { color: var(--red); }
+
+.advice {
+    white-space: pre-wrap;
+    font: 13px/1.55 var(--body);
+    background: var(--trace);
+    border-radius: 4px;
+    padding: 12px;
+    margin: 12px 0 0;
+}
+
+.events ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+.events li { font-size: 12px; color: var(--ink-soft); }
+
+@media (max-width: 1100px) {
+    .middle, .bottom { grid-template-columns: 1fr; }
+    .figures { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+    .queues { grid-template-columns: 1fr; }
+    .sla-value { font-size: 40px; }
+    .figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    table.grid { display: block; overflow-x: auto; }
+}

@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = ["voipnet-core"]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+license = "MIT"
+authors = ["Gravicode Studios (led by Kang Fadhil)"]
+repository = "https://github.com/DotNetVibeCoderz/Vibe_Communication"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.dev]
+panic = "unwind"

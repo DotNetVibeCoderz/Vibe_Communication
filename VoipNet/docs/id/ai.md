@@ -1,0 +1,148 @@
+# AI: model, suara, dan agen
+
+🇬🇧 [English](../en/ai.md) · Dibuat oleh Gravicode Studios, dipimpin oleh Kang Fadhil
+
+![Voice agent di Gallery](../images/gallery-voice-agent.png)
+
+## Model bahasa
+
+Setiap konektor mengimplementasikan `Microsoft.Extensions.AI.IChatClient`, sehingga middleware logging, caching, OpenTelemetry, dan function invocation dari ekosistem Microsoft.Extensions.AI langsung berlaku, dan Semantic Kernel dapat memakainya secara langsung.
+
+| Client | Mencakup |
+| --- | --- |
+| `OpenAiChatClient` | OpenAI, Azure OpenAI (`OpenAiChatOptions.ForAzure`), DeepSeek, OpenRouter, vLLM, Ollama, LM Studio — server `/chat/completions` apa pun |
+| `AnthropicChatClient` | Claude melalui Messages API |
+| `GeminiChatClient` | Google Gemini melalui `generateContent` |
+
+Semuanya mendukung streaming, instruksi sistem, temperature/top-p/max tokens, dan tool calling.
+
+```csharp
+IChatClient chat = new OpenAiChatClient(OpenAiChatOptions.ForAzure(
+    endpoint: "https://resource-anda.openai.azure.com/", apiKey: key, deployment: "gpt-5-mini"));
+
+// Model reasoning (GPT-5, seri o) otomatis memakai max_completion_tokens.
+// Untuk suara, buat tetap cepat:
+var options = OpenAiChatOptions.ForAzure(endpoint, key, "gpt-5-mini");
+options.ReasoningEffort = "minimal";
+
+var deepseek = new OpenAiChatClient(new OpenAiChatOptions
+{
+    BaseUri = new Uri("https://api.deepseek.com/"), ApiKey = key, Model = "deepseek-chat",
+});
+
+var claude = new AnthropicChatClient(new AnthropicChatOptions { ApiKey = key, Model = "claude-sonnet-5" });
+var gemini = new GeminiChatClient(new GeminiChatOptions { ApiKey = key, Model = "gemini-2.0-flash" });
+```
+
+### Tools (AI functions)
+
+```csharp
+var ticket = AIFunctionFactory.Create(
+    (string customer, string problem) => crm.OpenTicket(customer, problem),
+    "open_ticket", "Membuka tiket dukungan.");
+
+using var client = new ChatClientBuilder(chat).UseFunctionInvocation().Build();
+var answer = await client.GetResponseAsync("Internet Rina mati, buatkan tiket.", new ChatOptions { Tools = [ticket] });
+```
+
+`CallControlTools.Create(call, agent)` memberi model `transfer_call`, `end_call`, `send_dtmf`, `set_hold`, dan `get_call_quality`. `CrmToolset.Create(connector)` menambahkan `crm_lookup_customer`, `crm_recent_tickets`, `crm_create_ticket`, dan `crm_add_note`.
+
+### Semantic Kernel
+
+Semantic Kernel menerima `IChatClient` apa pun, sehingga konektor bisa langsung dipakai di kernel, agent, dan plugin:
+
+```csharp
+var builder = Kernel.CreateBuilder();
+builder.Services.AddSingleton<IChatClient>(chat);
+builder.Services.AddSingleton<IChatCompletionService>(chat.AsChatCompletionService());
+var kernel = builder.Build();
+```
+
+Kernel function kemudian dapat diberikan ke voice agent sebagai tools melalui `ChatOptions.Tools`.
+
+## Suara
+
+```csharp
+public interface ISpeechToText
+{
+    IAsyncEnumerable<TranscriptSegment> TranscribeAsync(IAsyncEnumerable<AudioChunk> audio, SpeechRecognitionOptions? options, CancellationToken ct);
+    Task<string> TranscribeOnceAsync(ReadOnlyMemory<byte> pcm, int sampleRate, SpeechRecognitionOptions? options, CancellationToken ct);
+}
+
+public interface ITextToSpeech
+{
+    int PreferredSampleRate { get; }
+    IAsyncEnumerable<AudioChunk> SynthesizeAsync(string text, SpeechSynthesisOptions? options, CancellationToken ct);
+}
+```
+
+Audio selalu PCM 16-bit mono; engine yang mengonversi sample rate.
+
+| Provider | STT | TTS | Catatan |
+| --- | --- | --- | --- |
+| Deepgram | `DeepgramSpeechToText` — streaming web socket dengan hasil sementara | — | latensi barge-in terendah |
+| OpenAI | `OpenAiSpeechToText` | `OpenAiTextToSpeech` (PCM 24 kHz, streaming) | bekerja dengan server kompatibel |
+| ElevenLabs | `ElevenLabsSpeechToText` (Scribe) | `ElevenLabsTextToSpeech` (PCM 8–44,1 kHz, streaming) | suara ekspresif |
+| Google Cloud | `GoogleCloudSpeechToText` | `GoogleCloudTextToSpeech` (LINEAR16) | API key atau token OAuth; model `telephony` |
+| Amazon | — | `AmazonPollyTextToSpeech` (PCM 8/16 kHz, SigV4, tanpa AWS SDK) | Transcribe ada di roadmap |
+| ElBruno.Realtime | `ElBrunoRealtimeSpeechToText` (web socket) | `ElBrunoRealtimeTextToSpeech` (HTTP PCM) | self-hosted, open source |
+
+Provider tanpa pengenal streaming diturunkan dari `BufferedSpeechToText`: voice activity detector memotong ucapan (dengan pre-roll 300 ms) dan setiap ucapan ditranskripsi saat selesai.
+
+### Protokol ElBruno.Realtime
+
+- Pengenalan: `ws://host/stt?sample_rate=16000&language=id`; kirim frame biner PCM 16-bit; terima frame teks `{"text": "...", "final": true}`.
+- Sintesis: `POST http://host/tts` dengan `{"text", "voice", "sample_rate", "speed", "format": "pcm_s16le"}`; body respons berupa PCM mentah.
+
+## VoiceAgent
+
+```csharp
+var agent = new VoiceAgent(chat, speechToText, textToSpeech, new VoiceAgentOptions
+{
+    Greeting = "Halo, dengan Gravicode Net.",
+    SystemPrompt = "Kamu agen layanan pelanggan. Jawab singkat.",
+    Language = "id-ID",
+    BargeIn = true,
+    SilencePrompt = TimeSpan.FromSeconds(12),
+    SilenceHangup = TimeSpan.FromSeconds(40),
+    HandoffTarget = "sip:tier2@pbx",
+    EnableCallControlTools = true,
+    ChatOptions = new ChatOptions { Tools = [.. CrmToolset.Create(crm)] },
+}, new JsonFileConversationStore("conversations"));
+
+agent.CallerSaid += (_, t) => log.Info($"penelepon: {t}");
+agent.AgentSaid += (_, t) => log.Info($"agen: {t}");
+agent.Interrupted += (_, _) => log.Info("barge-in");
+await agent.RunAsync(call);
+```
+
+Perilakunya:
+
+- **Jawaban streaming.** Keluaran model dipotong per kalimat dan setiap kalimat disintesis begitu lengkap.
+- **Barge-in.** Pengenalan suara tetap berjalan saat agen berbicara; transkrip sementara membatalkan giliran dan membersihkan audio yang antre.
+- **Memori.** Dengan conversation store, `RestoreTurns` giliran terakhir dipulihkan untuk penelepon yang kembali (kunci `ConversationKey` atau URI penelepon).
+- **Hand-off.** `HandOffAsync(target, announcement)` berbicara, menunggu audio selesai, lalu mentransfer. Model dapat melakukan hal yang sama dengan `transfer_call`.
+- **Penanganan hening.** Pengingat setelah `SilencePrompt`, tutup panggilan setelah `SilenceHangup`.
+
+Dengan DI, `AddVoiceAgent` mendaftarkan `VoiceAgentFactory` yang membuat satu agen per panggilan dengan penyesuaian per panggilan.
+
+## RealtimeVoiceAgent
+
+```csharp
+var realtime = new RealtimeVoiceAgent(new RealtimeVoiceOptions
+{
+    ApiKey = openAiKey, Model = "gpt-realtime", Voice = "alloy",
+    Instructions = "Kamu resepsionis yang ramah.", Greeting = "Halo, ada yang bisa dibantu?",
+});
+await realtime.RunAsync(call);
+```
+
+Audio panggilan di-resample ke 24 kHz dan dialirkan ke model; audio respons dialirkan kembali ke panggilan. Voice activity detection di sisi server memicu `ClearAudio` saat penelepon menyela.
+
+## Memilih pendekatan
+
+| Kebutuhan | Gunakan |
+| --- | --- |
+| Latensi terendah, satu vendor tidak masalah | `RealtimeVoiceAgent` |
+| Bebas memilih model dan suara, tools, memori, opsi on-premise | `VoiceAgent` dengan Deepgram/ElBruno + model apa pun + ElevenLabs/Polly |
+| Menu deterministik dulu, AI untuk pertanyaan terbuka | `IvrRunner` dengan `IvrAction.Handoff` → `VoiceAgent` |

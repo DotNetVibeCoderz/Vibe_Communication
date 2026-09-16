@@ -1,0 +1,143 @@
+/* Patch Bay — the Voip.NET sample identity for the web.
+   Rack aluminium surfaces, ink text, patch-cable colours for state, cobalt for actions. */
+
+:root {
+    --rack: #dde3e6;
+    --panel: #f4f6f7;
+    --raised: #ffffff;
+    --ink: #0f1b24;
+    --ink-soft: #4a5a66;
+    --hairline: #c5ced4;
+    --trace: #e9eef1;
+    --cobalt: #2f5bff;
+    --cobalt-pressed: #2448d6;
+    --amber: #f2a516;
+    --green: #1e9e6a;
+    --red: #d8413a;
+    --violet: #7a5cfa;
+    --display: "Bricolage Grotesque", system-ui, sans-serif;
+    --body: "IBM Plex Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+    --radius: 6px;
+    color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --rack: #10171d;
+        --panel: #172129;
+        --raised: #1e2a33;
+        --ink: #e8eef2;
+        --ink-soft: #9aaab5;
+        --hairline: #2b3944;
+        --trace: #121a20;
+        color-scheme: dark;
+    }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    background: var(--rack);
+    color: var(--ink);
+    font: 15px/1.5 var(--body);
+    -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--cobalt); }
+
+:focus-visible { outline: 2px solid var(--cobalt); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+.eyebrow {
+    font: 500 11px/1.4 var(--mono);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+}
+
+.display {
+    font-family: var(--display);
+    font-weight: 700;
+    letter-spacing: -.02em;
+    line-height: 1.05;
+    margin: 0;
+}
+
+.mono { font-family: var(--mono); }
+.soft { color: var(--ink-soft); }
+
+.module {
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    padding: 20px;
+}
+
+.module.raised { background: var(--raised); }
+
+/* The patch cable: a coloured rule that encodes state. */
+.cable { border-left: 5px solid var(--hairline); }
+.cable.available, .cable.connected { border-left-color: var(--green); }
+.cable.ringing, .cable.wrapup { border-left-color: var(--amber); }
+.cable.oncall { border-left-color: var(--cobalt); }
+.cable.paused, .cable.offline, .cable.ended { border-left-color: var(--red); }
+.cable.ai { border-left-color: var(--violet); }
+
+.btn {
+    font: 500 14px var(--body);
+    border-radius: 4px;
+    padding: 8px 14px;
+    border: 1px solid var(--hairline);
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+}
+.btn:hover { background: var(--trace); }
+.btn.primary { background: var(--cobalt); border-color: var(--cobalt); color: #fff; }
+.btn.primary:hover { background: var(--cobalt-pressed); }
+.btn.go { background: var(--green); border-color: var(--green); color: #fff; }
+.btn.danger { background: var(--red); border-color: var(--red); color: #fff; }
+.btn:disabled { opacity: .55; cursor: default; }
+.btn.small { padding: 4px 9px; font-size: 12.5px; }
+
+.pill {
+    display: inline-block;
+    font: 500 11px var(--mono);
+    padding: 2px 9px;
+    border-radius: 10px;
+    background: var(--trace);
+}
+
+table.grid { width: 100%; border-collapse: collapse; }
+table.grid th {
+    text-align: left;
+    font: 500 11px var(--mono);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    padding: 0 10px 8px 0;
+    border-bottom: 1px solid var(--hairline);
+}
+table.grid th.num { text-align: right; }
+h1:focus { outline: none; }
+table.grid td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--trace); vertical-align: middle; }
+table.grid td.num { font-family: var(--mono); text-align: right; }
+
+.empty { color: var(--ink-soft); padding: 18px 0; }
+
+#blazor-error-ui {
+    background: var(--amber);
+    bottom: 0;
+    display: none;
+    left: 0;
+    padding: .6rem 1.25rem .7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+#blazor-error-ui .dismiss { cursor: pointer; position: absolute; right: .75rem; top: .5rem; }

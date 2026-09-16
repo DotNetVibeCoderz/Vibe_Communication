@@ -1,0 +1,172 @@
+name: VoipNet CI
+
+on:
+  push:
+    branches: [main]
+    # Pushing a tag such as voipnet-v1.0.0 builds every platform and publishes that version to NuGet.
+    tags: ['voipnet-v*']
+    paths: ['VoipNet/**', '.github/workflows/voipnet-ci.yml']
+  pull_request:
+    paths: ['VoipNet/**', '.github/workflows/voipnet-ci.yml']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the packed version (from Directory.Build.props) to nuget.org
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: VoipNet
+
+jobs:
+  native:
+    name: Native ${{ matrix.rid }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64, triple: x86_64-pc-windows-msvc, file: voipnet_core.dll, test: true }
+          - { os: windows-latest, rid: win-arm64, triple: aarch64-pc-windows-msvc, file: voipnet_core.dll, test: false }
+          - { os: ubuntu-latest, rid: linux-x64, triple: x86_64-unknown-linux-gnu, file: libvoipnet_core.so, test: true }
+          - { os: ubuntu-24.04-arm, rid: linux-arm64, triple: aarch64-unknown-linux-gnu, file: libvoipnet_core.so, test: false }
+          # Intel macOS runners are being retired; cross-compile x86_64 on Apple silicon instead.
+          - { os: macos-latest, rid: osx-x64, triple: x86_64-apple-darwin, file: libvoipnet_core.dylib, test: false }
+          - { os: macos-latest, rid: osx-arm64, triple: aarch64-apple-darwin, file: libvoipnet_core.dylib, test: true }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.triple }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: VoipNet/native
+      - name: cargo test
+        if: matrix.test
+        working-directory: VoipNet/native
+        # Loopback call tests are timing sensitive; limit parallelism on shared runners.
+        run: cargo test --lib -- --test-threads=2
+      - name: cargo build
+        working-directory: VoipNet/native
+        run: cargo build --release -p voipnet-core --target ${{ matrix.triple }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.rid }}
+          path: VoipNet/native/target/${{ matrix.triple }}/release/${{ matrix.file }}
+
+  dotnet:
+    name: .NET tests (${{ matrix.os }})
+    needs: native
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64 }
+          - { os: ubuntu-latest, rid: linux-x64 }
+          - { os: macos-latest, rid: osx-arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-${{ matrix.rid }}
+          path: VoipNet/src/VoipNet.Core/runtimes/${{ matrix.rid }}/native
+      - name: Build solution
+        run: dotnet build Voip.Net.slnx -c Release
+      - name: Test
+        # xUnit v3 test projects are self-hosting executables. Live model tests skip without keys.
+        run: dotnet run --project tests/VoipNet.Tests -c Release --no-build
+      - name: CLI smoke test
+        shell: bash
+        run: dotnet run --project tools/VoipNet.Cli -c Release --no-build -- version
+
+  pack:
+    name: Pack NuGet
+    needs: dotnet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: VoipNet/staging
+      - name: Stage runtimes
+        shell: bash
+        run: |
+          for dir in staging/native-*; do
+            rid="${dir#staging/native-}"
+            mkdir -p "src/VoipNet.Core/runtimes/$rid/native"
+            cp "$dir"/* "src/VoipNet.Core/runtimes/$rid/native/"
+          done
+      - name: Verify all native binaries are staged
+        shell: bash
+        run: |
+          missing=0
+          for f in win-x64/native/voipnet_core.dll win-arm64/native/voipnet_core.dll \
+                   linux-x64/native/libvoipnet_core.so linux-arm64/native/libvoipnet_core.so \
+                   osx-x64/native/libvoipnet_core.dylib osx-arm64/native/libvoipnet_core.dylib; do
+            if [ -f "src/VoipNet.Core/runtimes/$f" ]; then echo "ok      $f"; else echo "MISSING $f"; missing=1; fi
+          done
+          exit $missing
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/voipnet-v* ]]; then
+            echo "args=-p:Version=${GITHUB_REF#refs/tags/voipnet-v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "args=" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Pack
+        run: |
+          for project in src/VoipNet.Core src/VoipNet.Audio src/VoipNet.AI src/VoipNet.Enterprise tools/VoipNet.Cli; do
+            dotnet pack "$project" -c Release -o artifacts ${{ steps.version.outputs.args }}
+          done
+      - name: Verify package contents
+        shell: bash
+        run: |
+          pkg=$(ls artifacts/VoipNet.Core.[0-9]*.nupkg)
+          unzip -l "$pkg" | grep runtimes/
+          # Exactly runtimes/<rid>/native/<file>, once per runtime (catches nested or missing paths).
+          test "$(unzip -l "$pkg" | grep -cE ' runtimes/(win|linux|osx)-(x64|arm64)/native/[^/]+$')" -eq 6
+          ls -la artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget
+          path: |
+            VoipNet/artifacts/*.nupkg
+            VoipNet/artifacts/*.snupkg
+
+  publish:
+    name: Publish to NuGet
+    needs: pack
+    if: startsWith(github.ref, 'refs/tags/voipnet-v') || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          name: nuget
+          path: packages
+      - name: Push packages
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          for pkg in *.nupkg; do
+            dotnet nuget push "$pkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          done

@@ -1,0 +1,145 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:VoipNet.Gallery"
+        xmlns:infra="using:VoipNet.Gallery.Infrastructure"
+        xmlns:pages="using:VoipNet.Gallery.Pages"
+        xmlns:theme="using:VoipNet.Samples.Theme"
+        x:Class="VoipNet.Gallery.MainWindow"
+        x:DataType="local:GalleryViewModel"
+        Title="Voip.NET Gallery"
+        Width="1320" Height="840" MinWidth="1060" MinHeight="680">
+
+  <Grid ColumnDefinitions="240,*" RowDefinitions="*,Auto">
+
+    <!-- Navigation rail -->
+    <Border Grid.RowSpan="2" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Top" Margin="22,24,22,18" Spacing="2">
+          <TextBlock Classes="display" FontSize="26" Text="Voip.NET" />
+          <TextBlock Classes="eyebrow" Text="LIVE SDK GALLERY" />
+        </StackPanel>
+        <StackPanel DockPanel.Dock="Bottom" Margin="22,12,22,20" Spacing="2">
+          <TextBlock Classes="soft" FontSize="11.5" TextWrapping="Wrap" Text="Made by Gravicode Studios — led by Kang Fadhil" />
+        </StackPanel>
+        <ListBox ItemsSource="{Binding Navigation}" SelectedItem="{Binding SelectedItem}" Background="Transparent" Padding="10,0">
+          <ListBox.Styles>
+            <Style Selector="ListBoxItem">
+              <Setter Property="Padding" Value="12,7" />
+              <Setter Property="CornerRadius" Value="4" />
+              <Setter Property="Margin" Value="0,1" />
+            </Style>
+            <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+              <Setter Property="Background" Value="{DynamicResource RackBrush}" />
+            </Style>
+          </ListBox.Styles>
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="local:NavItem">
+              <Panel>
+                <TextBlock Classes="eyebrow" Text="{Binding Label}" Margin="0,12,0,0" IsVisible="{Binding IsHeading}" />
+                <TextBlock Text="{Binding Label}" FontWeight="Medium" IsVisible="{Binding IsPage}" />
+              </Panel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <!-- Page -->
+    <Grid Grid.Column="1" Grid.RowSpan="2" DataContext="{Binding Current}" x:DataType="infra:DemoPage"
+          RowDefinitions="Auto,*" Margin="34,28,34,24">
+
+      <StackPanel Spacing="6" Margin="0,0,0,20">
+        <TextBlock Classes="eyebrow" Text="{Binding Section}" />
+        <TextBlock Classes="display" FontSize="36" Text="{Binding Title}" />
+        <TextBlock Classes="soft" FontSize="15" Text="{Binding Summary}" TextWrapping="Wrap" MaxWidth="880" HorizontalAlignment="Left" />
+      </StackPanel>
+
+      <Grid Grid.Row="1" ColumnDefinitions="*,20,*">
+
+        <!-- Try it -->
+        <Border Classes="module raised" Padding="0">
+          <Grid ColumnDefinitions="Auto,*">
+            <Border Classes="cable connected" CornerRadius="6,0,0,6" Width="6" Classes.ringing="{Binding IsBusy}" />
+            <DockPanel Grid.Column="1" Margin="22,20">
+              <StackPanel DockPanel.Dock="Top" Spacing="14">
+                <TextBlock Classes="eyebrow" Text="TRY IT" />
+
+                <!-- Inputs for pages that need them -->
+                <ContentControl Content="{Binding}" IsVisible="{Binding HasInput}">
+                  <ContentControl.DataTemplates>
+                    <DataTemplate x:DataType="pages:ChatModelsPage">
+                      <Grid ColumnDefinitions="*,10,*" RowDefinitions="Auto,Auto,Auto,Auto" DataContext="{Binding Settings}" x:DataType="pages:AiSettings">
+                        <TextBox Grid.ColumnSpan="3" Classes="mono" Text="{Binding Endpoint}" PlaceholderText="Endpoint · https://your-resource.openai.azure.com/" />
+                        <TextBox Grid.Row="1" Margin="0,8,0,0" Text="{Binding ApiKey}" PasswordChar="•" PlaceholderText="API key" />
+                        <TextBox Grid.Row="1" Grid.Column="2" Margin="0,8,0,0" Classes="mono" Text="{Binding Model}" PlaceholderText="Model or deployment" />
+                        <TextBox Grid.Row="2" Grid.ColumnSpan="3" Margin="0,8,0,0" Text="{Binding Prompt}" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="64" />
+                      </Grid>
+                    </DataTemplate>
+                    <DataTemplate x:DataType="infra:DemoPage">
+                      <Panel />
+                    </DataTemplate>
+                  </ContentControl.DataTemplates>
+                </ContentControl>
+
+                <ItemsControl ItemsSource="{Binding Actions}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <WrapPanel />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="infra:DemoAction">
+                      <Button Margin="0,0,8,8" Content="{Binding Label}" Command="{Binding Command}"
+                              Classes.primary="{Binding IsPrimary}" Classes.go="{Binding IsGo}"
+                              Classes.danger="{Binding IsDanger}" Classes.quiet="{Binding IsQuiet}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <theme:TraceLine Levels="{Binding Levels}" IsVisible="{Binding ShowTrace}" Height="56" />
+
+                <ItemsControl ItemsSource="{Binding Metrics}" IsVisible="{Binding HasMetrics}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="infra:DemoMetric">
+                      <Grid ColumnDefinitions="200,*" Margin="0,3">
+                        <TextBlock Classes="eyebrow" Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="1" Classes="mono" Text="{Binding Value}" TextTrimming="CharacterEllipsis" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Classes="eyebrow" Text="LOG" Margin="0,4,0,0" />
+              </StackPanel>
+
+              <Border Background="{DynamicResource TraceBackBrush}" CornerRadius="4" Padding="12,10">
+                <ScrollViewer>
+                  <ItemsControl ItemsSource="{Binding Log}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="x:String">
+                        <SelectableTextBlock Classes="code" Text="{Binding}" TextWrapping="Wrap" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+              </Border>
+            </DockPanel>
+          </Grid>
+        </Border>
+
+        <!-- Code -->
+        <Border Grid.Column="2" CornerRadius="6" Background="#0F1B24" Padding="22,20">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="0,0,0,14">
+              <Border Classes="cable" Background="{StaticResource CobaltBrush}" Height="16" />
+              <TextBlock Classes="eyebrow" Foreground="#8FA2AF" Text="C# · WHAT THIS DEMO DOES" />
+            </StackPanel>
+            <ScrollViewer HorizontalScrollBarVisibility="Auto">
+              <SelectableTextBlock Classes="code" Foreground="#DCE6EC" Text="{Binding Code}" />
+            </ScrollViewer>
+          </DockPanel>
+        </Border>
+      </Grid>
+    </Grid>
+  </Grid>
+</Window>

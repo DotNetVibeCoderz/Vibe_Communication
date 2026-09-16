@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>VoipNet.Gallery</RootNamespace>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="Avalonia.Headless" />
+    <PackageReference Include="Avalonia.Skia" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VoipNet.Core\VoipNet.Core.csproj" />
+    <ProjectReference Include="..\..\src\VoipNet.Audio\VoipNet.Audio.csproj" />
+    <ProjectReference Include="..\..\src\VoipNet.AI\VoipNet.AI.csproj" />
+    <ProjectReference Include="..\..\src\VoipNet.Enterprise\VoipNet.Enterprise.csproj" />
+    <ProjectReference Include="..\Shared\VoipNet.Samples.Theme\VoipNet.Samples.Theme.csproj" />
+  </ItemGroup>
+
+</Project>

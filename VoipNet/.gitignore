@@ -1,0 +1,27 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+TestResults/
+artifacts/*
+!artifacts/native/.gitkeep
+
+# Rust
+native/target/
+
+# Sample output
+samples/VoipNet.CallCenter/recordings/
+samples/VoipNet.IvrStudio/App_Data/
+conversations/
+*.pcap
+
+# Secrets never belong in the repository
+testkey.txt
+PackageCredentials.txt
+appsettings.*.local.json
+.env
+
+# Native libraries staged by CI
+src/VoipNet.Core/runtimes/

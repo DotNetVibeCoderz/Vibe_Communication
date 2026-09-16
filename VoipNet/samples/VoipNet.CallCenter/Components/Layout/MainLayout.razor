@@ -1,0 +1,30 @@
+@inherits LayoutComponentBase
+
+<div class="shell">
+    <header class="topbar">
+        <div class="brand">
+            <span class="brand-cable"></span>
+            <div>
+                <div class="display brand-name">Call Centre</div>
+                <div class="eyebrow">Voip.NET · live on this machine</div>
+            </div>
+        </div>
+        <nav>
+            <NavLink href="" Match="NavLinkMatch.All">Wallboard</NavLink>
+            <NavLink href="recordings">Recordings</NavLink>
+        </nav>
+    </header>
+
+    <main>@Body</main>
+
+    <footer>
+        <span>Made by Gravicode Studios — led by Kang Fadhil</span>
+        <span class="mono">engine @VoipClient.EngineVersion</span>
+    </footer>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>

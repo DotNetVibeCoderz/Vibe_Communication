@@ -1,0 +1,29 @@
+@inherits LayoutComponentBase
+
+<div class="shell">
+    <header class="topbar">
+        <div class="brand">
+            <span class="brand-cable" style="background: var(--violet)"></span>
+            <div>
+                <div class="display brand-name">IVR Studio</div>
+                <div class="eyebrow">Voip.NET · design, dial, hand off to AI</div>
+            </div>
+        </div>
+        <nav>
+            <a href="flow.json" target="_blank">Export JSON</a>
+        </nav>
+    </header>
+
+    <main>@Body</main>
+
+    <footer>
+        <span>Made by Gravicode Studios — led by Kang Fadhil</span>
+        <span class="mono">engine @VoipClient.EngineVersion</span>
+    </footer>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>

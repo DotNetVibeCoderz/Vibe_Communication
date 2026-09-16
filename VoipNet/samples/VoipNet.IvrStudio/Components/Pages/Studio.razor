@@ -1,0 +1,283 @@
+@page "/"
+@implements IAsyncDisposable
+@inject FlowStore Store
+@inject TestLine Line
+
+<PageTitle>IVR Studio · Voip.NET</PageTitle>
+
+<div class="studio">
+
+    @* ---- Editor ---- *@
+    <section class="module editor">
+        <div class="section-head">
+            <div>
+                <div class="eyebrow">Flow</div>
+                <input class="title-input display" @bind="_flow.Name" aria-label="Flow name" />
+            </div>
+            <div class="row">
+                <button class="btn" @onclick="ResetFlow">Reset sample</button>
+                <button class="btn primary" @onclick="SaveFlow">Save</button>
+            </div>
+        </div>
+        @if (_notice is not null)
+        {
+            <p class="notice @(_noticeIsError ? "error" : "")">@_notice</p>
+        }
+
+        <label class="eyebrow" for="welcome">Welcome</label>
+        <input id="welcome" class="field" @bind="_flow.Welcome" />
+
+        <label class="eyebrow" for="ai">AI agent instructions</label>
+        <textarea id="ai" class="field" rows="3" @bind="_flow.AiInstructions"></textarea>
+
+        @foreach (var menu in _flow.Menus)
+        {
+            <div class="menu cable connected">
+                <div class="menu-head">
+                    <input class="menu-id mono" @bind="menu.Id" aria-label="Menu id" />
+                    <label class="soft small">wait <input class="seconds mono" type="number" min="2" max="30" @bind="menu.TimeoutSeconds" /> s</label>
+                    <button class="btn small" @onclick="() => _flow.Menus.Remove(menu)" disabled="@(_flow.Menus.Count == 1)">Remove menu</button>
+                </div>
+                <textarea class="field" rows="2" @bind="menu.Prompt" aria-label="Prompt"></textarea>
+
+                <table class="grid options">
+                    <thead><tr><th>Key</th><th>Label</th><th>Action</th><th>Target</th><th>Spoken text</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var option in menu.Options)
+                        {
+                            <tr>
+                                <td>
+                                    <select class="field key mono" @bind="option.DigitText">
+                                        @foreach (var d in Keys)
+                                        {
+                                            <option value="@d">@d</option>
+                                        }
+                                    </select>
+                                </td>
+                                <td><input class="field" @bind="option.Label" /></td>
+                                <td>
+                                    <select class="field" @bind="option.Kind">
+                                        @foreach (var kind in Enum.GetValues<OptionKind>())
+                                        {
+                                            <option value="@kind">@KindLabel(kind)</option>
+                                        }
+                                    </select>
+                                </td>
+                                <td>
+                                    @if (option.Kind is OptionKind.GoToMenu or OptionKind.CollectDigits)
+                                    {
+                                        <select class="field mono" @bind="option.Target">
+                                            <option value="">choose menu</option>
+                                            @foreach (var m in _flow.Menus)
+                                            {
+                                                <option value="@m.Id">@m.Id</option>
+                                            }
+                                        </select>
+                                    }
+                                    else if (option.Kind is OptionKind.Transfer or OptionKind.Queue)
+                                    {
+                                        <input class="field mono" @bind="option.Target" placeholder="@(option.Kind == OptionKind.Queue ? "queue name" : "sip:dest@pbx")" />
+                                    }
+                                    else
+                                    {
+                                        <span class="soft">—</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (option.Kind is OptionKind.AiAgent or OptionKind.GoToMenu)
+                                    {
+                                        <span class="soft">—</span>
+                                    }
+                                    else
+                                    {
+                                        <input class="field" @bind="option.Text" />
+                                    }
+                                </td>
+                                <td><button class="btn small" @onclick="() => menu.Options.Remove(option)" aria-label="Remove option">✕</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                <button class="btn small" @onclick="() => AddOption(menu)">Add option</button>
+            </div>
+        }
+        <button class="btn" @onclick="AddMenu">Add menu</button>
+    </section>
+
+    @* ---- Map ---- *@
+    <section class="module raised map">
+        <div class="eyebrow">Call path</div>
+        <h2 class="display map-title">What callers hear</h2>
+        @if (!string.IsNullOrWhiteSpace(_flow.Welcome))
+        {
+            <p class="said">“@_flow.Welcome”</p>
+        }
+        @foreach (var menu in _flow.Menus)
+        {
+            <div class="map-menu">
+                <div class="map-menu-id mono">@menu.Id</div>
+                <p class="said">“@menu.Prompt”</p>
+                <ul>
+                    @foreach (var option in menu.Options)
+                    {
+                        <li class="patch @KindClass(option.Kind)">
+                            <span class="key-cap mono">@option.Digit</span>
+                            <span>@option.Label</span>
+                            <span class="mono soft">@option.Describe()</span>
+                        </li>
+                    }
+                </ul>
+            </div>
+        }
+    </section>
+
+    @* ---- Test phone ---- *@
+    <section class="module phone">
+        <div class="eyebrow">Test call</div>
+        <div class="handset">
+            <div class="screen">
+                <div class="mono screen-status">@(Line.InCall ? (Line.AiMode ? "TALKING TO AI" : "IN IVR") : "READY")</div>
+                <div class="display screen-digits">@(string.IsNullOrEmpty(Line.Dialled) ? "—" : Line.Dialled)</div>
+            </div>
+            <div class="pad">
+                @foreach (var key in Keys)
+                {
+                    <button class="padkey" disabled="@(!Line.InCall)" @onclick="() => Line.Press(key[0])">@key</button>
+                }
+            </div>
+            <div class="row">
+                @if (Line.InCall)
+                {
+                    <button class="btn danger wide" @onclick="Line.HangUpAsync">Hang up</button>
+                }
+                else
+                {
+                    <button class="btn go wide" @onclick="CallAsync">Call this flow</button>
+                }
+            </div>
+        </div>
+
+        @if (Line.AiMode)
+        {
+            <form class="say" @onsubmit="SayAsync">
+                <input class="field" @bind="_message" placeholder="Type what the caller says…" aria-label="Caller message" />
+                <button class="btn primary" type="submit">Say</button>
+            </form>
+            @if (!Line.AiConfigured)
+            {
+                <p class="soft small">No model configured: set AI:Endpoint and AI:ApiKey to let the agent answer.</p>
+            }
+        }
+
+        <ol class="transcript">
+            @* Newest first, so the latest prompt or answer is always in view. *@
+            @foreach (var line in Line.Transcript.Reverse().Take(40))
+            {
+                <li class="@line.Speaker.ToString().ToLowerInvariant()">
+                    <span class="who mono">@line.Speaker.ToString().ToUpperInvariant()</span>
+                    <span>@line.Text</span>
+                </li>
+            }
+        </ol>
+
+        @if (Line.Collected.Count > 0)
+        {
+            <div class="collected">
+                <div class="eyebrow">Collected</div>
+                @foreach (var value in Line.Collected)
+                {
+                    <div class="mono">@value.Key = @value.Value</div>
+                }
+            </div>
+        }
+    </section>
+</div>
+
+@code {
+    private static readonly string[] Keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
+    private FlowModel _flow = FlowModel.Sample();
+    private string _message = string.Empty;
+    private string? _notice;
+    private bool _noticeIsError;
+
+    protected override void OnInitialized()
+    {
+        _flow = Store.Load();
+        Line.Changed += OnLineChanged;
+    }
+
+    private void OnLineChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private void SaveFlow()
+    {
+        try
+        {
+            _flow.Build((_, _, _) => Task.CompletedTask);
+            Store.Save(_flow);
+            Notice("Saved.", error: false);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Notice(ex.Message, error: true);
+        }
+    }
+
+    private void ResetFlow()
+    {
+        _flow = Store.Reset();
+        Notice("Sample flow restored.", error: false);
+    }
+
+    private async Task CallAsync()
+    {
+        Line.CurrentInstructions = _flow.AiInstructions;
+        _notice = null;
+        await Line.StartAsync(_flow);
+    }
+
+    private void SayAsync()
+    {
+        Line.Say(_message);
+        _message = string.Empty;
+    }
+
+    private void AddMenu() => _flow.Menus.Add(new MenuModel { Id = $"menu{_flow.Menus.Count + 1}", Prompt = "Tekan satu untuk…" });
+
+    private static void AddOption(MenuModel menu)
+    {
+        var used = menu.Options.Select(o => o.Digit).ToHashSet();
+        var digit = Keys.Select(k => k[0]).FirstOrDefault(k => !used.Contains(k), '9');
+        menu.Options.Add(new OptionModel { Digit = digit, Label = "New option", Kind = OptionKind.Say, Text = "Terima kasih." });
+    }
+
+    private void Notice(string text, bool error)
+    {
+        _notice = text;
+        _noticeIsError = error;
+    }
+
+    private static string KindLabel(OptionKind kind) => kind switch
+    {
+        OptionKind.GoToMenu => "Go to menu",
+        OptionKind.CollectDigits => "Collect digits",
+        OptionKind.Transfer => "Transfer",
+        OptionKind.Queue => "Queue",
+        OptionKind.AiAgent => "AI agent",
+        OptionKind.Say => "Say",
+        _ => "Hang up",
+    };
+
+    private static string KindClass(OptionKind kind) => kind switch
+    {
+        OptionKind.AiAgent => "ai",
+        OptionKind.Transfer or OptionKind.Queue => "out",
+        OptionKind.HangUp => "end",
+        _ => "inner",
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        Line.Changed -= OnLineChanged;
+        await Line.HangUpAsync();
+    }
+}

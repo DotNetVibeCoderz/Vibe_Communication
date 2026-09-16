@@ -1,0 +1,231 @@
+@page "/"
+@implements IDisposable
+@inject ContactCentre Centre
+
+<PageTitle>Wallboard · Voip.NET Call Centre</PageTitle>
+
+<section class="queues">
+    @foreach (var q in _snapshot.Queues)
+    {
+        var breached = q.ServiceLevel < 0.8;
+        <article class="module raised cable @(breached ? "ended" : "connected") queue">
+            <div class="queue-head">
+                <div>
+                    <div class="eyebrow">Queue</div>
+                    <h2 class="display queue-name">@q.Queue</h2>
+                </div>
+                <div class="sla">
+                    <div class="display sla-value @(breached ? "bad" : "")">@q.ServiceLevel.ToString("P0")</div>
+                    <div class="eyebrow">answered in target</div>
+                </div>
+            </div>
+            <dl class="figures">
+                <div><dt class="eyebrow">Offered</dt><dd class="mono">@q.Offered</dd></div>
+                <div><dt class="eyebrow">Answered</dt><dd class="mono">@q.Answered</dd></div>
+                <div><dt class="eyebrow">Hung up</dt><dd class="mono">@q.Abandoned (@q.AbandonRate.ToString("P0"))</dd></div>
+                <div><dt class="eyebrow">Avg wait</dt><dd class="mono">@q.AverageWait.TotalSeconds.ToString("0.0") s</dd></div>
+                <div><dt class="eyebrow">Avg talk</dt><dd class="mono">@q.AverageTalk.TotalSeconds.ToString("0") s</dd></div>
+            </dl>
+        </article>
+    }
+</section>
+
+<section class="middle">
+    <article class="module waiting">
+        <div class="section-head">
+            <h3 class="display">Waiting now</h3>
+            <span class="pill">@_snapshot.Waiting.Count</span>
+        </div>
+        @if (_snapshot.Waiting.Count == 0)
+        {
+            <p class="empty">Nobody is waiting. Every caller reached an agent.</p>
+        }
+        else
+        {
+            <ul class="lines">
+                @foreach (var w in _snapshot.Waiting)
+                {
+                    var fraction = Math.Min(w.Waiting.TotalSeconds / Math.Max(w.Target.TotalSeconds * 2, 1), 1);
+                    var over = w.Waiting > w.Target;
+                    <li>
+                        <div class="line-label">
+                            <span>@w.Caller</span>
+                            <span class="mono soft">@w.Queue · #@w.Position · @w.Waiting.TotalSeconds.ToString("0") s</span>
+                        </div>
+                        @* The caller's wait drawn as a cable that runs past the target marker when it is late. *@
+                        <div class="wire" title="Target @w.Target.TotalSeconds s">
+                            <div class="wire-fill @(over ? "late" : "")" style="width:@((fraction * 100).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                            <div class="wire-target"></div>
+                        </div>
+                    </li>
+                }
+            </ul>
+        }
+    </article>
+
+    <article class="module agents">
+        <div class="section-head">
+            <h3 class="display">Agents</h3>
+            <span class="pill">@_snapshot.Agents.Count(a => a.State == AgentState.Available) available</span>
+        </div>
+        <div class="agent-grid">
+            @foreach (var a in _snapshot.Agents)
+            {
+                <div class="agent cable @a.State.ToString().ToLowerInvariant()">
+                    <div class="agent-top">
+                        <strong>@a.Name</strong>
+                        <span class="mono soft">@a.Id</span>
+                    </div>
+                    <div class="agent-state">
+                        <span class="eyebrow">@StateLabel(a.State)</span>
+                        <span class="mono soft">@Format(a.InState)</span>
+                    </div>
+                    <div class="soft agent-detail">
+                        @(a.Caller is null ? string.Join(" · ", a.Skills) : $"with {a.Caller}")
+                    </div>
+                    <div class="agent-foot">
+                        <span class="mono">@a.Handled calls · @Format(a.TalkTime) talk</span>
+                        @if (a.State is AgentState.Paused or AgentState.Offline)
+                        {
+                            <button class="btn small" @onclick="() => Centre.SetAgentState(a.Id, AgentState.Available)">Make available</button>
+                        }
+                        else if (a.State == AgentState.Available)
+                        {
+                            <button class="btn small" @onclick="() => Centre.SetAgentState(a.Id, AgentState.Paused)">Pause</button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </article>
+</section>
+
+<section class="bottom">
+    <article class="module raised">
+        <div class="section-head">
+            <h3 class="display">Live calls</h3>
+            <span class="pill">@_snapshot.Calls.Count</span>
+        </div>
+        @if (_snapshot.Calls.Count == 0)
+        {
+            <p class="empty">No calls in progress. Start the traffic generator to bring callers in.</p>
+        }
+        else
+        {
+            <table class="grid">
+                <thead><tr><th>Caller</th><th>Queue</th><th>Codec</th><th class="num">Duration</th><th class="num">MOS</th><th class="num">Loss</th><th class="num">Jitter</th></tr></thead>
+                <tbody>
+                    @foreach (var c in _snapshot.Calls)
+                    {
+                        <tr>
+                            <td>@c.Caller</td>
+                            <td>@c.Queue</td>
+                            <td class="mono">@c.Codec</td>
+                            <td class="num">@Format(c.Duration)</td>
+                            <td class="num"><span class="mos @(c.Mos >= 4 ? "good" : c.Mos >= 3.5 ? "fair" : "poor")">@(c.Mos > 0 ? c.Mos.ToString("0.00") : "—")</span></td>
+                            <td class="num">@c.LossPercent.ToString("0.0")%</td>
+                            <td class="num">@c.JitterMs.ToString("0") ms</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </article>
+
+    <aside class="side">
+        <article class="module">
+            <div class="section-head"><h3 class="display">Traffic</h3></div>
+            <p class="soft small">Simulated customers call the queues with Poisson arrivals. Every call is real SIP and RTP through the engine.</p>
+            <label class="eyebrow" for="rate">Calls per minute · @_rate.ToString("0")</label>
+            <input id="rate" type="range" min="2" max="40" step="1" value="@_rate" @oninput="OnRateChanged" />
+            <div class="row">
+                @if (_snapshot.TrafficRunning)
+                {
+                    <button class="btn danger" @onclick="Centre.StopTraffic">Stop traffic</button>
+                }
+                else
+                {
+                    <button class="btn go" @onclick="Centre.StartTraffic">Start traffic</button>
+                }
+            </div>
+        </article>
+
+        <article class="module cable ai">
+            <div class="section-head"><h3 class="display">AI supervisor</h3></div>
+            <p class="soft small">The model reads the wallboard and suggests what to change.</p>
+            <button class="btn primary" disabled="@_thinking" @onclick="AskAsync">@(_thinking ? "Reading the wallboard…" : "Ask for advice")</button>
+            @if (!string.IsNullOrEmpty(_advice))
+            {
+                <pre class="advice">@_advice</pre>
+            }
+        </article>
+
+        <article class="module events">
+            <div class="section-head"><h3 class="display">Events</h3></div>
+            <ol>
+                @foreach (var e in _snapshot.Events.Take(14))
+                {
+                    <li class="mono">@e</li>
+                }
+            </ol>
+        </article>
+    </aside>
+</section>
+
+@code {
+    private WallboardSnapshot _snapshot = new([], [], [], [], [], false, 10, DateTimeOffset.UtcNow);
+    private Timer? _timer;
+    private double _rate = 10;
+    private bool _thinking;
+    private string? _advice;
+
+    protected override void OnInitialized()
+    {
+        _rate = Centre.CallsPerMinute;
+        _snapshot = Centre.Snapshot();
+        // Poll twice a second: steady for the eye and cheap for the server, however busy the queues are.
+        _timer = new Timer(_ => InvokeAsync(() =>
+        {
+            _snapshot = Centre.Snapshot();
+            StateHasChanged();
+        }), null, 500, 500);
+    }
+
+    private void OnRateChanged(ChangeEventArgs e)
+    {
+        if (double.TryParse(e.Value?.ToString(), System.Globalization.CultureInfo.InvariantCulture, out var rate))
+        {
+            _rate = rate;
+            Centre.CallsPerMinute = rate;
+        }
+    }
+
+    private async Task AskAsync()
+    {
+        _thinking = true;
+        _advice = null;
+        try
+        {
+            _advice = await Centre.AskForInsightsAsync(CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or UriFormatException)
+        {
+            _advice = $"The model could not be reached: {ex.Message}";
+        }
+        finally
+        {
+            _thinking = false;
+        }
+    }
+
+    private static string StateLabel(AgentState state) => state switch
+    {
+        AgentState.OnCall => "on a call",
+        AgentState.Wrapup => "wrap-up",
+        _ => state.ToString().ToLowerInvariant(),
+    };
+
+    private static string Format(TimeSpan t) => t.TotalHours >= 1 ? t.ToString(@"h\:mm\:ss") : t.ToString(@"m\:ss");
+
+    public void Dispose() => _timer?.Dispose();
+}

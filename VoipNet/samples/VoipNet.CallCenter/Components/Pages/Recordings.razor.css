@@ -1,0 +1,8 @@
+.head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
+.head h1 { font-size: 34px; }
+.head p { margin: 6px 0 0; max-width: 640px; }
+audio { height: 32px; max-width: 280px; }
+
+@media (max-width: 640px) {
+    .head { flex-direction: column; }
+}

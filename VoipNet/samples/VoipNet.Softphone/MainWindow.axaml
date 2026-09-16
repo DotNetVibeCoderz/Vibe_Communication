@@ -1,0 +1,231 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:VoipNet.Softphone.ViewModels"
+        xmlns:theme="using:VoipNet.Samples.Theme"
+        x:Class="VoipNet.Softphone.MainWindow"
+        x:DataType="vm:SoftphoneViewModel"
+        Title="Voip.NET Softphone"
+        Width="1180" Height="760" MinWidth="960" MinHeight="640">
+
+  <Grid RowDefinitions="Auto,*,Auto">
+
+    <!-- Top bar: identity on the left, line status on the right. -->
+    <Border Grid.Row="0" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,0,1" Padding="24,14">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+          <Border Classes="cable connected" Height="26" Classes.ended="{Binding !IsOnline}" />
+          <StackPanel>
+            <TextBlock Classes="title" Text="Softphone" />
+            <TextBlock Classes="eyebrow" Text="VOIP.NET · RUST ENGINE · .NET 10" />
+          </StackPanel>
+        </StackPanel>
+
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Margin="0,0,16,0">
+          <Border Classes="pill">
+            <TextBlock Text="{Binding Status}" Foreground="{StaticResource CableGreenBrush}" />
+          </Border>
+          <TextBlock Classes="mono soft" Text="{Binding Identity}" VerticalAlignment="Center" />
+        </StackPanel>
+        <Button Grid.Column="3" Classes="quiet" Content="Settings" Command="{Binding ToggleSettingsCommand}" />
+      </Grid>
+    </Border>
+
+    <SplitView Grid.Row="1" IsPaneOpen="{Binding IsSettingsOpen}" DisplayMode="Overlay" PanePlacement="Right" OpenPaneLength="380"
+               PaneBackground="{DynamicResource PanelRaisedBrush}">
+
+      <!-- Settings pane -->
+      <SplitView.Pane>
+        <ScrollViewer>
+          <StackPanel Margin="24" Spacing="14">
+            <TextBlock Classes="title" Text="Account" />
+            <CheckBox Content="Demo mode — built-in echo and music lines, no PBX needed" IsChecked="{Binding DemoMode}" />
+            <TextBlock Classes="eyebrow" Text="SIP DOMAIN" />
+            <TextBox Classes="mono" Text="{Binding Domain}" PlaceholderText="pbx.example.com" IsEnabled="{Binding !DemoMode}" />
+            <Grid ColumnDefinitions="*,12,*">
+              <StackPanel Spacing="6">
+                <TextBlock Classes="eyebrow" Text="USER" />
+                <TextBox Classes="mono" Text="{Binding Username}" />
+              </StackPanel>
+              <StackPanel Grid.Column="2" Spacing="6">
+                <TextBlock Classes="eyebrow" Text="PASSWORD" />
+                <TextBox Text="{Binding Password}" PasswordChar="•" IsEnabled="{Binding !DemoMode}" />
+              </StackPanel>
+            </Grid>
+            <TextBlock Classes="eyebrow" Text="DISPLAY NAME" />
+            <TextBox Text="{Binding DisplayName}" />
+            <CheckBox Content="Use TCP for signalling" IsChecked="{Binding UseTcp}" />
+            <CheckBox Content="Offer SRTP media encryption" IsChecked="{Binding UseSrtp}" />
+            <CheckBox Content="Use microphone and speakers" IsChecked="{Binding UseAudioDevices}" />
+            <Button Classes="primary" Content="Connect" Command="{Binding ConnectCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+            <TextBlock Text="{Binding Error}" Foreground="{StaticResource CableRedBrush}" TextWrapping="Wrap" IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+            <Separator Margin="0,10" />
+            <TextBlock Classes="title" Text="AI summaries" />
+            <TextBlock Classes="soft" TextWrapping="Wrap" Text="Any OpenAI-compatible endpoint: OpenAI, Azure OpenAI, DeepSeek or a local model." />
+            <TextBlock Classes="eyebrow" Text="ENDPOINT" />
+            <TextBox Classes="mono" Text="{Binding AiEndpoint}" PlaceholderText="https://your-resource.openai.azure.com/" />
+            <TextBlock Classes="eyebrow" Text="API KEY" />
+            <TextBox Text="{Binding AiKey}" PasswordChar="•" />
+            <TextBlock Classes="eyebrow" Text="MODEL OR DEPLOYMENT" />
+            <TextBox Classes="mono" Text="{Binding AiModel}" />
+          </StackPanel>
+        </ScrollViewer>
+      </SplitView.Pane>
+
+      <Grid ColumnDefinitions="300,*,320" Margin="20">
+
+        <!-- Dialler and history -->
+        <Border Classes="module" Grid.Column="0">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Spacing="12">
+              <TextBlock Classes="eyebrow" Text="DIAL" />
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBox Classes="mono" FontSize="17" Text="{Binding DialTarget}" PlaceholderText="sip:user@host or extension" />
+                <Button Grid.Column="1" Classes="quiet" Content="⌫" Margin="6,0,0,0" Command="{Binding BackspaceCommand}" />
+              </Grid>
+              <UniformGrid Columns="3" HorizontalAlignment="Center">
+                <Button Classes="key" Margin="4" Content="1" Command="{Binding KeyCommand}" CommandParameter="1" />
+                <Button Classes="key" Margin="4" Content="2" Command="{Binding KeyCommand}" CommandParameter="2" />
+                <Button Classes="key" Margin="4" Content="3" Command="{Binding KeyCommand}" CommandParameter="3" />
+                <Button Classes="key" Margin="4" Content="4" Command="{Binding KeyCommand}" CommandParameter="4" />
+                <Button Classes="key" Margin="4" Content="5" Command="{Binding KeyCommand}" CommandParameter="5" />
+                <Button Classes="key" Margin="4" Content="6" Command="{Binding KeyCommand}" CommandParameter="6" />
+                <Button Classes="key" Margin="4" Content="7" Command="{Binding KeyCommand}" CommandParameter="7" />
+                <Button Classes="key" Margin="4" Content="8" Command="{Binding KeyCommand}" CommandParameter="8" />
+                <Button Classes="key" Margin="4" Content="9" Command="{Binding KeyCommand}" CommandParameter="9" />
+                <Button Classes="key" Margin="4" Content="*" Command="{Binding KeyCommand}" CommandParameter="*" />
+                <Button Classes="key" Margin="4" Content="0" Command="{Binding KeyCommand}" CommandParameter="0" />
+                <Button Classes="key" Margin="4" Content="#" Command="{Binding KeyCommand}" CommandParameter="#" />
+              </UniformGrid>
+              <Button Classes="go" Content="Call" FontSize="16" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                      Command="{Binding DialCommand}" IsEnabled="{Binding IsIdle}" />
+              <TextBlock Classes="eyebrow" Text="RECENT" Margin="0,10,0,0" />
+            </StackPanel>
+
+            <ScrollViewer>
+              <ItemsControl ItemsSource="{Binding Recent}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:RecentCall">
+                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,6">
+                      <Border Classes="cable" Height="30" Margin="0,0,10,0"
+                              Classes.connected="{Binding Outgoing}" Classes.ended="{Binding Missed}" />
+                      <StackPanel Grid.Column="1">
+                        <TextBlock Text="{Binding Name}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Classes="eyebrow" Text="{Binding Direction}" />
+                      </StackPanel>
+                      <StackPanel Grid.Column="2" HorizontalAlignment="Right">
+                        <TextBlock Classes="mono" Text="{Binding Duration}" HorizontalAlignment="Right" />
+                        <TextBlock Classes="eyebrow" Text="{Binding When}" HorizontalAlignment="Right" />
+                      </StackPanel>
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </DockPanel>
+        </Border>
+
+        <!-- The call -->
+        <Border Classes="module raised" Grid.Column="1" Margin="16,0" Padding="0">
+          <Panel>
+            <!-- Idle state: an invitation to act. -->
+            <StackPanel IsVisible="{Binding IsIdle}" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10" MaxWidth="420">
+              <TextBlock Classes="eyebrow" Text="NO ACTIVE CALL" HorizontalAlignment="Center" />
+              <TextBlock Classes="display" Text="Dial echo to hear yourself." TextWrapping="Wrap" TextAlignment="Center" />
+              <TextBlock Classes="soft" TextWrapping="Wrap" TextAlignment="Center"
+                         Text="Demo mode includes two lines: echo repeats what you say, music plays a melody and answers keypad presses with tones. Turn demo mode off in Settings to use your PBX." />
+            </StackPanel>
+
+            <Grid IsVisible="{Binding HasActiveCall}" ColumnDefinitions="Auto,*">
+              <Border Classes="cable" Width="6" CornerRadius="6,0,0,6"
+                      Classes.ringing="{Binding ActiveCall.IsRinging}"
+                      Classes.connected="{Binding ActiveCall.IsConnected}"
+                      Classes.ended="{Binding ActiveCall.IsEnded}" />
+
+              <DockPanel Grid.Column="1" Margin="28,24">
+                <StackPanel DockPanel.Dock="Top" Spacing="4">
+                  <TextBlock Classes="eyebrow" Text="{Binding ActiveCall.StateLabel}" />
+                  <TextBlock Classes="display" FontSize="38" Text="{Binding ActiveCall.DisplayName}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Classes="mono soft" Text="{Binding ActiveCall.Address}" TextTrimming="CharacterEllipsis" />
+                  <StackPanel Orientation="Horizontal" Spacing="18" Margin="0,14,0,0">
+                    <TextBlock Classes="display" FontSize="26" Text="{Binding ActiveCall.Duration}" />
+                    <StackPanel VerticalAlignment="Center">
+                      <TextBlock Classes="mono" Text="{Binding ActiveCall.CodecLabel}" />
+                      <TextBlock Classes="mono soft" Text="{Binding ActiveCall.Quality}" />
+                    </StackPanel>
+                  </StackPanel>
+                </StackPanel>
+
+                <!-- Incoming call: answer or decline. -->
+                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="12" IsVisible="{Binding ActiveCall.IsIncoming}">
+                  <Button Classes="go" Content="Answer" FontSize="16" Padding="28,10" Command="{Binding ActiveCall.AnswerCommand}" />
+                  <Button Classes="danger" Content="Decline" FontSize="16" Padding="28,10" Command="{Binding ActiveCall.DeclineCommand}" />
+                </StackPanel>
+
+                <!-- Controls -->
+                <StackPanel DockPanel.Dock="Bottom" Spacing="12" IsVisible="{Binding !ActiveCall.IsIncoming}">
+                  <WrapPanel IsVisible="{Binding ActiveCall.CanControl}">
+                    <ToggleButton Margin="0,0,8,8" Content="Mute" IsChecked="{Binding ActiveCall.IsMuted, Mode=OneWay}" Command="{Binding ActiveCall.ToggleMuteCommand}" />
+                    <ToggleButton Margin="0,0,8,8" Content="Hold" IsChecked="{Binding ActiveCall.IsOnHold, Mode=OneWay}" Command="{Binding ActiveCall.ToggleHoldCommand}" />
+                    <ToggleButton Margin="0,0,8,8" Content="Keypad" IsChecked="{Binding ActiveCall.ShowKeypad, Mode=OneWay}" Command="{Binding ActiveCall.ToggleKeypadCommand}" />
+                    <ToggleButton Margin="0,0,8,8" Content="Record" IsChecked="{Binding ActiveCall.IsRecording, Mode=OneWay}" Command="{Binding ActiveCall.ToggleRecordingCommand}" />
+                  </WrapPanel>
+                  <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding ActiveCall.CanControl}">
+                    <TextBox Classes="mono" Text="{Binding ActiveCall.TransferTarget}" PlaceholderText="Transfer to sip:colleague@pbx" />
+                    <Button Grid.Column="1" Classes="quiet" Margin="8,0,0,0" Content="Transfer" Command="{Binding ActiveCall.TransferCommand}" />
+                  </Grid>
+                  <TextBlock Classes="mono soft" Text="{Binding ActiveCall.SentDigits, StringFormat='Keys sent: {0}'}"
+                             IsVisible="{Binding ActiveCall.ShowKeypad}" />
+                  <Grid ColumnDefinitions="*,*" >
+                    <Button Classes="danger" Content="End call" FontSize="16" Padding="28,10" HorizontalAlignment="Left"
+                            Command="{Binding ActiveCall.HangupCommand}" IsVisible="{Binding !ActiveCall.IsEnded}" />
+                    <Button Classes="quiet" Content="Close" Padding="28,10" HorizontalAlignment="Left"
+                            Command="{Binding DismissCallCommand}" IsVisible="{Binding ActiveCall.IsEnded}" />
+                  </Grid>
+                </StackPanel>
+
+                <!-- The signature: what each side is saying, drawn from the real audio. -->
+                <StackPanel VerticalAlignment="Center" Spacing="8" Margin="0,18">
+                  <TextBlock Classes="eyebrow" Text="THEM" />
+                  <theme:TraceLine Levels="{Binding ActiveCall.InboundLevels}" Stroke="{StaticResource CableGreenBrush}" />
+                  <TextBlock Classes="eyebrow" Text="YOU" Margin="0,6,0,0" />
+                  <theme:TraceLine Levels="{Binding ActiveCall.OutboundLevels}" Stroke="{StaticResource CobaltBrush}" />
+                </StackPanel>
+              </DockPanel>
+            </Grid>
+          </Panel>
+        </Border>
+
+        <!-- Notes and AI summary -->
+        <Border Classes="module" Grid.Column="2">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10">
+              <Border Classes="cable ai" Height="22" />
+              <TextBlock Classes="title" Text="Call notes" VerticalAlignment="Center" />
+            </StackPanel>
+            <Button DockPanel.Dock="Bottom" Classes="primary" Content="Summarise with AI" Margin="0,12,0,0"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                    Command="{Binding SummarizeCommand}" IsEnabled="{Binding !IsSummarizing}" />
+            <Grid RowDefinitions="*,Auto,*" Margin="0,12,0,0">
+              <TextBox Text="{Binding Notes}" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top"
+                       PlaceholderText="Who called, what they need, what you promised…" />
+              <TextBlock Grid.Row="1" Classes="eyebrow" Text="SUMMARY" Margin="0,14,0,6" />
+              <Border Grid.Row="2" Background="{DynamicResource TraceBackBrush}" CornerRadius="4" Padding="12">
+                <ScrollViewer>
+                  <SelectableTextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
+                </ScrollViewer>
+              </Border>
+            </Grid>
+          </DockPanel>
+        </Border>
+      </Grid>
+    </SplitView>
+
+    <Border Grid.Row="2" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,1,0,0" Padding="24,8">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Classes="soft" FontSize="12" Text="Made by Gravicode Studios — led by Kang Fadhil" />
+        <TextBlock Grid.Column="1" Classes="mono soft" FontSize="12" Text="{Binding EngineVersion}" />
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

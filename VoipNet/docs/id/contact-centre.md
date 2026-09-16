@@ -1,0 +1,123 @@
+# Contact center: IVR, antrean, rekaman, CRM
+
+🇬🇧 [English](../en/contact-centre.md) · Dibuat oleh Gravicode Studios, dipimpin oleh Kang Fadhil
+
+![Wallboard call center](../images/callcenter-wallboard-light.png)
+
+## IVR
+
+```csharp
+var flow = IvrFlow.Create()
+    .Welcome("Selamat datang di Gravicode Net.")
+    .Menu("main", "Tekan 1 untuk penjualan, 2 untuk bantuan teknis, 0 untuk operator.", m => m
+        .Option('1', "Penjualan", new IvrAction.Enqueue("sales", "Menghubungkan ke tim penjualan."))
+        .Option('2', "Bantuan", new IvrAction.Collect("account", "Masukkan nomor pelanggan, akhiri dengan pagar.", 8, "support"))
+        .Option('0', "Operator", new IvrAction.Transfer("sip:operator@pbx", "Mohon tunggu."))
+        .WaitFor(TimeSpan.FromSeconds(6))
+        .Attempts(3)
+        .OnFailure(new IvrAction.Hangup("Terima kasih.")))
+    .Menu("support", "Tekan 1 untuk asisten AI.", m => m
+        .Option('1', "Asisten AI", new IvrAction.Handoff("ai", (call, context, ct) =>
+            agentFactory.Create(o => o.SystemPrompt += $" Nomor pelanggan: {context.Values["account"]}").RunAsync(call, ct)))
+        .Option('9', "Kembali", new IvrAction.Goto("main")))
+    .Build();                                 // memvalidasi bahwa setiap menu tujuan ada
+
+var result = await new IvrRunner(textToSpeech).RunAsync(call, flow);
+// result.Outcome: Queued · Transferred · HandedOff · Completed · CallerLeft
+// result.Context.Values["account"], result.Context.RequestedQueue, result.Context.Path
+```
+
+| Aksi | Efek |
+| --- | --- |
+| `Goto(menu)` | tampilkan menu lain |
+| `Say(text)` | ucapkan lalu ulangi menu saat ini |
+| `Collect(key, prompt, maxDigits, nextMenu, terminator)` | baca digit ke `Context.Values[key]` |
+| `Transfer(target, announcement)` | REFER penelepon ke tujuan lain |
+| `Enqueue(queue, announcement)` | berhenti dan laporkan antrean (teruskan ke `CallCenterService`) |
+| `Handoff(name, handler)` | serahkan panggilan ke handler async apa pun, biasanya `VoiceAgent` |
+| `Hangup(announcement)` | ucapkan salam penutup dan akhiri panggilan |
+
+Menu dapat memutar file WAV (`PromptFromFile`) sebagai pengganti prompt sintesis.
+
+![IVR Studio](../images/ivrstudio-test-call.png)
+
+## Antrean dan agen
+
+```csharp
+var centre = new CallCenterService(pbxClient, textToSpeech);
+centre.AddQueue(new CallQueueOptions
+{
+    Name = "support",
+    Strategy = RoutingStrategy.SkillBased,   // RoundRobin · LongestIdle · FewestCalls · SkillBased
+    RequiredSkill = "support",
+    ServiceLevelTarget = TimeSpan.FromSeconds(20),
+    MaxWait = TimeSpan.FromMinutes(5),
+    OverflowTarget = "sip:voicemail@pbx",
+    RingTimeout = TimeSpan.FromSeconds(25),
+    WrapupTime = TimeSpan.FromSeconds(15),
+    AnnouncePosition = true,
+    MusicOnHoldFile = "hold.wav",
+});
+
+centre.AddAgent(new Agent { Id = "2001", Name = "Sari", Uri = "sip:2001@pbx", Skills = { "support", "english" } });
+centre.SetAgentState("2001", AgentState.Available);
+
+pbxClient.IncomingCall += async (_, e) =>
+{
+    await e.Call.AnswerAsync();
+    var ivr = await ivrRunner.RunAsync(e.Call, flow);
+    if (ivr.Outcome == IvrOutcome.Queued)
+    {
+        var result = await centre.EnqueueAsync(e.Call, ivr.Context.RequestedQueue!, priority: 0, context: ivr.Context.Values);
+    }
+};
+```
+
+Selama penelepon menunggu: pengumuman posisi dan/atau musik tunggu diputar; saat penelepon berada di urutan pertama dan ada agen dengan skill yang sesuai, agen dipesan (`Ringing`) dan ditelepon. Jika agen menjawab, kedua leg dijembatani dalam konferensi dan agen berstatus `OnCall`; jika tidak, agen berikutnya dicoba. Setelah panggilan, agen melalui `Wrapup` lalu kembali `Available`.
+
+Supervisor listen-in dan whisper:
+
+```csharp
+var supervisor = await pbxClient.CallAsync("sip:supervisor@pbx");
+centre.Monitor(callerCallId, supervisor, whisper: false);   // hanya mendengar
+```
+
+Mode hanya-mendengar membuat leg ke supervisor menjadi send-only: supervisor mendengar percakapan, tetapi suaranya tidak masuk ke jembatan.
+
+### Metrik
+
+```csharp
+var s = centre.Metrics.Snapshot("support");
+// Offered, Answered, Abandoned, Overflowed, AverageWait, LongestWait, AverageTalk, ServiceLevel, AbandonRate
+centre.Metrics.Changed += (_, _) => dashboard.Refresh();
+```
+
+## Layanan rekaman
+
+```csharp
+using var recordings = new RecordingService(pbxClient, new RecordingOptions
+{
+    Directory = "recordings", Format = RecordingFormat.Mp3, Layout = RecordingLayout.Stereo,
+    RecordAllCalls = true, Retention = TimeSpan.FromDays(90),
+});
+recordings.RecordingSaved += (_, info) => Upload(info.Path);
+var latest = recordings.List(50);           // indeks disimpan sebagai JSON di samping setiap file
+recordings.ApplyRetention();
+```
+
+## Tools CRM
+
+Implementasikan `ICrmConnector` untuk CRM Anda lalu berikan tools-nya ke model:
+
+```csharp
+public sealed class HubSpotConnector : ICrmConnector { … }
+
+var tools = CrmToolset.Create(new HubSpotConnector(...));
+var options = new VoiceAgentOptions { ChatOptions = new ChatOptions { Tools = [.. tools] } };
+```
+
+`InMemoryCrmConnector` mencocokkan nomor telepon berdasarkan sembilan digit terakhir, sehingga `+62 812…`, `62812…`, dan `0812…` merujuk ke pelanggan yang sama.
+
+## Analitik dengan AI
+
+Sample Call Centre mengirim snapshot wallboard ke model dan menampilkan saran penjadwalan staf — pola yang bisa dipakai ulang untuk laporan shift, ringkasan QA dari rekaman (transkripsi dengan `TranscribeOnceAsync`, ringkas dengan `IChatClient` apa pun), atau analitik intent.
