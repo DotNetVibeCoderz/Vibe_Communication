@@ -2,7 +2,7 @@
 
 Voip.NET — made by Gravicode Studios, led by Kang Fadhil · dibuat oleh Gravicode Studios, dipimpin oleh Kang Fadhil
 
-Last updated · Terakhir diperbarui: **2026-09-16** · Version · Versi: **1.0.0**
+Last updated · Terakhir diperbarui: **2026-09-17** · Version · Versi: **1.0.0**
 
 Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ planned · direncanakan (see · lihat [PLAN.md](PLAN.md))
 
@@ -41,7 +41,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | H.264, VP8/VP9 | 🟡 | negotiated, pass-through · dinegosiasikan, pass-through |
 | DTMF RFC 4733 / SIP INFO / in-band | ✅ | Goertzel detector · detektor Goertzel |
 | SIMD acceleration | 🟡 | table-driven codecs and auto-vectorised loops; no hand-written intrinsics · codec berbasis tabel dan loop tervektorisasi otomatis |
-| GPU acceleration | ⏳ | not needed for audio codecs; relevant for future video · belum diperlukan untuk audio |
+| GPU acceleration | ⏳ | not needed for audio codecs; planned with video (PLAN 1.3) · belum diperlukan untuk audio; direncanakan bersama video (PLAN 1.3) |
 
 ## WebRTC
 
@@ -53,6 +53,17 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | DTLS-SRTP | ⏳ | required for browsers · diperlukan untuk browser |
 | Data channels (SCTP) | ⏳ | |
 | Browser interop | ⏳ | depends on DTLS-SRTP · bergantung pada DTLS-SRTP |
+
+## 🎥 Video · Fitur video
+
+Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
+
+| Item | Status | Notes · Catatan |
+| --- | --- | --- |
+| Video call support — voice + video in one SIP session · panggilan suara + video dalam satu sesi SIP | 🟡 | `m=video` lines are negotiated and H.264/VP8/VP9 payloads can be exchanged with `SendEncoded`/`EncodedReceived`; no camera capture, codec, packetiser or frame jitter buffer yet · baris `m=video` dinegosiasikan dan payload bisa dipertukarkan secara pass-through; belum ada kamera, codec, paketisasi, atau jitter buffer frame |
+| Video conferencing with layout control · konferensi video multipihak dengan kontrol layout | ⏳ | audio conferencing exists; video compositor/SFU planned · konferensi audio sudah ada; compositor/SFU video direncanakan |
+| Screen sharing (desktop & web) · berbagi layar (desktop & web) | ⏳ | web sharing depends on DTLS-SRTP/WebRTC · berbagi dari web bergantung pada DTLS-SRTP/WebRTC |
+| Video recording to MP4/AVI · perekaman audio + video ke MP4/AVI | ⏳ | audio recording (WAV/MP3) exists · perekaman audio (WAV/MP3) sudah ada |
 
 ## AI call centre · AI call center
 
