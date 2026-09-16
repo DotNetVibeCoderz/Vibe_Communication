@@ -16,6 +16,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Calls run real-time media threads; running test classes in parallel starves small CI runners. -->
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\VoipNet.Core\VoipNet.Core.csproj" />
     <ProjectReference Include="..\..\src\VoipNet.Audio\VoipNet.Audio.csproj" />
     <ProjectReference Include="..\..\src\VoipNet.AI\VoipNet.AI.csproj" />
