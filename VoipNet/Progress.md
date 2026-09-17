@@ -2,7 +2,7 @@
 
 Voip.NET — made by Gravicode Studios, led by Kang Fadhil · dibuat oleh Gravicode Studios, dipimpin oleh Kang Fadhil
 
-Last updated · Terakhir diperbarui: **2026-09-17** · Version · Versi: **1.0.0**
+Last updated · Terakhir diperbarui: **2026-09-17** · Version · Versi: **1.1.0**
 
 Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ planned · direncanakan (see · lihat [PLAN.md](PLAN.md))
 
@@ -126,7 +126,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 
 ## Changelog
 
-### Unreleased · Belum dirilis
+### 1.1.0 — 2026-09-17
 
 - SIP over TLS with rustls: Mozilla roots, custom CA, SHA-256 pinning, PEM or self-signed identity; a failed handshake ends the request with 503 at once. · SIP melalui TLS; handshake yang gagal langsung mengakhiri request dengan 503.
 - SIP over WebSocket (`ws`, `wss`, RFC 7118), server and client. · SIP over WebSocket, server dan client.
