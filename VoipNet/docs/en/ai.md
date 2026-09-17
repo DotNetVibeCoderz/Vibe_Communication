@@ -82,7 +82,7 @@ Audio is always 16-bit mono PCM; the engine converts sample rates.
 | --- | --- | --- | --- |
 | Deepgram | `DeepgramSpeechToText` — web socket streaming with interim results | — | lowest barge-in latency |
 | OpenAI | `OpenAiSpeechToText` | `OpenAiTextToSpeech` (PCM 24 kHz, streamed) | works with compatible servers |
-| ElevenLabs | `ElevenLabsSpeechToText` (Scribe) | `ElevenLabsTextToSpeech` (PCM at 8–44.1 kHz, streamed) | expressive voices |
+| ElevenLabs | `ElevenLabsSpeechToText` (Scribe) | `ElevenLabsTextToSpeech` (PCM at 8–44.1 kHz, streamed) | expressive voices; free plans may only use premade voices through the API (the default `VoiceId` is one) |
 | Google Cloud | `GoogleCloudSpeechToText` | `GoogleCloudTextToSpeech` (LINEAR16) | API key or OAuth token; `telephony` model |
 | Amazon | — | `AmazonPollyTextToSpeech` (PCM 8/16 kHz, SigV4 signed, no AWS SDK) | Transcribe is on the roadmap |
 | ElBruno.Realtime | `ElBrunoRealtimeSpeechToText` (web socket) | `ElBrunoRealtimeTextToSpeech` (HTTP PCM) | self-hosted, open source |
@@ -138,6 +138,18 @@ await realtime.RunAsync(call);
 ```
 
 Call audio is resampled to 24 kHz and streamed to the model; response audio is streamed back into the call. Server-side voice activity detection triggers `ClearAudio` when the caller interrupts.
+
+Azure OpenAI realtime deployments use the same agent:
+
+```csharp
+var options = RealtimeVoiceOptions.ForAzure("https://my-resource.openai.azure.com", azureKey, "gpt-realtime-mini");
+options.Greeting = "Hello, how can I help?";
+var agent = new RealtimeVoiceAgent(options);
+agent.AgentSaid += (_, text) => Console.WriteLine($"agent: {text}");
+agent.ErrorReceived += (_, error) => Console.WriteLine($"provider error: {error}");
+```
+
+The agent speaks the generally available realtime protocol by default (`session.type = "realtime"`, audio settings under `audio.input` and `audio.output`); set `Protocol = RealtimeProtocol.Beta` for endpoints that still expect `OpenAI-Beta: realtime=v1`. On Azure, caller transcription needs its own deployment: set `InputTranscriptionModel` to enable `CallerSaid`.
 
 ## Choosing an approach
 

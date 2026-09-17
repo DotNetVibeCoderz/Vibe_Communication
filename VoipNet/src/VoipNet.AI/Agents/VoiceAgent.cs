@@ -319,6 +319,10 @@ public sealed class VoiceAgent : IAsyncDisposable
         {
             // Interrupted by the caller: that is the point of barge-in.
         }
+        catch (VoipException) when (!call.IsActive)
+        {
+            // The call ended while the agent was talking.
+        }
         catch (Exception ex) when (ex is HttpRequestException or IOException)
         {
             _logger.LogError(ex, "Speech synthesis failed");

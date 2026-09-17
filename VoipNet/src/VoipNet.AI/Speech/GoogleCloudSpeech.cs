@@ -68,7 +68,7 @@ public sealed class GoogleCloudSpeechToText(GoogleCloudSpeechOptions options, Ht
         Authorize(request);
 
         using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        await response.EnsureSuccessAsync("Google Cloud", cancellationToken).ConfigureAwait(false);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
         if (!document.RootElement.TryGetProperty("results", out var results) || results.GetArrayLength() == 0)
@@ -137,7 +137,7 @@ public sealed class GoogleCloudTextToSpeech(GoogleCloudSpeechOptions options, Ht
         }
 
         using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        await response.EnsureSuccessAsync("Google Cloud", cancellationToken).ConfigureAwait(false);
         var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         using var document = JsonDocument.Parse(json);
         var audio = Convert.FromBase64String(document.RootElement.GetProperty("audioContent").GetString() ?? string.Empty);

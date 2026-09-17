@@ -187,3 +187,62 @@ public static class SpeechExtensions
         }
     }
 }
+
+/// <summary>Reads raw 16-bit PCM from an HTTP stream.</summary>
+internal static class PcmStream
+{
+    /// <summary>
+    /// Yields chunks as they arrive, always on a sample boundary: network reads can end between the two bytes
+    /// of a sample, and splitting there would shift every later sample by one byte.
+    /// </summary>
+    public static async IAsyncEnumerable<AudioChunk> ReadChunksAsync(
+        Stream stream,
+        int sampleRate,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var buffer = new byte[8192];
+        var carry = 0;
+        while (true)
+        {
+            var read = await stream.ReadAsync(buffer.AsMemory(carry), cancellationToken).ConfigureAwait(false);
+            if (read <= 0)
+            {
+                break;
+            }
+
+            var available = carry + read;
+            var whole = available & ~1;
+            if (whole > 0)
+            {
+                yield return new AudioChunk(buffer.AsMemory(0, whole).ToArray(), sampleRate);
+            }
+
+            carry = available - whole;
+            if (carry == 1)
+            {
+                buffer[0] = buffer[whole];
+            }
+        }
+    }
+}
+
+/// <summary>HTTP helpers shared by the speech providers.</summary>
+internal static class SpeechHttp
+{
+    /// <summary>Throws with the provider's error body, which usually says what to fix (plan, voice, model, key).</summary>
+    public static async Task EnsureSuccessAsync(this HttpResponseMessage response, string provider, CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (body.Length > 500)
+        {
+            body = body[..500];
+        }
+
+        throw new HttpRequestException($"{provider} returned {(int)response.StatusCode}: {body}", null, response.StatusCode);
+    }
+}

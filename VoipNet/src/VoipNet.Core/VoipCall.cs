@@ -187,11 +187,19 @@ public sealed class VoipCall
                 break;
             }
 
-            var queued = SendAudio(chunk.Span, sampleRate);
-            while (queued > maxQueuedMs && IsActive && !cancellationToken.IsCancellationRequested)
+            try
             {
-                await Task.Delay(Math.Min(queued - maxQueuedMs, 200), cancellationToken).ConfigureAwait(false);
-                queued = QueuedAudioMs;
+                var queued = SendAudio(chunk.Span, sampleRate);
+                while (queued > maxQueuedMs && IsActive && !cancellationToken.IsCancellationRequested)
+                {
+                    await Task.Delay(Math.Min(queued - maxQueuedMs, 200), cancellationToken).ConfigureAwait(false);
+                    queued = QueuedAudioMs;
+                }
+            }
+            catch (VoipException) when (!IsActive)
+            {
+                // The call ended between the check and the send; nothing more to play.
+                break;
             }
         }
     }

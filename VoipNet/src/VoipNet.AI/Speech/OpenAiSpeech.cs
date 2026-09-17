@@ -62,7 +62,7 @@ public sealed class OpenAiSpeechToText(OpenAiSpeechOptions options, HttpClient? 
         using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(options.BaseUri, "audio/transcriptions")) { Content = content };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
         using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        await response.EnsureSuccessAsync("OpenAI", cancellationToken).ConfigureAwait(false);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
         return document.RootElement.TryGetProperty("text", out var text) ? text.GetString() ?? string.Empty : string.Empty;
@@ -109,19 +109,12 @@ public sealed class OpenAiTextToSpeech(OpenAiSpeechOptions options, HttpClient? 
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
 
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        await response.EnsureSuccessAsync("OpenAI", cancellationToken).ConfigureAwait(false);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 
-        var buffer = new byte[8192];
-        while (true)
+        await foreach (var chunk in PcmStream.ReadChunksAsync(stream, PreferredSampleRate, cancellationToken).ConfigureAwait(false))
         {
-            var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-            if (read <= 0)
-            {
-                break;
-            }
-
-            yield return new AudioChunk(buffer.AsMemory(0, read).ToArray(), PreferredSampleRate);
+            yield return chunk;
         }
     }
 }

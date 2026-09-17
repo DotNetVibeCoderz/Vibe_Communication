@@ -82,7 +82,7 @@ Audio selalu PCM 16-bit mono; engine yang mengonversi sample rate.
 | --- | --- | --- | --- |
 | Deepgram | `DeepgramSpeechToText` — streaming web socket dengan hasil sementara | — | latensi barge-in terendah |
 | OpenAI | `OpenAiSpeechToText` | `OpenAiTextToSpeech` (PCM 24 kHz, streaming) | bekerja dengan server kompatibel |
-| ElevenLabs | `ElevenLabsSpeechToText` (Scribe) | `ElevenLabsTextToSpeech` (PCM 8–44,1 kHz, streaming) | suara ekspresif |
+| ElevenLabs | `ElevenLabsSpeechToText` (Scribe) | `ElevenLabsTextToSpeech` (PCM 8–44,1 kHz, streaming) | suara ekspresif; paket gratis hanya boleh memakai voice premade lewat API (`VoiceId` bawaan termasuk di dalamnya) |
 | Google Cloud | `GoogleCloudSpeechToText` | `GoogleCloudTextToSpeech` (LINEAR16) | API key atau token OAuth; model `telephony` |
 | Amazon | — | `AmazonPollyTextToSpeech` (PCM 8/16 kHz, SigV4, tanpa AWS SDK) | Transcribe ada di roadmap |
 | ElBruno.Realtime | `ElBrunoRealtimeSpeechToText` (web socket) | `ElBrunoRealtimeTextToSpeech` (HTTP PCM) | self-hosted, open source |
@@ -138,6 +138,18 @@ await realtime.RunAsync(call);
 ```
 
 Audio panggilan di-resample ke 24 kHz dan dialirkan ke model; audio respons dialirkan kembali ke panggilan. Voice activity detection di sisi server memicu `ClearAudio` saat penelepon menyela.
+
+Deployment realtime Azure OpenAI memakai agen yang sama:
+
+```csharp
+var options = RealtimeVoiceOptions.ForAzure("https://my-resource.openai.azure.com", azureKey, "gpt-realtime-mini");
+options.Greeting = "Halo, ada yang bisa dibantu?";
+var agent = new RealtimeVoiceAgent(options);
+agent.AgentSaid += (_, text) => Console.WriteLine($"agen: {text}");
+agent.ErrorReceived += (_, error) => Console.WriteLine($"error provider: {error}");
+```
+
+Secara bawaan agen memakai protokol realtime GA (`session.type = "realtime"`, pengaturan audio di `audio.input` dan `audio.output`); set `Protocol = RealtimeProtocol.Beta` untuk endpoint yang masih memerlukan `OpenAI-Beta: realtime=v1`. Di Azure, transkripsi penelepon memerlukan deployment tersendiri: isi `InputTranscriptionModel` untuk mengaktifkan `CallerSaid`.
 
 ## Memilih pendekatan
 

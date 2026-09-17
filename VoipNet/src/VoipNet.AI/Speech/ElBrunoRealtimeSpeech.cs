@@ -189,19 +189,12 @@ public sealed class ElBrunoRealtimeTextToSpeech(ElBrunoRealtimeOptions options, 
         }
 
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        await response.EnsureSuccessAsync("ElBruno.Realtime", cancellationToken).ConfigureAwait(false);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 
-        var buffer = new byte[8192];
-        while (true)
+        await foreach (var chunk in PcmStream.ReadChunksAsync(stream, rate, cancellationToken).ConfigureAwait(false))
         {
-            var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-            if (read <= 0)
-            {
-                break;
-            }
-
-            yield return new AudioChunk(buffer.AsMemory(0, read).ToArray(), rate);
+            yield return chunk;
         }
     }
 }

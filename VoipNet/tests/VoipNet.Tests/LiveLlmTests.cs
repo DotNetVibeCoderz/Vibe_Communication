@@ -12,76 +12,21 @@ namespace VoipNet.Tests;
 /// </summary>
 public sealed class LiveLlmTests
 {
-    private static readonly Lazy<IReadOnlyDictionary<string, Dictionary<string, string>>> Keys = new(Load);
-
-    private static IReadOnlyDictionary<string, Dictionary<string, string>> Load()
-    {
-        var path = Environment.GetEnvironmentVariable("VOIPNET_TEST_KEYS") ?? FindDefault();
-        var sections = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
-        if (path is null || !File.Exists(path))
-        {
-            return sections;
-        }
-
-        Dictionary<string, string>? current = null;
-        foreach (var raw in File.ReadAllLines(path))
-        {
-            var line = raw.Trim();
-            if (line.Length == 0)
-            {
-                current = null;
-                continue;
-            }
-
-            var colon = line.IndexOf(':');
-            // "https://..." values contain a colon too, so a header is a line without "key: value" shape.
-            if (current is null || colon < 0)
-            {
-                current = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                sections[line] = current;
-                continue;
-            }
-
-            current[line[..colon].Trim()] = line[(colon + 1)..].Trim();
-        }
-
-        return sections;
-    }
-
-    private static string? FindDefault()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "testkey.txt");
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
-
-            dir = dir.Parent;
-        }
-
-        return null;
-    }
-
-    private static Dictionary<string, string>? Section(string name) =>
-        Keys.Value.FirstOrDefault(p => p.Key.Replace(" ", string.Empty).Contains(name.Replace(" ", string.Empty), StringComparison.OrdinalIgnoreCase)).Value;
-
     private static IChatClient? Azure()
     {
-        var s = Section("Azure OpenAI");
+        var s = TestKeys.Section("Azure OpenAI");
         if (s is null || !s.TryGetValue("apikey", out var key) || !s.TryGetValue("endpoint", out var endpoint) || !s.TryGetValue("model", out var model))
         {
             return null;
         }
 
-        return new OpenAiChatClient(OpenAiChatOptions.ForAzure(endpoint, key, model));
+        // The key file may list several deployments ("gpt-5-mini, gpt-5.6-luna"); the first one is tested.
+        return new OpenAiChatClient(OpenAiChatOptions.ForAzure(endpoint, key, model.Split(',')[0].Trim()));
     }
 
     private static IChatClient? DeepSeek()
     {
-        var s = Section("DeepSeek");
+        var s = TestKeys.Section("DeepSeek");
         if (s is null)
         {
             return null;
@@ -147,5 +92,69 @@ public sealed class LiveLlmTests
             new ChatOptions { MaxOutputTokens = 400, Temperature = 0 });
 
         Assert.Contains("pong", response.Text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AzureRealtimeAgentGreetsAndAnswersOnACall()
+    {
+        var s = TestKeys.Section("Azure OpenAI Realtime Model");
+        var (endpoint, key, model) = s is null ? default : (TestKeys.Value(s, "endpoint"), TestKeys.Value(s, "key"), TestKeys.Value(s, "model"));
+        Assert.SkipWhen(endpoint is null || key is null || model is null, "No Azure OpenAI realtime key available.");
+
+        await using var pair = await LoopbackPair.ConnectAsync("caller", "agent");
+        var options = VoipNet.AI.Realtime.RealtimeVoiceOptions.ForAzure(endpoint!, key!, model!);
+        options.Instructions = "You are a phone agent for a test. Always answer in one short English sentence.";
+        options.Greeting = "Hello, this is the Voip dot NET test agent.";
+        var agent = new VoipNet.AI.Realtime.RealtimeVoiceAgent(options);
+
+        var said = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var errors = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        agent.AgentSaid += (_, text) => said.Enqueue(text);
+        agent.ErrorReceived += (_, error) => errors.Enqueue(error);
+
+        // Record what the caller hears, to play it back as the caller's own question.
+        var heard = new List<short>();
+        var heardRate = 0;
+        pair.CallerLeg.AudioReceived += (_, direction, rate, samples) =>
+        {
+            if (direction == AudioDirection.Inbound)
+            {
+                lock (heard)
+                {
+                    heardRate = rate;
+                    foreach (var sample in samples)
+                    {
+                        heard.Add(sample);
+                    }
+                }
+            }
+        };
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        var run = agent.RunAsync(pair.CalleeLeg, cts.Token);
+
+        await TestHelpers.WaitUntilAsync(() => !said.IsEmpty || !errors.IsEmpty, TimeSpan.FromSeconds(40), "the spoken greeting");
+        Assert.True(errors.IsEmpty, string.Join(" | ", errors));
+        Assert.Contains("test agent", said.First(), StringComparison.OrdinalIgnoreCase);
+        await TestHelpers.WaitUntilAsync(() => pair.CalleeLeg.QueuedAudioMs == 0, TimeSpan.FromSeconds(20), "greeting to finish playing");
+
+        short[] loud;
+        lock (heard)
+        {
+            loud = [.. heard];
+        }
+
+        Assert.True(loud.Max(v => Math.Abs((int)v)) > 2000, "the caller heard no speech");
+
+        // The caller "speaks" (the greeting it heard, framed by silence); server VAD must end the turn and answer.
+        var silence = new short[heardRate / 2];
+        pair.CallerLeg.SendAudio(silence, heardRate);
+        pair.CallerLeg.SendAudio(loud, heardRate);
+        pair.CallerLeg.SendAudio(new short[heardRate * 2], heardRate);
+        await TestHelpers.WaitUntilAsync(() => said.Count >= 2 || !errors.IsEmpty, TimeSpan.FromSeconds(40), "an answer to the caller");
+        Assert.True(errors.IsEmpty, string.Join(" | ", errors));
+
+        await pair.CallerLeg.HangupAsync();
+        await run.WaitAsync(TimeSpan.FromSeconds(10));
     }
 }

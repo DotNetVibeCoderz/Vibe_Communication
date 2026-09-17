@@ -144,7 +144,7 @@ public sealed class DeepgramSpeechToText(DeepgramOptions options, HttpClient? ht
         request.Content.Headers.TryAddWithoutValidation("Content-Type", "audio/raw");
 
         using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        await response.EnsureSuccessAsync("Deepgram", cancellationToken).ConfigureAwait(false);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
         return document.RootElement

@@ -11,7 +11,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | Suite | Result · Hasil |
 | --- | --- |
 | Rust engine `cargo test --lib` | **70 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
-| .NET `tests/VoipNet.Tests` | **38 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling) and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
+| .NET `tests/VoipNet.Tests` | **42 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
 | `dotnet build Voip.Net.slnx -c Release` | 14 projects · proyek, **0 warnings, 0 errors** |
 | CLI end-to-end · ujung ke ujung | `sip listen --echo` ↔ `sip call --dtmf 123 --pcap`: MOS 4.38, all DTMF received · semua DTMF diterima |
 | CLI over TLS and WebSocket · CLI lewat TLS dan WebSocket | `--transport tls --tls-pin …` and `--transport ws --dtls`: MOS 4.38, SRTP on · SRTP aktif |
@@ -74,7 +74,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 | Item | Status | Notes · Catatan |
 | --- | --- | --- |
 | OpenAI, Azure OpenAI, OpenAI-compatible (DeepSeek…), Anthropic, Gemini | ✅ | `IChatClient`, streaming, tools; Azure/DeepSeek verified live · diverifikasi langsung |
-| Realtime models | ✅ | `RealtimeVoiceAgent` (OpenAI realtime) — not verified live (no key) · belum diuji langsung (tanpa key) |
+| Realtime models | ✅ | `RealtimeVoiceAgent`, GA and beta protocols, OpenAI and Azure OpenAI; verified live on a call with Azure `gpt-realtime-2.1-mini` (greeting, then an answer to the caller's speech via server VAD) · diuji langsung pada panggilan dengan Azure |
 | Kernel / AI functions (Semantic Kernel, Microsoft.Extensions.AI) | ✅ | call-control tools, CRM tools |
 | audio → STT → LLM → TTS → RTP loop, barge-in | ✅ | `VoiceAgent` |
 | Context persistence, hand-off | ✅ | conversation stores, `HandOffAsync`, `transfer_call` |
@@ -83,14 +83,14 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 
 | Provider | STT | TTS | Notes · Catatan |
 | --- | --- | --- | --- |
-| ElevenLabs | ✅ | ✅ | not verified live · belum diuji langsung |
+| ElevenLabs | ✅ | ✅ | verified live (Indonesian TTS/STT, voice agent on a call) · diuji langsung |
 | Deepgram | ✅ streaming | — | not verified live · belum diuji langsung |
 | OpenAI Whisper / TTS | ✅ | ✅ | not verified live · belum diuji langsung |
 | Google Cloud | ✅ | ✅ | not verified live · belum diuji langsung |
 | Amazon Polly / Transcribe | ⏳ | ✅ Polly | Transcribe planned · direncanakan |
 | ElBruno.Realtime | ✅ | ✅ | documented WS/HTTP protocol · protokol terdokumentasi |
 
-> Only Azure OpenAI and DeepSeek keys were available, so speech providers are implemented against their public APIs and covered by the offline pipeline tests, but not exercised against the live services yet. · Hanya kunci Azure OpenAI dan DeepSeek yang tersedia, jadi provider suara diimplementasikan sesuai API publiknya dan diuji lewat pipeline offline, tetapi belum diuji ke layanan aslinya.
+> Live keys cover Azure OpenAI (chat and realtime), DeepSeek and ElevenLabs. The other speech providers are implemented against their public APIs and covered by the offline pipeline tests, but not exercised against the live services yet. · Kunci langsung tersedia untuk Azure OpenAI (chat dan realtime), DeepSeek, dan ElevenLabs; provider suara lainnya diimplementasikan sesuai API publiknya dan diuji lewat pipeline offline, tetapi belum diuji ke layanan aslinya.
 
 ## Developer experience
 
@@ -126,6 +126,13 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 | Gravicode Studios / Kang Fadhil credit in apps & docs · kredit di aplikasi & dokumen | ✅ |
 
 ## Changelog
+
+### Unreleased · Belum dirilis
+
+- `RealtimeVoiceAgent` speaks the GA realtime protocol and Azure OpenAI (`RealtimeVoiceOptions.ForAzure`, `ErrorReceived`); verified live on a call. · Agen realtime mendukung protokol GA dan Azure OpenAI; diuji langsung.
+- ElevenLabs verified live: Indonesian TTS → STT round trip, and a `VoiceAgent` on a real call (ElevenLabs STT/TTS + Azure OpenAI) answering a spoken question. The default voice is now a premade voice that free plans may use. · ElevenLabs diuji langsung, termasuk voice agent pada panggilan nyata.
+- Speech providers report the provider's error body (for example "paid_plan_required") instead of a bare status code; streamed TTS chunks always end on a sample boundary. · Pesan error provider suara kini jelas; chunk TTS selalu utuh per sampel.
+- Agents no longer fail when the caller hangs up while they speak. · Agen tidak gagal saat penelepon menutup telepon ketika agen berbicara.
 
 ### 1.1.0 — 2026-09-17
 

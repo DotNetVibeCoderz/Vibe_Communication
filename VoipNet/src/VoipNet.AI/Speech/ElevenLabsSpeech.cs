@@ -14,8 +14,8 @@ public sealed class ElevenLabsOptions
     /// <summary>Base URL of the API.</summary>
     public Uri BaseUri { get; set; } = new("https://api.elevenlabs.io/v1/");
 
-    /// <summary>Voice identifier. The default is the "Rachel" preset voice.</summary>
-    public string VoiceId { get; set; } = "21m00Tcm4TlvDq8ikWAM";
+    /// <summary>Voice identifier. The default is "Sarah", a premade voice that every plan, including the free one, may use through the API.</summary>
+    public string VoiceId { get; set; } = "EXAVITQu4vr4xnSDxMaL";
 
     /// <summary>Synthesis model.</summary>
     public string Model { get; set; } = "eleven_flash_v2_5";
@@ -77,19 +77,12 @@ public sealed class ElevenLabsTextToSpeech(ElevenLabsOptions options, HttpClient
         request.Headers.TryAddWithoutValidation("xi-api-key", options.ApiKey);
 
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        await response.EnsureSuccessAsync("ElevenLabs", cancellationToken).ConfigureAwait(false);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 
-        var buffer = new byte[8192];
-        while (true)
+        await foreach (var chunk in PcmStream.ReadChunksAsync(stream, rate, cancellationToken).ConfigureAwait(false))
         {
-            var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-            if (read <= 0)
-            {
-                break;
-            }
-
-            yield return new AudioChunk(buffer.AsMemory(0, read).ToArray(), rate);
+            yield return chunk;
         }
     }
 
@@ -127,7 +120,7 @@ public sealed class ElevenLabsSpeechToText(ElevenLabsOptions options, HttpClient
         using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(options.BaseUri, "speech-to-text")) { Content = content };
         request.Headers.TryAddWithoutValidation("xi-api-key", options.ApiKey);
         using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        await response.EnsureSuccessAsync("ElevenLabs", cancellationToken).ConfigureAwait(false);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
         return document.RootElement.TryGetProperty("text", out var text) ? text.GetString() ?? string.Empty : string.Empty;

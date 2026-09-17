@@ -38,7 +38,7 @@ Today H.264, VP8 and VP9 are negotiated as pass-through payloads only. This mile
 - Azure AI Speech STT/TTS; Deepgram Aura TTS; Cartesia TTS. · Provider tambahan.
 - Live verification suite for every speech provider (opt-in keys). · Uji langsung setiap provider suara.
 - Semantic turn detection (end-of-utterance model) in addition to VAD. · Deteksi akhir ucapan berbasis semantik.
-- Realtime agents for Gemini Live and Azure OpenAI realtime. · Agen realtime Gemini Live dan Azure.
+- Realtime agent for Gemini Live (OpenAI and Azure OpenAI realtime are done). · Agen realtime Gemini Live.
 - Post-call analytics: transcription, summary, sentiment, QA scoring on `RecordingService` output. · Analitik pasca-panggilan.
 - Agent assist: live transcript and suggested replies for human agents. · Agent assist untuk agen manusia.
 

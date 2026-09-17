@@ -8,7 +8,17 @@ using VoipNet.Audio;
 
 namespace VoipNet.AI.Realtime;
 
-/// <summary>Settings for the OpenAI realtime voice API.</summary>
+/// <summary>Wire protocol of a realtime endpoint.</summary>
+public enum RealtimeProtocol
+{
+    /// <summary>The generally available realtime API (OpenAI <c>/v1/realtime</c>, Azure OpenAI <c>/openai/v1/realtime</c>).</summary>
+    GenerallyAvailable,
+
+    /// <summary>The earlier beta API (<c>OpenAI-Beta: realtime=v1</c>).</summary>
+    Beta,
+}
+
+/// <summary>Settings for a realtime speech-to-speech model (OpenAI or Azure OpenAI).</summary>
 public sealed class RealtimeVoiceOptions
 {
     /// <summary>API key.</summary>
@@ -17,8 +27,14 @@ public sealed class RealtimeVoiceOptions
     /// <summary>Web socket endpoint.</summary>
     public Uri BaseUri { get; set; } = new("wss://api.openai.com/v1/realtime");
 
-    /// <summary>Realtime model name.</summary>
+    /// <summary>Realtime model name (a deployment name on Azure).</summary>
     public string Model { get; set; } = "gpt-realtime";
+
+    /// <summary>Send the key in an <c>api-key</c> header (Azure) instead of <c>Authorization: Bearer</c>.</summary>
+    public bool UseApiKeyHeader { get; set; }
+
+    /// <summary>Protocol generation spoken by the endpoint.</summary>
+    public RealtimeProtocol Protocol { get; set; } = RealtimeProtocol.GenerallyAvailable;
 
     /// <summary>Voice used for the spoken answers.</summary>
     public string Voice { get; set; } = "alloy";
@@ -34,6 +50,30 @@ public sealed class RealtimeVoiceOptions
 
     /// <summary>Let the server detect turns and interrupt the agent when the caller speaks.</summary>
     public bool ServerTurnDetection { get; set; } = true;
+
+    /// <summary>Model that transcribes the caller for <see cref="RealtimeVoiceAgent.CallerSaid"/>; null turns it off.</summary>
+    public string? InputTranscriptionModel { get; set; } = "whisper-1";
+
+    /// <summary>
+    /// Settings for an Azure OpenAI realtime deployment.
+    /// </summary>
+    /// <param name="endpoint">Resource endpoint (<c>https://name.openai.azure.com</c> or the full <c>/openai/v1/realtime</c> URL).</param>
+    /// <param name="apiKey">Resource key.</param>
+    /// <param name="deployment">Realtime model deployment name.</param>
+    public static RealtimeVoiceOptions ForAzure(string endpoint, string apiKey, string deployment)
+    {
+        var uri = new Uri(endpoint);
+        var path = uri.AbsolutePath.Contains("/realtime", StringComparison.OrdinalIgnoreCase) ? uri.AbsolutePath : "/openai/v1/realtime";
+        return new RealtimeVoiceOptions
+        {
+            ApiKey = apiKey,
+            BaseUri = new UriBuilder("wss", uri.Host, -1, path).Uri,
+            Model = deployment,
+            UseApiKeyHeader = true,
+            // Transcription needs its own deployment on Azure; enable it by naming one.
+            InputTranscriptionModel = null,
+        };
+    }
 }
 
 /// <summary>
@@ -53,6 +93,9 @@ public sealed class RealtimeVoiceAgent(RealtimeVoiceOptions options, ILogger<Rea
     /// <summary>Raised with the agent's transcribed speech.</summary>
     public event EventHandler<string>? AgentSaid;
 
+    /// <summary>Raised with the provider's error message (for example a rejected session setting).</summary>
+    public event EventHandler<string>? ErrorReceived;
+
     /// <summary>Runs the conversation until the call ends or the token is cancelled.</summary>
     /// <param name="call">A connected call.</param>
     /// <param name="cancellationToken">Stops the agent.</param>
@@ -70,8 +113,19 @@ public sealed class RealtimeVoiceAgent(RealtimeVoiceOptions options, ILogger<Rea
 
         call.StateChanged += OnState;
         using var socket = new ClientWebSocket();
-        socket.Options.SetRequestHeader("Authorization", $"Bearer {options.ApiKey}");
-        socket.Options.SetRequestHeader("OpenAI-Beta", "realtime=v1");
+        if (options.UseApiKeyHeader)
+        {
+            socket.Options.SetRequestHeader("api-key", options.ApiKey);
+        }
+        else
+        {
+            socket.Options.SetRequestHeader("Authorization", $"Bearer {options.ApiKey}");
+        }
+
+        if (options.Protocol == RealtimeProtocol.Beta)
+        {
+            socket.Options.SetRequestHeader("OpenAI-Beta", "realtime=v1");
+        }
 
         var uri = new UriBuilder(options.BaseUri) { Query = $"model={Uri.EscapeDataString(options.Model)}" }.Uri;
         try
@@ -120,7 +174,45 @@ public sealed class RealtimeVoiceAgent(RealtimeVoiceOptions options, ILogger<Rea
 
     private async Task ConfigureSessionAsync(ClientWebSocket socket, CancellationToken cancellationToken)
     {
-        var session = new JsonObject
+        await SendAsync(socket, options.Protocol == RealtimeProtocol.Beta ? BetaSession() : Session(), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>GA session shape: audio settings nested under <c>audio.input</c> and <c>audio.output</c>.</summary>
+    private JsonObject Session()
+    {
+        var pcm = new JsonObject { ["type"] = "audio/pcm", ["rate"] = options.SampleRate };
+        var input = new JsonObject
+        {
+            ["format"] = pcm.DeepClone(),
+            ["turn_detection"] = options.ServerTurnDetection
+                ? new JsonObject { ["type"] = "server_vad", ["threshold"] = 0.5, ["silence_duration_ms"] = 500 }
+                : null,
+        };
+        if (options.InputTranscriptionModel is { Length: > 0 } transcription)
+        {
+            input["transcription"] = new JsonObject { ["model"] = transcription };
+        }
+
+        return new JsonObject
+        {
+            ["type"] = "session.update",
+            ["session"] = new JsonObject
+            {
+                ["type"] = "realtime",
+                ["instructions"] = options.Instructions,
+                ["output_modalities"] = new JsonArray("audio"),
+                ["audio"] = new JsonObject
+                {
+                    ["input"] = input,
+                    ["output"] = new JsonObject { ["format"] = pcm, ["voice"] = options.Voice },
+                },
+            },
+        };
+    }
+
+    private JsonObject BetaSession()
+    {
+        return new JsonObject
         {
             ["type"] = "session.update",
             ["session"] = new JsonObject
@@ -130,13 +222,12 @@ public sealed class RealtimeVoiceAgent(RealtimeVoiceOptions options, ILogger<Rea
                 ["voice"] = options.Voice,
                 ["input_audio_format"] = "pcm16",
                 ["output_audio_format"] = "pcm16",
-                ["input_audio_transcription"] = new JsonObject { ["model"] = "whisper-1" },
+                ["input_audio_transcription"] = options.InputTranscriptionModel is { Length: > 0 } model ? new JsonObject { ["model"] = model } : null,
                 ["turn_detection"] = options.ServerTurnDetection
                     ? new JsonObject { ["type"] = "server_vad", ["threshold"] = 0.5, ["silence_duration_ms"] = 500 }
                     : null,
             },
         };
-        await SendAsync(socket, session, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task PumpCallAudioAsync(VoipCall call, ClientWebSocket socket, CancellationToken cancellationToken)
@@ -229,9 +320,16 @@ public sealed class RealtimeVoiceAgent(RealtimeVoiceOptions options, ILogger<Rea
             switch (type)
             {
                 case "response.audio.delta" or "response.output_audio.delta":
-                    if (root.TryGetProperty("delta", out var delta) && delta.GetString() is { Length: > 0 } audio)
+                    if (root.TryGetProperty("delta", out var delta) && delta.GetString() is { Length: > 0 } audio && call.IsActive)
                     {
-                        call.SendAudio(Convert.FromBase64String(audio), options.SampleRate);
+                        try
+                        {
+                            call.SendAudio(Convert.FromBase64String(audio), options.SampleRate);
+                        }
+                        catch (VoipException) when (!call.IsActive)
+                        {
+                            // The call ended while audio was still arriving.
+                        }
                     }
 
                     break;
@@ -258,7 +356,9 @@ public sealed class RealtimeVoiceAgent(RealtimeVoiceOptions options, ILogger<Rea
                     break;
 
                 case "error":
-                    _logger.LogError("Realtime API error: {Error}", root.TryGetProperty("error", out var error) ? error.ToString() : json);
+                    var detail = root.TryGetProperty("error", out var error) ? error.ToString() : json;
+                    _logger.LogError("Realtime API error: {Error}", detail);
+                    ErrorReceived?.Invoke(this, detail);
                     break;
             }
         }
