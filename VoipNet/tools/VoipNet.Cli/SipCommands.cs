@@ -31,7 +31,11 @@ internal sealed class AccountOptions
     public Option<string> User { get; } = new("--user", "-u") { Description = "SIP user name.", DefaultValueFactory = _ => "voipnet" };
     public Option<string?> Password { get; } = new("--password", "-p") { Description = "Password for digest authentication." };
     public Option<string?> Proxy { get; } = new("--proxy") { Description = "Outbound proxy host[:port]." };
-    public Option<string> Transport { get; } = new("--transport", "-t") { Description = "udp or tcp.", DefaultValueFactory = _ => "udp" };
+    public Option<string> Transport { get; } = new("--transport", "-t") { Description = "udp, tcp, tls, ws or wss.", DefaultValueFactory = _ => "udp" };
+    public Option<string[]> TlsPin { get; } = new("--tls-pin") { Description = "Accept only TLS certificates with this SHA-256 fingerprint (repeatable)." };
+    public Option<bool> TlsInsecure { get; } = new("--tls-insecure") { Description = "Do not validate the TLS server certificate." };
+    public Option<bool> Srtp { get; } = new("--srtp") { Description = "Require SRTP media encryption." };
+    public Option<bool> Dtls { get; } = new("--dtls") { Description = "Exchange SRTP keys with DTLS (WebRTC style) instead of SDES; implies --srtp." };
     public Option<string> Bind { get; } = new("--bind") { Description = "Local address to bind.", DefaultValueFactory = _ => "0.0.0.0" };
     public Option<int> Port { get; } = new("--port") { Description = "Local SIP port (0 picks a free one).", DefaultValueFactory = _ => 0 };
     public Option<bool> Trace { get; } = new("--trace") { Description = "Print every SIP message." };
@@ -39,7 +43,7 @@ internal sealed class AccountOptions
 
     public void AddTo(Command command)
     {
-        foreach (var option in new Option[] { Domain, User, Password, Proxy, Transport, Bind, Port, Trace, Pcap })
+        foreach (var option in new Option[] { Domain, User, Password, Proxy, Transport, TlsPin, TlsInsecure, Srtp, Dtls, Bind, Port, Trace, Pcap })
         {
             command.Options.Add(option);
         }
@@ -51,7 +55,18 @@ internal sealed class AccountOptions
         Username = result.GetValue(User) ?? "voipnet",
         Password = result.GetValue(Password) ?? string.Empty,
         OutboundProxy = result.GetValue(Proxy),
-        Transport = string.Equals(result.GetValue(Transport), "tcp", StringComparison.OrdinalIgnoreCase) ? SipTransport.Tcp : SipTransport.Udp,
+        Transport = result.GetValue(Transport)?.ToLowerInvariant() switch
+        {
+            "tcp" => SipTransport.Tcp,
+            "tls" => SipTransport.Tls,
+            "ws" => SipTransport.Ws,
+            "wss" => SipTransport.Wss,
+            _ => SipTransport.Udp,
+        },
+        TlsPinnedFingerprints = result.GetValue(TlsPin) ?? [],
+        TlsVerifyServer = !result.GetValue(TlsInsecure),
+        Srtp = result.GetValue(Srtp) || result.GetValue(Dtls) ? SrtpMode.Mandatory : SrtpMode.Disabled,
+        SrtpKeying = result.GetValue(Dtls) ? SrtpKeying.Dtls : SrtpKeying.Sdes,
         BindAddress = result.GetValue(Bind) ?? "0.0.0.0",
         SipPort = port ?? result.GetValue(Port),
         TraceSip = result.GetValue(Trace) || result.GetValue(Pcap) is not null,
@@ -185,8 +200,7 @@ internal static class SipCommands
         var dtmf = new Option<string?>("--dtmf") { Description = "DTMF digits to send after answer." };
         var record = new Option<string?>("--record") { Description = "Record the call to a WAV file." };
         var register = new Option<bool>("--register") { Description = "Register before calling." };
-        var srtp = new Option<bool>("--srtp") { Description = "Require SRTP." };
-        var command = new Command("call", "Place a test call and report media quality.") { target, duration, tone, dtmf, record, register, srtp };
+        var command = new Command("call", "Place a test call and report media quality.") { target, duration, tone, dtmf, record, register };
         account.AddTo(command);
 
         command.SetAction(async (result, cancellationToken) =>
@@ -286,6 +300,10 @@ internal static class SipCommands
             await client.StartAsync(cancellationToken);
             capture?.Attach(client);
             AnsiConsole.MarkupLine($"Listening on [bold]{client.LocalAddress}[/]. Press Ctrl+C to stop.");
+            if (client.TlsFingerprint is { } fingerprint)
+            {
+                AnsiConsole.MarkupLine($"TLS certificate SHA-256 [bold]{fingerprint}[/] (pin with --tls-pin).");
+            }
 
             client.IncomingCall += async (_, e) =>
             {

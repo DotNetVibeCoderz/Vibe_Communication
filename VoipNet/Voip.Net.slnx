@@ -5,6 +5,7 @@
     <Project Path="samples/VoipNet.IvrStudio/VoipNet.IvrStudio.csproj" />
     <Project Path="samples/VoipNet.RealtimeAgent/VoipNet.RealtimeAgent.csproj" />
     <Project Path="samples/VoipNet.Softphone/VoipNet.Softphone.csproj" />
+    <Project Path="samples/VoipNet.WebPhone/VoipNet.WebPhone.csproj" />
   </Folder>
   <Folder Name="/samples/Shared/">
     <Project Path="samples/Shared/VoipNet.Samples.Theme/VoipNet.Samples.Theme.csproj" />

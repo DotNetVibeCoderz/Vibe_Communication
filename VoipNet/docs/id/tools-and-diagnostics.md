@@ -14,13 +14,13 @@ voipnet --help
 | `voipnet version` | versi SDK, engine, dan runtime |
 | `voipnet sip ping <uri> [--count 4]` | waktu tempuh OPTIONS dan User-Agent penjawab |
 | `voipnet sip register -d pbx -u 1001 -p rahasia` | menguji kredensial ke registrar |
-| `voipnet sip call <uri> [--duration 10] [--tone 440] [--dtmf 123] [--record out.wav] [--register] [--srtp]` | panggilan uji dengan pemantauan MOS, loss, jitter secara langsung |
+| `voipnet sip call <uri> [--duration 10] [--tone 440] [--dtmf 123] [--record out.wav] [--register]` | panggilan uji dengan pemantauan MOS, loss, jitter secara langsung |
 | `voipnet sip listen [--sip-port 5060] [--echo]` | menjawab panggilan; `--echo` menjadikannya layanan uji gema |
 | `voipnet sip message <uri> "teks"` | mengirim SIP MESSAGE |
 | `voipnet rtp analyze capture.pcap [--json]` | loss, jitter, urutan, dan MOS setiap stream RTP dalam capture |
 | `voipnet rtp listen --port 40000 [--seconds 30]` | menerima RTP pada port dan menganalisisnya secara langsung |
 
-Opsi umum untuk perintah `sip`: `--domain`, `--user`, `--password`, `--proxy`, `--transport udp|tcp`, `--bind`, `--port`, `--trace` (cetak SIP), `--pcap file` (tulis SIP ke capture).
+Opsi umum untuk perintah `sip`: `--domain`, `--user`, `--password`, `--proxy`, `--transport udp|tcp|tls|ws|wss`, `--tls-pin fingerprint`, `--tls-insecure`, `--srtp`, `--dtls` (DTLS-SRTP keys), `--bind`, `--port`, `--trace` (cetak SIP), `--pcap file` (tulis SIP ke capture).
 
 Contoh — uji gema di dua terminal:
 
@@ -112,6 +112,12 @@ Sebuah PBX, lima softphone agen, dan generator trafik Poisson — semuanya SIP/R
 
 Sunting menu, opsi, dan instruksi AI; lihat jalur panggilan; tekan tombol pada telepon di browser yang benar-benar memanggil alur; ketik sebagai penelepon setelah IVR menyerahkan ke agen AI. Alur disimpan ke `App_Data/flow.json` dan diekspor di `/flow.json`.
 
+### WebPhone (Blazor Server)
+
+![Gateway WebRTC](../images/webphone-call.png)
+
+Gateway WebRTC dalam satu mesin. Script halaman adalah client SIP over WebSocket kecil: ia menelepon endpoint gateway (`ws://host:5090`) dengan offer `RTCPeerConnection`, lalu gateway menjawab dengan ICE dan DTLS-SRTP dan meneruskan audionya ke panggilan SIP/UDP biasa menuju telepon meja (echo atau pemutar nada). Jalur sinyal di bagian atas menyala hop demi hop; kedua leg menampilkan codec, enkripsi, paket, dan MOS, berdampingan dengan laporan browser sendiri dari `getStats()`.
+
 ### Realtime Agent (console)
 
 ```bash
@@ -126,6 +132,7 @@ Atur provider di `appsettings.json` (`AI:Chat`, `AI:SpeechToText`, `AI:TextToSpe
 `tools/VoipNet.DocShots` mengendalikan Edge/Chrome headless melalui DevTools protocol untuk menangkap sample Blazor:
 
 ```bash
-dotnet run --project tools/VoipNet.DocShots -- ivrstudio http://127.0.0.1:5190 docs/images
+dotnet run --project tools/VoipNet.DocShots -- ivrstudio http://127.0.0.1:5209 docs/images
 dotnet run --project tools/VoipNet.DocShots -- callcenter http://127.0.0.1:5184 docs/images
+dotnet run --project tools/VoipNet.DocShots -- webphone http://localhost:5190 docs/images
 ```

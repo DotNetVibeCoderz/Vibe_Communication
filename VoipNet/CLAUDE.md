@@ -26,7 +26,7 @@ dotnet run --project tests/VoipNet.Tests -- -class VoipNet.Tests.EnterpriseTests
 
 - `dotnet test` does not work with this xUnit v3 + .NET 10 SDK setup; run the test project with `dotnet run`.
 - Live LLM tests read keys from the file named by `VOIPNET_TEST_KEYS` (e.g. `C:\Users\mifma\Documents\CodeSandbox\testkey.txt`) and skip without it. Samples read `VOIPNET_AI_ENDPOINT`, `VOIPNET_AI_KEY`, `VOIPNET_AI_MODEL`. Never copy key values into the repo or output.
-- Screenshots for docs: `dotnet run --project samples/VoipNet.Softphone -- --screenshot docs/images`, same for `samples/VoipNet.Gallery`; Blazor apps via `tools/VoipNet.DocShots` (`ivrstudio|callcenter <baseUrl> docs/images`) while the app runs.
+- Screenshots for docs: `dotnet run --project samples/VoipNet.Softphone -- --screenshot docs/images`, same for `samples/VoipNet.Gallery`; Blazor apps via `tools/VoipNet.DocShots` (`ivrstudio|callcenter|webphone <baseUrl> docs/images`) while the app runs. `webphone` also verifies real browser interop (headless Edge with a fake microphone calls `samples/VoipNet.WebPhone`, prints the browser's WebRTC stats).
 - Avoid rewriting source files with Windows PowerShell `Get-Content`/`Set-Content` (corrupts UTF-8); use editor tools or bash `sed`.
 
 ## Architecture (big picture)
@@ -34,7 +34,9 @@ dotnet run --project tests/VoipNet.Tests -- -class VoipNet.Tests.EnterpriseTests
 **Native engine** (`native/voipnet-core/src`):
 - `sip/endpoint.rs` is the user agent: transactions keyed by `branch|METHOD`, dialogs, digest auth, registration refresh, re-INVITE hold, REFER/NOTIFY, a 50 ms timer thread. State is behind one mutex; events go through an mpsc channel to a dispatcher thread, so callbacks never run while the state lock is held. Keep that invariant (callbacks into .NET may re-enter the engine).
 - `media/session.rs`: per call a UDP socket plus receive and playout threads. Outbound audio is queued and paced one frame per ptime; `send_audio` resamples to the codec rate. Sink callbacks must also be invoked outside rx/tx locks.
-- `rtp/jitter.rs`, `codec/` (G.711, G.722, L16, DTMF, PLC), `srtp.rs` (SDES), `stun.rs` (STUN/ICE candidates/TURN), `sdp.rs`.
+- `sip/transport.rs`: UDP plus one stream model for TCP/TLS/WS/WSS (a `Conn` = TCP or rustls byte stream, optionally WebSocket-framed, one reader thread each; the rustls lock is never held across a blocking read). `sip/tls.rs` builds rustls configs (ring provider, Mozilla roots, CA file, SHA-256 pinning). A send failure on a stream transport marks the client transaction `transport_failed` → 503 on the next timer tick.
+- `media/dtls.rs`: DTLS-SRTP on dimpl (sans-IO, pure Rust, `rust-crypto` feature — keep aws-lc out of the tree). The DTLS engine must get `handle_timeout` before its first packet. `secure_required` on a session blocks plain RTP until keys arrive; only call `enable_dtls()` when DTLS is really negotiated.
+- `rtp/jitter.rs`, `codec/` (G.711, G.722, L16, DTMF, PLC), `srtp.rs` (AES-CM-HMAC-SHA1-80 and AEAD-AES-GCM; SDES or DTLS keys), `stun.rs` (STUN/ICE candidates/TURN), `sdp.rs`.
 - `ffi.rs`: C ABI. Config and events are JSON (camelCase); audio is raw `int16*`; stats is a `#[repr(C)]` struct mirrored in `src/VoipNet.Core/Interop/NativeMethods.cs`. Changing one side requires changing the other.
 
 **.NET** (`src/`):
@@ -43,7 +45,7 @@ dotnet run --project tests/VoipNet.Tests -- -class VoipNet.Tests.EnterpriseTests
 - `VoipNet.AI`: hand-written `IChatClient` connectors (`Llm/`), speech providers (`Speech/`, option types are `SpeechRecognitionOptions`/`SpeechSynthesisOptions` to avoid clashing with Microsoft.Extensions.AI), `Agents/VoiceAgent` (recognition loop runs concurrently with the agent's turn so interim results can cancel it — barge-in), `Realtime/RealtimeVoiceAgent`.
 - `VoipNet.Enterprise`: `IvrFlow`/`IvrRunner`, `CallCenterService` (reserves agent, calls them, bridges legs in a conference; listen-only supervisors are put on hold from the bridge side, not muted), `RecordingService`, `CrmToolset`.
 
-**Samples**: `samples/Shared/VoipNet.Samples.Theme` holds the shared Avalonia "Patch Bay" theme (fonts embedded, `TraceLine` control); Blazor samples mirror the same tokens in `wwwroot/app.css`. Demos run real endpoints on 127.0.0.1 with `SipPort = 0`.
+**Samples**: `samples/Shared/VoipNet.Samples.Theme` holds the shared Avalonia "Patch Bay" theme (fonts embedded, `TraceLine` control); Blazor samples mirror the same tokens in `wwwroot/app.css`. Demos run real endpoints on 127.0.0.1 with `SipPort = 0`. `samples/VoipNet.WebPhone` is the exception: a fixed WebSocket port 5090 on 0.0.0.0 so browsers can reach it; its SIP UA is hand-written in `wwwroot/webphone.js`.
 
 ## Conventions (from requirements.md)
 

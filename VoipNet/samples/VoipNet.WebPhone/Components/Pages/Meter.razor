@@ -1,0 +1,24 @@
+@* A level meter drawn as a run of segments, like the LED ladder on a mixing desk. *@
+<div class="meter">
+    <span class="eyebrow">@Label</span>
+    <div class="ladder" role="meter" aria-label="@Label" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@Percent">
+        @for (var i = 0; i < Segments; i++)
+        {
+            <span class="@(i < Lit ? i >= Segments - 3 ? "on hot" : "on" : "")"></span>
+        }
+    </div>
+</div>
+
+@code {
+    private const int Segments = 24;
+
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+
+    /// <summary>Audio level from WebRTC statistics, 0 to 1.</summary>
+    [Parameter] public double Level { get; set; }
+
+    // WebRTC levels are linear; a square root reads closer to how loud it sounds.
+    private int Lit => (int)Math.Round(Math.Sqrt(Math.Clamp(Level, 0, 1)) * Segments);
+
+    private int Percent => (int)Math.Round(Math.Clamp(Level, 0, 1) * 100);
+}

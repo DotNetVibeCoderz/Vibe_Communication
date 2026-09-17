@@ -111,9 +111,34 @@ Stereo puts the remote party on the left and this endpoint on the right. MP3 enc
 ## Security
 
 ```csharp
-new VoipClientOptions { Srtp = SrtpMode.Mandatory, Transport = SipTransport.Tcp };
+new VoipClientOptions
+{
+    Transport = SipTransport.Tls,          // SIP over TLS 1.2/1.3 (rustls), port 5061
+    TlsPinnedFingerprints = ["3F:A2:…"],   // optional: accept only this certificate
+    Srtp = SrtpMode.Mandatory,             // SDES keys now travel inside TLS
+};
 call.GetStatistics().SecureRtp;   // true when both directions are protected
 ```
+
+Server certificates are checked against the Mozilla root store plus `TlsCaFile`, including the host name from the target URI, registrar or proxy. Pinning replaces chain validation, which suits PBXs with self-signed certificates. Each endpoint presents `TlsCertificateFile`/`TlsPrivateKeyFile`, or a generated self-signed certificate whose fingerprint is `client.TlsFingerprint`. A failed handshake ends the request at once with `503`.
+
+## WebRTC browsers
+
+Browsers call a `VoipClient` directly: SIP over WebSocket (RFC 7118) for signaling, ICE for the media path and DTLS-SRTP for keys.
+
+```csharp
+var gateway = new VoipClient(new VoipClientOptions
+{
+    Transport = SipTransport.Ws,           // or Wss with a TLS certificate
+    SipPort = 5090,
+    Srtp = SrtpMode.Mandatory,
+    SrtpKeying = SrtpKeying.Dtls,          // a=fingerprint + a=setup, UDP/TLS/RTP/SAVP
+    Ice = true,
+});
+gateway.MediaNotification += (_, e) => Console.WriteLine($"{e.Kind} {e.Detail}"); // ice-connected, dtls-connected AES_CM_128_HMAC_SHA1_80
+```
+
+The engine accepts `UDP/TLS/RTP/SAVPF` offers, answers with ICE candidates, `a=mid` and BUNDLE, verifies the peer certificate against the signaled fingerprint, and sends no media until the DTLS keys are in place. SRTP runs with AES-CM-128-HMAC-SHA1-80 or AEAD-AES-128/256-GCM, whichever the handshake selects. Incoming offers are accepted with SDES or DTLS keys whatever `SrtpKeying` says; the setting decides what this client offers. The browser side can be any SIP-over-WebSocket client; `samples/VoipNet.WebPhone` includes a small one and bridges the browser to a plain SIP phone.
 
 ## NAT and connectivity
 

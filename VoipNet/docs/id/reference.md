@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `BindAddress` | `0.0.0.0` | Alamat lokal untuk SIP dan RTP. |
 | `SipPort` | `5060` | Port SIP lokal; `0` memilih port bebas. |
-| `Transport` | `Udp` | `Udp` atau `Tcp`. |
+| `Transport` | `Udp` | `Udp`, `Tcp`, `Tls` (port remote bawaan 5061), `Ws` atau `Wss` (SIP over WebSocket). |
 | `PublicAddress` | — | Alamat yang diiklankan di Via, Contact, dan SDP (NAT statis). |
 | `DisplayName` | — | Nama tampilan di From. |
 | `Username` | `voipnet` | Bagian user dari address of record. |
@@ -22,6 +22,7 @@
 | `UserAgent` | `Voip.NET/1.0 (Gravicode Studios)` | Header User-Agent / Server. |
 | `AudioCodecs` | `G722, PCMU, PCMA` | Urutan preferensi. |
 | `Srtp` | `Disabled` | `Disabled`, `Optional`, `Mandatory`. |
+| `SrtpKeying` | `Sdes` | `Sdes` (`a=crypto`) atau `Dtls` (DTLS-SRTP dengan ICE, seperti WebRTC). Offer masuk boleh memakai keduanya. |
 | `DtmfMode` | `Rfc4733` | `Rfc4733`, `InBand`, `SipInfo`. |
 | `Ice` | `false` | Iklankan kandidat dan kirim connectivity check. |
 | `StunServer` | — | `host:port` untuk alamat media server-reflexive. |
@@ -35,6 +36,10 @@
 | `TraceSip` | `false` | Picu `SipTrace` untuk setiap pesan. |
 | `KeepaliveSecs` | `25` | Keep-alive CRLF ke registrar melalui UDP. |
 | `RtpTimeoutMs` | `0` | Picu media event `rtp-timeout` bila tidak ada RTP selama durasi ini. |
+| `TlsVerifyServer` | `true` | Validasi rantai sertifikat server dan nama host (root Mozilla ditambah `TlsCaFile`). |
+| `TlsCaFile` | — | File PEM berisi trust anchor tambahan, misalnya CA PBX privat. |
+| `TlsPinnedFingerprints` | — | Fingerprint SHA-256 yang diterima; hanya sertifikat ini yang lolos, termasuk self-signed. |
+| `TlsCertificateFile`, `TlsPrivateKeyFile` | — | Rantai sertifikat dan kunci PEM yang disajikan ke peer; bila kosong dibuat sertifikat self-signed. |
 | `EventSynchronizationContext` | — | Kirim event ke thread UI. |
 
 ## `VoipClient`
@@ -49,7 +54,7 @@
 | `SendMessageAsync(target, body, contentType)` | SIP MESSAGE. |
 | `CreateConference()` | `VoipConference` baru. |
 | `Calls`, `FindCall(id)` | Panggilan aktif dan yang baru selesai. |
-| `LocalAddress`, `RegistrationState`, `EngineVersion` | State. |
+| `LocalAddress`, `RegistrationState`, `EngineVersion`, `TlsFingerprint` | State. |
 | Event | `IncomingCall`, `CallStateChanged`, `MediaStarted`, `RegistrationChanged`, `DtmfReceived`, `MessageReceived`, `TransferRequested`, `TransferProgress`, `MediaNotification`, `SipTrace`. |
 
 ## `VoipCall`

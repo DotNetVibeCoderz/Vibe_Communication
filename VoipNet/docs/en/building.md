@@ -16,7 +16,7 @@
 native/voipnet-core     Rust engine (cdylib + rlib), unit and loopback tests
 src/                    VoipNet.Core, .Audio, .AI, .Enterprise
 tools/                  VoipNet.Cli (voipnet), VoipNet.DocShots
-samples/                Softphone, Gallery (Avalonia) · CallCenter, IvrStudio (Blazor) · RealtimeAgent
+samples/                Softphone, Gallery (Avalonia) · CallCenter, IvrStudio, WebPhone (Blazor) · RealtimeAgent
 tests/VoipNet.Tests     xUnit v3 end-to-end tests over loopback
 docs/en, docs/id        documentation
 build/                  build.ps1, build.sh

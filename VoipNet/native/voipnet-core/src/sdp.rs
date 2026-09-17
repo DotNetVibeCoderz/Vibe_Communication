@@ -86,6 +86,8 @@ pub struct SessionDescription {
     pub ice_ufrag: Option<String>,
     pub ice_pwd: Option<String>,
     pub fingerprint: Option<String>,
+    /// Session-level `a=group` values (RFC 5888), e.g. `BUNDLE 0`.
+    pub groups: Vec<String>,
     pub media: Vec<MediaDescription>,
 }
 
@@ -151,6 +153,7 @@ impl SessionDescription {
                             "ice-ufrag" => sdp.ice_ufrag = Some(val.to_owned()),
                             "ice-pwd" => sdp.ice_pwd = Some(val.to_owned()),
                             "fingerprint" => sdp.fingerprint = Some(val.to_owned()),
+                            "group" => sdp.groups.push(val.to_owned()),
                             _ => {}
                         },
                     }
@@ -203,6 +206,9 @@ impl SessionDescription {
         }
         if let Some(f) = &self.fingerprint {
             let _ = write!(s, "a=fingerprint:{f}\r\n");
+        }
+        for g in &self.groups {
+            let _ = write!(s, "a=group:{g}\r\n");
         }
         for m in &self.media {
             let pts: Vec<String> = m.formats.iter().map(|f| f.payload_type.to_string()).collect();

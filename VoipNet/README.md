@@ -31,7 +31,7 @@ await call.HangupAsync();
 
 | Package | What it gives you |
 | --- | --- |
-| `VoipNet.Core` | `VoipClient`, `VoipCall`, conferences, DTMF, SRTP, diagnostics (pcap, RTP analyser, metrics). Contains the native engine. |
+| `VoipNet.Core` | `VoipClient`, `VoipCall`, conferences, DTMF, SRTP and DTLS-SRTP, TLS and WebSocket signaling, diagnostics (pcap, RTP analyser, metrics). Contains the native engine. |
 | `VoipNet.Audio` | Microphone and speakers (OpenAL, cross-platform), WAV/MP3 call recording, resampling, voice activity detection, tones. |
 | `VoipNet.AI` | Chat clients for OpenAI, Azure OpenAI, DeepSeek/OpenAI-compatible, Anthropic Claude and Google Gemini; speech providers; `VoiceAgent`; `RealtimeVoiceAgent`. |
 | `VoipNet.Enterprise` | IVR builder and runner, `CallCenterService` (queues, agents, routing), `RecordingService`, CRM tool set. |
@@ -42,12 +42,13 @@ await call.HangupAsync();
 | Area | Status |
 | --- | --- |
 | SIP: REGISTER (digest auth, refresh, NAT keep-alive), INVITE/ACK/BYE/CANCEL, re-INVITE hold, REFER blind and attended (Replaces), OPTIONS, INFO, MESSAGE, NOTIFY | ✅ |
-| Transports: UDP, TCP | ✅ · TLS planned |
+| Transports: UDP, TCP, TLS (certificate pinning), WebSocket `ws`/`wss` (RFC 7118) | ✅ |
 | RTP/RTCP with adaptive jitter buffer, packet-loss concealment, symmetric RTP | ✅ |
 | Codecs: G.722, G.711 μ-law/A-law, L16 (native) · G.729, Opus, SILK, Speex, H.264, VP8, VP9 (negotiated as pass-through) | ✅ / pass-through |
 | DTMF: RFC 4733, SIP INFO, in-band generation and detection | ✅ |
-| SRTP (AES-CM-128, HMAC-SHA1-80, SDES keys) | ✅ · DTLS-SRTP planned |
-| ICE (host, server-reflexive, relayed candidates), STUN, TURN allocation | ✅ basic |
+| SRTP: AES-CM-128-HMAC-SHA1-80, AEAD-AES-128/256-GCM; keys via SDES or DTLS-SRTP | ✅ |
+| WebRTC browsers calling SIP (SIP over WebSocket, ICE, DTLS-SRTP), verified with Edge | ✅ · data channels planned |
+| ICE (host, server-reflexive, relayed candidates, connectivity checks), STUN, TURN allocation | ✅ · full ICE agent planned |
 | Conferencing with mix-minus | ✅ |
 | Recording WAV/MP3, stereo or mono | ✅ |
 | LLMs: OpenAI, Azure OpenAI, DeepSeek & compatible servers, Anthropic, Gemini — streaming and tool calling | ✅ |
@@ -67,12 +68,15 @@ The full list, including what is planned, lives in [PLAN.md](PLAN.md) and [Progr
 | [VoipNet.Gallery](samples/VoipNet.Gallery) | Avalonia desktop | Every SDK feature as a live demo with its C#. |
 | [VoipNet.CallCenter](samples/VoipNet.CallCenter) | Blazor Server | Wallboard: queues, agents, live call quality, recordings, AI supervisor. |
 | [VoipNet.IvrStudio](samples/VoipNet.IvrStudio) | Blazor Server | Design an IVR, call it from the browser, hand the caller to an AI agent. |
+| [VoipNet.WebPhone](samples/VoipNet.WebPhone) | Blazor Server | WebRTC gateway: the browser calls over SIP WebSocket and DTLS-SRTP, bridged to a SIP phone over UDP. |
 | [VoipNet.RealtimeAgent](samples/VoipNet.RealtimeAgent) | Console | An AI agent that answers SIP calls (pipeline or realtime model). |
 
 | | |
 | --- | --- |
 | ![Gallery: voice agent](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/VoipNet/docs/images/gallery-voice-agent.png) | ![Call centre wallboard](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/VoipNet/docs/images/callcenter-ai-supervisor.png) |
 | ![IVR Studio test call](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/VoipNet/docs/images/ivrstudio-test-call.png) | ![Gallery: language models](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/VoipNet/docs/images/gallery-ai-models.png) |
+
+![WebRTC gateway: a browser call bridged to SIP](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/VoipNet/docs/images/webphone-call.png)
 
 ## Quick start
 

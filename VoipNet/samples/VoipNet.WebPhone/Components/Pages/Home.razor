@@ -1,0 +1,326 @@
+@page "/"
+@implements IAsyncDisposable
+@inject Gateway Gateway
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+<PageTitle>WebRTC Gateway · Voip.NET</PageTitle>
+
+@* The signal path: every hop a call crosses, lit as it comes up. *@
+<section class="path" aria-label="Signal path">
+    @for (var i = 0; i < _hops.Length; i++)
+    {
+        var hop = _hops[i];
+        var state = HopState(hop.Hop);
+        <div class="jack @state">
+            <div class="jack-head" aria-hidden="true">
+                <span class="socket"></span>
+                @if (i < _hops.Length - 1)
+                {
+                    @* The cable to the next hop takes that hop's state. *@
+                    <span class="cable-run @HopState(_hops[i + 1].Hop)"></span>
+                }
+            </div>
+            <div class="eyebrow">@hop.Where</div>
+            <div class="jack-title">@hop.Title</div>
+            <div class="jack-detail mono">@HopDetail(hop.Hop)</div>
+            <span class="sr-only">@StateLabel(state)</span>
+        </div>
+    }
+</section>
+
+<section class="desk-row">
+    <article class="module raised phone">
+        <h1 class="display">Call a desk phone from this browser</h1>
+        <p class="soft lede">Your microphone goes over a SIP WebSocket and DTLS-SRTP to the gateway, which bridges it to an ordinary SIP phone over UDP.</p>
+
+        <fieldset class="choices" disabled="@InCall">
+            <legend class="eyebrow">Desk phone</legend>
+            <label class="choice cable @(_desk == "echo" ? "connected" : "")">
+                <input type="radio" name="desk" checked="@(_desk == "echo")" @onchange="@(() => _desk = "echo")" />
+                <span><strong>Echo desk</strong><span class="soft">Plays back what you say, after the round trip through both legs.</span></span>
+            </label>
+            <label class="choice cable @(_desk == "tones" ? "connected" : "")">
+                <input type="radio" name="desk" checked="@(_desk == "tones")" @onchange="@(() => _desk = "tones")" />
+                <span><strong>Tones desk</strong><span class="soft">Plays a short melody, so you can listen without speaking.</span></span>
+            </label>
+        </fieldset>
+
+        <div class="actions">
+            @if (InCall)
+            {
+                <button class="btn danger" @onclick="HangupAsync">Hang up</button>
+            }
+            else
+            {
+                <button class="btn go" @onclick="CallAsync" disabled="@(_module is null)">Call @(_desk) desk</button>
+            }
+            <span class="status @(_phase == "failed" ? "bad" : "")" role="status">@PhaseText</span>
+        </div>
+
+        <div class="meters">
+            <Meter Label="Your microphone" Level="@(_stats?.MicLevel ?? 0)" />
+            <Meter Label="Coming back" Level="@(_stats?.RemoteLevel ?? 0)" />
+        </div>
+        <audio @ref="_audio" autoplay></audio>
+    </article>
+
+    <article class="module legs">
+        <div class="section-head">
+            <h2 class="display">Both legs of the bridge</h2>
+            <span class="pill">@Gateway.BridgeCount @(Gateway.BridgeCount == 1 ? "call" : "calls") since start</span>
+        </div>
+        <table class="grid">
+            <thead>
+                <tr>
+                    <th>Leg</th>
+                    <th>Codec</th>
+                    <th>Media</th>
+                    <th class="num">Sent</th>
+                    <th class="num">Received</th>
+                    <th class="num">MOS</th>
+                </tr>
+            </thead>
+            <tbody>
+                @{
+                    var bridge = LiveBridge;
+                    var b = bridge?.BrowserStats;
+                    var t = bridge?.TrunkStats;
+                }
+                <tr>
+                    <td><strong>Browser</strong><div class="soft small">SIP over WebSocket</div></td>
+                    <td class="mono">@(bridge?.BrowserLeg.Codec ?? "—")</td>
+                    <td class="mono">@(bridge?.DtlsProfile is { } p ? $"DTLS-SRTP {p}" : "—")</td>
+                    <td class="num">@(b?.PacketsSent.ToString() ?? "—")</td>
+                    <td class="num">@(b?.PacketsReceived.ToString() ?? "—")</td>
+                    <td class="num">@Mos(b)</td>
+                </tr>
+                <tr>
+                    <td><strong>Desk phone</strong><div class="soft small">SIP over UDP</div></td>
+                    <td class="mono">@(bridge?.TrunkLeg?.Codec ?? "—")</td>
+                    <td class="mono">@(t is null ? "—" : t.SecureRtp ? "SRTP" : "plain RTP")</td>
+                    <td class="num">@(t?.PacketsSent.ToString() ?? "—")</td>
+                    <td class="num">@(t?.PacketsReceived.ToString() ?? "—")</td>
+                    <td class="num">@Mos(t)</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3 class="eyebrow browser-head">As the browser sees it</h3>
+        <dl class="facts">
+            <div><dt class="eyebrow">Codec</dt><dd class="mono">@Show(_stats?.Codec)</dd></div>
+            <div><dt class="eyebrow">DTLS</dt><dd class="mono">@Show(_stats?.DtlsState)</dd></div>
+            <div><dt class="eyebrow">SRTP cipher</dt><dd class="mono">@Show(_stats?.SrtpCipher)</dd></div>
+            <div><dt class="eyebrow">ICE pair</dt><dd class="mono">@Show(_stats?.CandidatePair)</dd></div>
+            <div><dt class="eyebrow">Packets in / out</dt><dd class="mono">@(_stats is null ? "—" : $"{_stats.PacketsReceived} / {_stats.PacketsSent}")</dd></div>
+            <div><dt class="eyebrow">Jitter · lost</dt><dd class="mono">@(_stats is null ? "—" : $"{_stats.JitterMs} ms · {_stats.PacketsLost}")</dd></div>
+        </dl>
+    </article>
+</section>
+
+<article class="module log">
+    <div class="section-head">
+        <h2 class="display">Gateway log</h2>
+        <span class="soft small mono">ws://@(Host):@Gateway.WebSocketPort</span>
+    </div>
+    @if (Gateway.Events.Count == 0)
+    {
+        <p class="empty">Nothing yet. Place a call to see each hop come up.</p>
+    }
+    else
+    {
+        <ol class="events">
+            @foreach (var e in Gateway.Events.Take(14))
+            {
+                <li>
+                    <span class="mono soft">@e.Time.ToString("HH:mm:ss.fff")</span>
+                    <span class="tag @e.Hop.ToString().ToLowerInvariant()">@_hops.First(h => h.Hop == e.Hop).Title</span>
+                    <span>@e.Text</span>
+                </li>
+            }
+        </ol>
+    }
+</article>
+
+@code {
+    private sealed record HopInfo(Hop Hop, string Where, string Title);
+
+    /// <summary>Statistics pushed by the page script from <c>RTCPeerConnection.getStats()</c>.</summary>
+    public sealed record BrowserStats(
+        long PacketsSent,
+        long PacketsReceived,
+        long PacketsLost,
+        double JitterMs,
+        double MicLevel,
+        double RemoteLevel,
+        string Codec,
+        string DtlsState,
+        string SrtpCipher,
+        string CandidatePair);
+
+    private readonly HopInfo[] _hops =
+    [
+        new(Hop.Browser, "Browser", "Microphone"),
+        new(Hop.Signaling, "Browser → gateway", "SIP WebSocket"),
+        new(Hop.Secure, "Browser → gateway", "ICE + DTLS-SRTP"),
+        new(Hop.Bridge, "Gateway", "Media bridge"),
+        new(Hop.Trunk, "Gateway → desk", "SIP over UDP"),
+        new(Hop.Desk, "Desk phone", "Answers"),
+    ];
+
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<Home>? _self;
+    private ElementReference _audio;
+    private string _desk = "echo";
+    private string _phase = "idle";
+    private string _detail = "";
+    private BrowserStats? _stats;
+    private Timer? _refresh;
+
+    private bool InCall => _phase is "microphone" or "connecting" or "inviting" or "trying" or "ringing" or "connected" or "pc-connecting" or "pc-connected" or "pc-new";
+
+    private bool Connected => _phase is "connected" or "pc-connecting" or "pc-connected" or "pc-new";
+
+    private string Host => new Uri(Navigation.BaseUri).Host;
+
+    private Bridge? LiveBridge => Gateway.Current is { } b && (!b.Ended || !InCall) ? b : null;
+
+    private string PhaseText => _phase switch
+    {
+        "idle" => "Ready. Your browser will ask for the microphone.",
+        "microphone" => "Waiting for microphone permission…",
+        "connecting" => "Opening the SIP WebSocket…",
+        "inviting" or "trying" => "Calling the gateway…",
+        "ringing" => "Ringing…",
+        "connected" or "pc-new" or "pc-connecting" => "Answered. Securing the media path…",
+        "pc-connected" => "On a call. Media is flowing both ways.",
+        "ended" => $"Call ended: {_detail}.",
+        "failed" => $"Call failed: {_detail}",
+        _ => _detail,
+    };
+
+    protected override void OnInitialized()
+    {
+        Gateway.Changed += OnGatewayChanged;
+        _refresh = new Timer(_ => InvokeAsync(StateHasChanged), null, 500, 500);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./webphone.js");
+            _self = DotNetObjectReference.Create(this);
+            StateHasChanged();
+        }
+    }
+
+    private async Task CallAsync()
+    {
+        _stats = null;
+        _phase = "microphone";
+        await _module!.InvokeVoidAsync("call", _self, $"ws://{Host}:{Gateway.WebSocketPort}", _desk, _audio);
+    }
+
+    private async Task HangupAsync()
+    {
+        if (_module is not null)
+        {
+            await _module.InvokeVoidAsync("hangup");
+        }
+    }
+
+    [JSInvokable]
+    public Task OnPhase(string phase, string detail)
+    {
+        // Connection-state changes never move a finished call back to "in progress".
+        if (!(phase.StartsWith("pc-") && _phase is "ended" or "failed"))
+        {
+            _phase = phase == "pc-failed" ? "failed" : phase;
+            _detail = phase == "pc-failed" ? "ICE or DTLS could not connect" : detail;
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task OnStats(BrowserStats stats)
+    {
+        _stats = stats;
+        return Task.CompletedTask;
+    }
+
+    private string HopState(Hop hop)
+    {
+        if (!InCall)
+        {
+            return _phase == "failed" && hop is Hop.Browser or Hop.Signaling ? "failed" : "idle";
+        }
+
+        var bridge = LiveBridge;
+        var trunk = bridge?.TrunkLeg;
+        return hop switch
+        {
+            Hop.Browser => _phase == "microphone" ? "busy" : "live",
+            Hop.Signaling => Connected ? "live" : _phase == "microphone" ? "idle" : "busy",
+            Hop.Secure => bridge?.SecurityError is not null ? "failed" : bridge?.DtlsProfile is not null ? "live" : Connected ? "busy" : "idle",
+            Hop.Bridge => bridge is null ? "idle" : trunk?.State == CallState.Connected && bridge.DtlsProfile is not null ? "live" : "busy",
+            Hop.Trunk => trunk is null ? "idle" : bridge!.TrunkStats is { PacketsReceived: > 0 } ? "live" : "busy",
+            Hop.Desk => trunk?.State == CallState.Connected ? "live" : trunk is null ? "idle" : "busy",
+            _ => "idle",
+        };
+    }
+
+    private string HopDetail(Hop hop)
+    {
+        var bridge = LiveBridge;
+        return hop switch
+        {
+            Hop.Browser => _stats is { } s && InCall ? $"level {s.MicLevel:0.00}" : "getUserMedia",
+            Hop.Signaling => $"ws://{Host}:{Gateway.WebSocketPort}",
+            Hop.Secure => bridge?.DtlsProfile ?? (_stats?.CandidatePair is { Length: > 0 } pair ? pair : "fingerprint in SDP"),
+            Hop.Bridge => bridge?.BrowserLeg.Codec is { } codec ? $"{codec} ⇄ {bridge.TrunkLeg?.Codec ?? "…"}" : "decoded audio relay",
+            Hop.Trunk => bridge?.TrunkStats is { } t ? $"MOS {t.Mos:0.00} · {t.PacketsReceived} in" : "plain RTP",
+            Hop.Desk => $"sip:{_desk}@127.0.0.1",
+            _ => "",
+        };
+    }
+
+    private static string StateLabel(string state) => state switch
+    {
+        "live" => "working",
+        "busy" => "coming up",
+        "failed" => "failed",
+        _ => "idle",
+    };
+
+    private static string Show(string? value) => string.IsNullOrEmpty(value) ? "—" : value;
+
+    private static string Mos(CallStatistics? s) => s is null || s.Mos <= 0 ? "—" : s.Mos.ToString("0.00");
+
+    private void OnGatewayChanged() => InvokeAsync(StateHasChanged);
+
+    public async ValueTask DisposeAsync()
+    {
+        Gateway.Changed -= OnGatewayChanged;
+        if (_refresh is not null)
+        {
+            await _refresh.DisposeAsync();
+        }
+
+        try
+        {
+            if (_module is not null)
+            {
+                await _module.InvokeVoidAsync("hangup");
+                await _module.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // The browser is gone; its call ended with it.
+        }
+
+        _self?.Dispose();
+    }
+}

@@ -65,6 +65,9 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
     /// <summary>Local SIP address the client is bound to, once started.</summary>
     public string LocalAddress { get; private set; } = string.Empty;
 
+    /// <summary>SHA-256 fingerprint (<c>AA:BB:…</c>) of the certificate presented on the TLS transport, once started.</summary>
+    public string? TlsFingerprint { get; private set; }
+
     /// <summary>Current registration state.</summary>
     public RegistrationState RegistrationState { get; private set; } = RegistrationState.Unregistered;
 
@@ -113,6 +116,7 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
 
         CreateEndpoint();
         LocalAddress = NativeMethods.ConsumeString(NativeMethods.LocalAddress(_handle)) ?? string.Empty;
+        TlsFingerprint = NativeMethods.ConsumeString(NativeMethods.TlsFingerprint(_handle));
         _logger.LogInformation("Voip.NET listening on {LocalAddress} (engine {Version})", LocalAddress, EngineVersion);
 
         if (_options.RegisterOnStart)

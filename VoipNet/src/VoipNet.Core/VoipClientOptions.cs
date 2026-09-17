@@ -13,6 +13,18 @@ public enum SipTransport
     /// <summary>TCP, for large messages or firewalls that block UDP.</summary>
     [JsonStringEnumMemberName("tcp")]
     Tcp,
+
+    /// <summary>TLS over TCP (SIPS signaling, default port 5061).</summary>
+    [JsonStringEnumMemberName("tls")]
+    Tls,
+
+    /// <summary>SIP over WebSocket (RFC 7118), as used by browser softphones.</summary>
+    [JsonStringEnumMemberName("ws")]
+    Ws,
+
+    /// <summary>SIP over secure WebSocket (TLS).</summary>
+    [JsonStringEnumMemberName("wss")]
+    Wss,
 }
 
 /// <summary>How media encryption is negotiated.</summary>
@@ -29,6 +41,18 @@ public enum SrtpMode
     /// <summary>Require RTP/SAVP; unencrypted offers are rejected with 488.</summary>
     [JsonStringEnumMemberName("mandatory")]
     Mandatory,
+}
+
+/// <summary>How SRTP master keys are exchanged.</summary>
+public enum SrtpKeying
+{
+    /// <summary>Keys in SDP <c>a=crypto</c> lines (SDES, RFC 4568). Protect the signaling with TLS.</summary>
+    [JsonStringEnumMemberName("sdes")]
+    Sdes,
+
+    /// <summary>DTLS-SRTP handshake on the media path (RFC 5764), as used by WebRTC. Offers include ICE candidates.</summary>
+    [JsonStringEnumMemberName("dtls")]
+    Dtls,
 }
 
 /// <summary>How DTMF digits are transmitted.</summary>
@@ -98,6 +122,9 @@ public sealed class VoipClientOptions
     /// <summary>Media encryption policy.</summary>
     public SrtpMode Srtp { get; set; } = SrtpMode.Disabled;
 
+    /// <summary>How SRTP keys are exchanged when <see cref="Srtp"/> is enabled. Incoming offers are accepted with either method.</summary>
+    public SrtpKeying SrtpKeying { get; set; } = SrtpKeying.Sdes;
+
     /// <summary>How outgoing DTMF is sent.</summary>
     public DtmfMode DtmfMode { get; set; } = DtmfMode.Rfc4733;
 
@@ -148,6 +175,21 @@ public sealed class VoipClientOptions
 
     /// <summary>Report a media event when no RTP arrives for this long. 0 disables the check.</summary>
     public int RtpTimeoutMs { get; set; }
+
+    /// <summary>Validate the server certificate chain and host name for <see cref="SipTransport.Tls"/>. Ignored when <see cref="TlsPinnedFingerprints"/> is set.</summary>
+    public bool TlsVerifyServer { get; set; } = true;
+
+    /// <summary>PEM file with extra trust anchors (for example a private PBX CA), added to the public roots.</summary>
+    public string? TlsCaFile { get; set; }
+
+    /// <summary>SHA-256 certificate fingerprints to accept (<c>AA:BB:…</c>). When set, only these certificates are accepted, even if self-signed.</summary>
+    public IList<string> TlsPinnedFingerprints { get; set; } = [];
+
+    /// <summary>PEM certificate chain presented to peers. A self-signed certificate is generated when omitted.</summary>
+    public string? TlsCertificateFile { get; set; }
+
+    /// <summary>PEM private key for <see cref="TlsCertificateFile"/>.</summary>
+    public string? TlsPrivateKeyFile { get; set; }
 
     /// <summary>Raise events on this context, so UI applications can update controls directly.</summary>
     [JsonIgnore]

@@ -13,12 +13,12 @@
 ├────┼──────────────────────── C ABI ───────────────────────────────┤
 │    ▼                        Rust (voipnet-core)                    │
 │ ffi.rs        handle, konfigurasi/event JSON, audio zero-copy      │
-│ sip/          transport (UDP/TCP) · message · auth · endpoint (UA) │
+│ sip/          transport (UDP/TCP/TLS/WS) · tls · message · UA      │
 │ sdp.rs        offer/answer · negosiasi codec                       │
-│ media/        session (thread, pacing, ICE, SRTP) · conference    │
+│ media/        session (thread, ICE, SRTP) · dtls · conference      │
 │ rtp/          packet · jitter buffer adaptif                       │
 │ codec/        G.711 · G.722 · L16 · DTMF (RFC 4733, Goertzel) · PLC │
-│ srtp.rs       AES-CM-128 + HMAC-SHA1-80, replay window, ROC        │
+│ srtp.rs       AES-CM-128-HMAC-SHA1-80 · AES-GCM · replay window    │
 │ stun.rs       STUN · kandidat ICE · alokasi TURN                   │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -38,7 +38,9 @@ Audio keluar **diantrekan dan diberi tempo**: `SendAudio` boleh dipanggil dengan
 
 **Jitter buffer (`rtp/jitter.rs`).** Mengurutkan berdasarkan nomor urut yang diperluas, menghitung jitter antar-kedatangan RFC 3550, dan menetapkan kedalaman target sekitar tiga kali jitter ditambah satu frame, di antara batas minimum dan maksimum. Paket hilang dilaporkan agar decoder bisa menyamarkannya; kelebihan kedalaman yang berlangsung lama dipangkas agar latensi tetap rendah.
 
-**Keamanan.** Konteks SRTP dikunci dengan SDES (`a=crypto`). Derivasi kunci sesuai test vector RFC 3711, roll-over counter diperkirakan sesuai §3.3.1, dan replay window 64 paket menolak duplikat. `SrtpMode.Mandatory` menawarkan RTP/SAVP; `Optional` menawarkan kunci di RTP/AVP; `Disabled` menolak RTP/SAVP dengan 488.
+**Keamanan.** Konteks SRTP memakai AES-CM-128-HMAC-SHA1-80 (diperiksa terhadap test vector derivasi kunci RFC 3711) atau AEAD-AES-128/256-GCM (vector RFC 7714); roll-over counter diperkirakan sesuai §3.3.1 dan replay window 64 paket menolak duplikat. Kunci datang lewat SDES (`a=crypto`) atau DTLS-SRTP: `media/dtls.rs` menjalankan engine DTLS 1.2 dimpl (pure Rust) di socket media (paket dibedakan dari STUN dan RTP lewat byte pertamanya), memeriksa sertifikat peer terhadap `a=fingerprint`, lalu memasang kunci hasil ekspor; sebelum itu tidak ada RTP yang dikirim atau diterima. `SrtpMode.Mandatory` menawarkan RTP/SAVP (atau UDP/TLS/RTP/SAVP dengan DTLS); `Optional` menawarkan kunci SDES di RTP/AVP; `Disabled` menolak offer aman dengan 488.
+
+**Transport signaling.** `sip/transport.rs` memperlakukan TCP, TLS, WS, dan WSS sebagai satu model koneksi: byte stream (polos, atau rustls dengan provider ring) yang bisa membawa frame WebSocket, dengan SIP dibingkai oleh Content-Length. Setiap koneksi punya thread pembaca; pengirim berbagi state rustls di balik lock yang tidak pernah ditahan saat read yang memblokir. Koneksi yang gagal handshake TLS langsung menggagalkan transaksi yang menunggu dengan 503. Sertifikat server diverifikasi terhadap root Mozilla ditambah file CA opsional, atau di-pin dengan fingerprint SHA-256.
 
 ## Batas native ↔ .NET
 

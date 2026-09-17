@@ -459,6 +459,17 @@ pub unsafe extern "C" fn voipnet_local_address(handle: *mut c_void) -> *mut c_ch
     to_c_string(ep.local_address().to_string())
 }
 
+/// SHA-256 fingerprint of the local TLS certificate, or null when the transport is not TLS.
+/// Free with `voipnet_string_free`.
+///
+/// # Safety
+/// `handle` must be a live endpoint handle.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_tls_fingerprint(handle: *mut c_void) -> *mut c_char {
+    let Some(ep) = endpoint(handle) else { return std::ptr::null_mut() };
+    ep.tls_fingerprint().map_or(std::ptr::null_mut(), to_c_string)
+}
+
 /// Engine version string. Static, must not be freed.
 #[no_mangle]
 pub extern "C" fn voipnet_version() -> *const c_char {

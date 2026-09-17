@@ -11,6 +11,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use parking_lot::Mutex;
 
 use super::conference::{Conference, CONFERENCE_RATE};
+use super::dtls::{DtlsEvent, DtlsIdentity, DtlsRole, DtlsTransport};
 use super::resample::Resampler;
 use crate::codec::dtmf::{self, DtmfDetector, TelephoneEvent};
 use crate::codec::{create_audio_codec, AudioCodec, Concealer};
@@ -66,6 +67,8 @@ pub struct MediaConfig {
     pub detect_inband_dtmf: bool,
     pub rtp_timeout_ms: u32,
     pub symmetric_rtp: bool,
+    /// Certificate for DTLS-SRTP; required to offer or accept DTLS keying.
+    pub dtls_identity: Option<Arc<DtlsIdentity>>,
 }
 
 impl Default for MediaConfig {
@@ -85,6 +88,7 @@ impl Default for MediaConfig {
             detect_inband_dtmf: false,
             rtp_timeout_ms: 30_000,
             symmetric_rtp: true,
+            dtls_identity: None,
         }
     }
 }
@@ -101,6 +105,10 @@ pub struct NegotiatedMedia {
     pub remote_ice_pwd: Option<String>,
     pub remote_candidates: Vec<Candidate>,
     pub ptime_ms: Option<u32>,
+    /// `a=fingerprint` of the peer when DTLS-SRTP keying was negotiated.
+    pub remote_fingerprint: Option<String>,
+    /// Local DTLS role derived from `a=setup`.
+    pub dtls_role: Option<DtlsRole>,
 }
 
 #[repr(C)]
@@ -202,6 +210,11 @@ struct Shared {
     bytes_received: AtomicU64,
     last_rx: Mutex<Instant>,
     timeout_reported: AtomicBool,
+    dtls: Mutex<Option<DtlsTransport>>,
+    /// A client-role handshake waiting for ICE to find a path.
+    dtls_start_pending: AtomicBool,
+    /// Media must be encrypted (DTLS-SRTP): never send or accept plain RTP while keys are pending.
+    secure_required: AtomicBool,
 }
 
 pub struct MediaSession {
@@ -210,6 +223,7 @@ pub struct MediaSession {
     reflexive: Option<SocketAddr>,
     threads: Mutex<Vec<JoinHandle<()>>>,
     local_srtp_key: Mutex<Option<String>>,
+    dtls_role: Mutex<Option<DtlsRole>>,
 }
 
 fn direction_from(v: u8) -> Direction {
@@ -327,8 +341,11 @@ impl MediaSession {
             bytes_received: AtomicU64::new(0),
             last_rx: Mutex::new(Instant::now()),
             timeout_reported: AtomicBool::new(false),
+            dtls: Mutex::new(None),
+            dtls_start_pending: AtomicBool::new(false),
+            secure_required: AtomicBool::new(false),
         });
-        Ok(Arc::new(Self { shared, local, reflexive, threads: Mutex::new(Vec::new()), local_srtp_key: Mutex::new(None) }))
+        Ok(Arc::new(Self { shared, local, reflexive, threads: Mutex::new(Vec::new()), local_srtp_key: Mutex::new(None), dtls_role: Mutex::new(None) }))
     }
 
     /// Address to advertise in SDP (server-reflexive when available).
@@ -366,6 +383,32 @@ impl MediaSession {
 
     pub fn srtp_enabled(&self) -> bool {
         self.local_srtp_key.lock().is_some()
+    }
+
+    /// Switches the session to DTLS-SRTP keying and returns the local certificate fingerprint.
+    /// Plain RTP is neither sent nor accepted from now on.
+    pub fn enable_dtls(&self) -> Option<String> {
+        let identity = self.shared.config.dtls_identity.as_ref()?;
+        self.shared.secure_required.store(true, Ordering::Relaxed);
+        Some(identity.fingerprint().to_owned())
+    }
+
+    pub fn dtls_enabled(&self) -> bool {
+        self.shared.secure_required.load(Ordering::Relaxed)
+    }
+
+    /// Local certificate fingerprint when DTLS-SRTP keying is enabled.
+    pub fn dtls_fingerprint(&self) -> Option<String> {
+        self.shared.config.dtls_identity.as_ref().filter(|_| self.dtls_enabled()).map(|i| i.fingerprint().to_owned())
+    }
+
+    /// The DTLS role, once chosen. It stays fixed for the life of the call.
+    pub fn dtls_role(&self) -> Option<DtlsRole> {
+        *self.dtls_role.lock()
+    }
+
+    pub fn set_dtls_role(&self, role: DtlsRole) {
+        self.dtls_role.lock().get_or_insert(role);
     }
 
     pub fn set_dtmf_mode(&self, mode: DtmfMode) {
@@ -438,6 +481,29 @@ impl MediaSession {
         }
         sh.direction.store(direction_to(n.direction), Ordering::Relaxed);
         self.start();
+
+        if let (Some(fingerprint), true) = (&n.remote_fingerprint, self.dtls_enabled()) {
+            let mut guard = sh.dtls.lock();
+            if guard.is_none() {
+                let identity = sh.config.dtls_identity.as_ref().ok_or("DTLS negotiated without a local certificate")?;
+                if let Some(role) = n.dtls_role {
+                    self.set_dtls_role(role);
+                }
+                let role = self.dtls_role().unwrap_or(DtlsRole::Client);
+                let mut transport = DtlsTransport::new(identity, role, fingerprint, Instant::now())?;
+                // A client waits for ICE to find a working path before sending its ClientHello.
+                let wait_for_ice = role == DtlsRole::Client && n.remote_ice_ufrag.is_some() && !sh.ice.lock().connected;
+                let mut events = Vec::new();
+                if wait_for_ice {
+                    sh.dtls_start_pending.store(true, Ordering::Relaxed);
+                } else {
+                    transport.start(Instant::now(), &mut events);
+                }
+                *guard = Some(transport);
+                drop(guard);
+                process_dtls_events(sh, events);
+            }
+        }
         Ok(())
     }
 
@@ -470,10 +536,16 @@ impl MediaSession {
         }
         let ssrc = self.shared.tx.lock().ssrc;
         let mut bye = build_bye(ssrc);
-        if let Some(ctx) = self.shared.tx.lock().srtp.as_mut() {
-            let _ = ctx.protect_rtcp(&mut bye);
+        match self.shared.tx.lock().srtp.as_mut() {
+            Some(ctx) => {
+                let _ = ctx.protect_rtcp(&mut bye);
+            }
+            None if self.shared.secure_required.load(Ordering::Relaxed) => bye.clear(),
+            None => {}
         }
-        send_raw(&self.shared, &bye);
+        if !bye.is_empty() {
+            send_raw(&self.shared, &bye);
+        }
         if let Some(conf) = self.shared.conference.lock().take() {
             conf.leave(self.shared.call_id);
         }
@@ -539,10 +611,12 @@ impl MediaSession {
         let header = RtpHeader { marker, payload_type, sequence: tx.sequence, timestamp, ssrc: tx.ssrc };
         tx.sequence = tx.sequence.wrapping_add(1);
         header.write(payload, &mut tx.packet);
-        if let Some(ctx) = tx.srtp.as_mut() {
-            if ctx.protect_rtp(&mut tx.packet).is_err() {
-                return;
-            }
+        let secured = match tx.srtp.as_mut() {
+            Some(ctx) => ctx.protect_rtp(&mut tx.packet).is_ok(),
+            None => !sh.secure_required.load(Ordering::Relaxed),
+        };
+        if !secured {
+            return;
         }
         send_raw(sh, &tx.packet);
         sh.packets_sent.fetch_add(1, Ordering::Relaxed);
@@ -706,7 +780,14 @@ fn handle_datagram(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
                 let _ = ctx.unprotect_rtcp(&mut copy);
             }
         }
-        PacketClass::Dtls | PacketClass::Unknown => {}
+        PacketClass::Dtls => {
+            let mut events = Vec::new();
+            if let Some(dtls) = sh.dtls.lock().as_mut() {
+                dtls.handle_packet(data, &mut events);
+            }
+            process_dtls_events(sh, events);
+        }
+        PacketClass::Unknown => {}
     }
 }
 
@@ -748,6 +829,28 @@ fn mark_ice_connected(sh: &Arc<Shared>, from: SocketAddr) {
     if newly {
         sh.sink.on_media_event(sh.call_id, "ice-connected", &from.to_string());
     }
+    if sh.dtls_start_pending.swap(false, Ordering::Relaxed) {
+        let mut events = Vec::new();
+        if let Some(dtls) = sh.dtls.lock().as_mut() {
+            dtls.start(Instant::now(), &mut events);
+        }
+        process_dtls_events(sh, events);
+    }
+}
+
+/// Acts on DTLS output. Runs without the DTLS lock held; takes the tx/rx locks briefly.
+fn process_dtls_events(sh: &Arc<Shared>, events: Vec<DtlsEvent>) {
+    for event in events {
+        match event {
+            DtlsEvent::Send(packet) => send_raw(sh, &packet),
+            DtlsEvent::Keys(outbound, inbound, profile) => {
+                sh.tx.lock().srtp = Some(outbound);
+                sh.rx.lock().srtp = Some(inbound);
+                sh.sink.on_media_event(sh.call_id, "dtls-connected", profile.name());
+            }
+            DtlsEvent::Failed(reason) => sh.sink.on_media_event(sh.call_id, "dtls-failed", &reason),
+        }
+    }
 }
 
 fn handle_rtp(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
@@ -759,10 +862,12 @@ fn handle_rtp(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
         let rx = &mut *rx;
         rx.buf.clear();
         rx.buf.extend_from_slice(data);
-        if let Some(ctx) = rx.srtp.as_mut() {
-            if ctx.unprotect_rtp(&mut rx.buf).is_err() {
-                return;
-            }
+        let secured = match rx.srtp.as_mut() {
+            Some(ctx) => ctx.unprotect_rtp(&mut rx.buf).is_ok(),
+            None => !sh.secure_required.load(Ordering::Relaxed),
+        };
+        if !secured {
+            return;
         }
         let Some(pkt) = RtpPacketRef::parse(&rx.buf) else { return };
 
@@ -867,8 +972,13 @@ fn playout_loop(sh: &Arc<Shared>) {
             }
         }
 
-        // ---- ICE connectivity checks ----
+        // ---- ICE connectivity checks and DTLS retransmissions ----
         run_ice_checks(sh);
+        let mut dtls_events = Vec::new();
+        if let Some(dtls) = sh.dtls.lock().as_mut() {
+            dtls.poll_timeout(Instant::now(), &mut dtls_events);
+        }
+        process_dtls_events(sh, dtls_events);
 
         // ---- Transmit path ----
         if let Some(conf) = &conference {
@@ -1031,10 +1141,12 @@ fn write_and_send(sh: &Shared, tx: &mut TxState, pt: u8, timestamp: u32, marker:
     tx.packet.clear();
     RtpHeader { marker, payload_type: pt, sequence: tx.sequence, timestamp, ssrc: tx.ssrc }.write(payload, &mut tx.packet);
     tx.sequence = tx.sequence.wrapping_add(1);
-    if let Some(ctx) = tx.srtp.as_mut() {
-        if ctx.protect_rtp(&mut tx.packet).is_err() {
-            return;
-        }
+    let secured = match tx.srtp.as_mut() {
+        Some(ctx) => ctx.protect_rtp(&mut tx.packet).is_ok(),
+        None => !sh.secure_required.load(Ordering::Relaxed),
+    };
+    if !secured {
+        return;
     }
     send_raw(sh, &tx.packet);
     tx.packets = tx.packets.wrapping_add(1);
@@ -1050,10 +1162,12 @@ fn send_sender_report(sh: &Arc<Shared>) {
     let ntp_frac = ((since_epoch.subsec_nanos() as u64) << 32) / 1_000_000_000;
     let ntp = (ntp_secs << 32) | ntp_frac;
     let mut sr = build_sender_report(tx.ssrc, ntp, tx.timestamp, tx.packets, tx.octets, "voipnet");
-    if let Some(ctx) = tx.srtp.as_mut() {
-        if ctx.protect_rtcp(&mut sr).is_err() {
-            return;
-        }
+    let secured = match tx.srtp.as_mut() {
+        Some(ctx) => ctx.protect_rtcp(&mut sr).is_ok(),
+        None => !sh.secure_required.load(Ordering::Relaxed),
+    };
+    if !secured {
+        return;
     }
     drop(tx);
     send_raw(sh, &sr);
@@ -1105,6 +1219,8 @@ mod tests {
             remote_ice_pwd: None,
             remote_candidates: vec![],
             ptime_ms: None,
+            remote_fingerprint: None,
+            dtls_role: None,
         };
         a.apply(&neg(b.local_address(), kb)).unwrap();
         b.apply(&neg(a.local_address(), ka)).unwrap();

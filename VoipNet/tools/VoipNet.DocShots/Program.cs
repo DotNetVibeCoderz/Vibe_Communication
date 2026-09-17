@@ -2,7 +2,7 @@
 // (Edge or Chrome) over the DevTools protocol: it clicks, types and waits like a user would.
 //
 // Usage: dotnet run --project tools/VoipNet.DocShots -- <scenario> <baseUrl> <outputFolder>
-//   scenarios: callcenter, ivrstudio
+//   scenarios: callcenter, ivrstudio, webphone
 
 using System.Diagnostics;
 using System.Net.Http.Json;
@@ -13,7 +13,7 @@ using System.Text.Json.Nodes;
 
 if (args.Length < 3)
 {
-    Console.Error.WriteLine("usage: <callcenter|ivrstudio> <baseUrl> <outputFolder>");
+    Console.Error.WriteLine("usage: <callcenter|ivrstudio|webphone> <baseUrl> <outputFolder>");
     return 2;
 }
 
@@ -32,7 +32,7 @@ var browserPath = new[]
 const int port = 9333;
 var profile = Path.Combine(Path.GetTempPath(), $"voipnet-docshots-{Guid.NewGuid():N}");
 using var browser = Process.Start(new ProcessStartInfo(browserPath,
-    $"--headless=new --disable-gpu --hide-scrollbars --no-first-run --remote-debugging-port={port} --user-data-dir=\"{profile}\" --window-size=1500,1150 about:blank")
+    $"--headless=new --disable-gpu --hide-scrollbars --use-fake-device-for-media-stream --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required --no-first-run --remote-debugging-port={port} --user-data-dir=\"{profile}\" --window-size=1500,1150 about:blank")
 {
     UseShellExecute = false,
     RedirectStandardError = true,
@@ -101,6 +101,22 @@ try
             await cdp.WaitForAsync("document.querySelectorAll('.transcript li.ai').length >= 2", TimeSpan.FromSeconds(90));
             await Task.Delay(TimeSpan.FromSeconds(3));
             await cdp.ScreenshotAsync(Path.Combine(output, "ivrstudio-test-call.png"), fullPage: false);
+            break;
+
+        case "webphone":
+            await cdp.NavigateAsync($"{baseUrl}/");
+            await Task.Delay(TimeSpan.FromSeconds(3));
+            await cdp.ScreenshotAsync(Path.Combine(output, "webphone-idle.png"), fullPage: true);
+            await cdp.ClickTextAsync("button", "Call echo desk");
+            await cdp.WaitForAsync("document.body.innerText.includes('Media is flowing')", TimeSpan.FromSeconds(30));
+            await cdp.WaitForAsync("document.querySelectorAll('.jack.live').length === 6", TimeSpan.FromSeconds(20));
+            await Task.Delay(TimeSpan.FromSeconds(4));
+            await cdp.ScreenshotAsync(Path.Combine(output, "webphone-call.png"), fullPage: true);
+            // Print what the browser measured so a run doubles as an interop check.
+            Console.WriteLine(await cdp.EvaluateAsync("[...document.querySelectorAll('.facts div')].map(d => d.innerText.replace('\\n', ': ')).join('\\n')"));
+            Console.WriteLine(await cdp.EvaluateAsync("[...document.querySelectorAll('.jack')].map(j => j.className + ' ' + j.querySelector('.jack-detail').innerText).join('\\n')"));
+            await cdp.ClickTextAsync("button", "Hang up");
+            await Task.Delay(TimeSpan.FromSeconds(2));
             break;
 
         default:

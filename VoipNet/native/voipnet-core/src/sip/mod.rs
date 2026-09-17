@@ -3,6 +3,7 @@
 pub mod auth;
 pub mod endpoint;
 pub mod message;
+pub mod tls;
 pub mod transport;
 pub mod uri;
 

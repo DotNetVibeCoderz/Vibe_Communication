@@ -120,7 +120,8 @@ builder.Services.AddVoipNetEnterprise();                      // IvrRunner, Call
 dotnet run --project samples/VoipNet.Softphone        # dial "echo" or "music"
 dotnet run --project samples/VoipNet.Gallery
 dotnet run --project samples/VoipNet.CallCenter        # http://localhost:5184
-dotnet run --project samples/VoipNet.IvrStudio         # http://localhost:5xxx
+dotnet run --project samples/VoipNet.IvrStudio         # http://localhost:5209
+dotnet run --project samples/VoipNet.WebPhone          # http://localhost:5190, browser calls SIP
 dotnet run --project samples/VoipNet.RealtimeAgent -- --demo
 ```
 

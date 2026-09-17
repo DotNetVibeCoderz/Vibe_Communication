@@ -1,0 +1,286 @@
+/* Patch Bay — the Voip.NET sample identity for the web.
+   Rack aluminium surfaces, ink text, patch-cable colours for state, cobalt for actions. */
+
+:root {
+    --rack: #dde3e6;
+    --panel: #f4f6f7;
+    --raised: #ffffff;
+    --ink: #0f1b24;
+    --ink-soft: #4a5a66;
+    --hairline: #c5ced4;
+    --trace: #e9eef1;
+    --cobalt: #2f5bff;
+    --cobalt-pressed: #2448d6;
+    --amber: #f2a516;
+    --green: #1e9e6a;
+    --red: #d8413a;
+    --violet: #7a5cfa;
+    --display: "Bricolage Grotesque", system-ui, sans-serif;
+    --body: "IBM Plex Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+    --radius: 6px;
+    color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --rack: #10171d;
+        --panel: #172129;
+        --raised: #1e2a33;
+        --ink: #e8eef2;
+        --ink-soft: #9aaab5;
+        --hairline: #2b3944;
+        --trace: #121a20;
+        color-scheme: dark;
+    }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    background: var(--rack);
+    color: var(--ink);
+    font: 15px/1.5 var(--body);
+    -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--cobalt); }
+
+:focus-visible { outline: 2px solid var(--cobalt); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+.eyebrow {
+    font: 500 11px/1.4 var(--mono);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+}
+
+.display {
+    font-family: var(--display);
+    font-weight: 700;
+    letter-spacing: -.02em;
+    line-height: 1.05;
+    margin: 0;
+}
+
+.mono { font-family: var(--mono); }
+.soft { color: var(--ink-soft); }
+
+.module {
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    padding: 20px;
+}
+
+.module.raised { background: var(--raised); }
+
+/* The patch cable: a coloured rule that encodes state. */
+.cable { border-left: 5px solid var(--hairline); }
+.cable.available, .cable.connected { border-left-color: var(--green); }
+.cable.ringing, .cable.wrapup { border-left-color: var(--amber); }
+.cable.oncall { border-left-color: var(--cobalt); }
+.cable.paused, .cable.offline, .cable.ended { border-left-color: var(--red); }
+.cable.ai { border-left-color: var(--violet); }
+
+.btn {
+    font: 500 14px var(--body);
+    border-radius: 4px;
+    padding: 8px 14px;
+    border: 1px solid var(--hairline);
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+}
+.btn:hover { background: var(--trace); }
+.btn.primary { background: var(--cobalt); border-color: var(--cobalt); color: #fff; }
+.btn.primary:hover { background: var(--cobalt-pressed); }
+.btn.go { background: var(--green); border-color: var(--green); color: #fff; }
+.btn.danger { background: var(--red); border-color: var(--red); color: #fff; }
+.btn:disabled { opacity: .55; cursor: default; }
+.btn.small { padding: 4px 9px; font-size: 12.5px; }
+
+.pill {
+    display: inline-block;
+    font: 500 11px var(--mono);
+    padding: 2px 9px;
+    border-radius: 10px;
+    background: var(--trace);
+}
+
+table.grid { width: 100%; border-collapse: collapse; }
+table.grid th {
+    text-align: left;
+    font: 500 11px var(--mono);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    padding: 0 10px 8px 0;
+    border-bottom: 1px solid var(--hairline);
+}
+table.grid th.num { text-align: right; }
+h1:focus { outline: none; }
+table.grid td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--trace); vertical-align: middle; }
+table.grid td.num { font-family: var(--mono); text-align: right; }
+
+.empty { color: var(--ink-soft); padding: 18px 0; }
+
+#blazor-error-ui {
+    background: var(--amber);
+    bottom: 0;
+    display: none;
+    left: 0;
+    padding: .6rem 1.25rem .7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+#blazor-error-ui .dismiss { cursor: pointer; position: absolute; right: .75rem; top: .5rem; }
+
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.small { font-size: 12.5px; }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.section-head h2 { font-size: 20px; }
+
+/* ---- Signal path: jacks joined by patch cables, lit hop by hop ---- */
+
+.path {
+    display: flex;
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    padding: 22px 20px;
+    margin-bottom: 20px;
+}
+
+.jack {
+    --state: var(--hairline);
+    flex: 1 1 0;
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+    align-content: start;
+}
+.jack:last-child { flex: 0 1 160px; }
+.jack > :not(.jack-head) { padding-right: 12px; }
+.jack.busy { --state: var(--amber); }
+.jack.live { --state: var(--green); }
+.jack.failed { --state: var(--red); }
+
+.jack-head { display: flex; align-items: center; margin-bottom: 8px; }
+.socket {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 3px solid var(--state);
+    background: radial-gradient(circle, var(--ink) 0 4px, var(--raised) 5px);
+    transition: border-color .3s, box-shadow .3s;
+}
+.jack.live .socket { box-shadow: 0 0 0 4px color-mix(in srgb, var(--green) 22%, transparent); }
+
+.cable-run {
+    --cable: var(--hairline);
+    flex: 1;
+    height: 6px;
+    margin: 0 6px;
+    border-radius: 3px;
+    background: var(--cable);
+    transition: background-color .3s;
+}
+.cable-run.busy { --cable: var(--amber); }
+.cable-run.failed { --cable: var(--red); }
+
+/* Signal travelling along a working cable — the page's one moving part. */
+.cable-run.live {
+    background: repeating-linear-gradient(90deg, var(--green) 0 10px, color-mix(in srgb, var(--green) 40%, var(--panel)) 10px 16px);
+    background-size: 32px 6px;
+    animation: signal 900ms linear infinite;
+}
+@keyframes signal { to { background-position: 32px 0; } }
+
+.jack-title { font: 600 15px var(--body); }
+.jack-detail { font-size: 11.5px; color: var(--ink-soft); overflow-wrap: anywhere; }
+
+/* ---- Phone and legs ---- */
+
+.desk-row {
+    display: grid;
+    grid-template-columns: minmax(300px, 5fr) minmax(0, 7fr);
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.phone h1 { font-size: clamp(26px, 3vw, 34px); max-width: 16ch; }
+.lede { margin: 10px 0 18px; max-width: 46ch; }
+
+.choices { border: 0; padding: 0; margin: 0 0 18px; display: grid; gap: 8px; }
+.choices legend { margin-bottom: 8px; }
+.choice {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 10px 12px;
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    border-left-width: 5px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.choice > span { display: grid; }
+.choice input { margin-top: 5px; accent-color: var(--cobalt); }
+.choices:disabled .choice { cursor: default; opacity: .7; }
+
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 18px; }
+.actions .btn { padding: 11px 20px; font-size: 15px; }
+.status { color: var(--ink-soft); }
+.status.bad { color: var(--red); }
+
+.meters { display: grid; gap: 10px; }
+.meter { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 10px; }
+.ladder { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; height: 14px; }
+.ladder span { background: var(--trace); border-radius: 1px; }
+.ladder span.on { background: var(--green); }
+.ladder span.on.hot { background: var(--amber); }
+
+.legs table.grid { margin-bottom: 18px; }
+.browser-head { margin: 0 0 8px; }
+.facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px 18px; margin: 0; }
+.facts dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+
+/* ---- Log ---- */
+
+.events { list-style: none; margin: 0; padding: 0; }
+.events li {
+    display: grid;
+    grid-template-columns: 110px 150px 1fr;
+    gap: 12px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--trace);
+    align-items: baseline;
+}
+.tag { font: 500 11px var(--mono); padding: 1px 8px; border-radius: 10px; background: var(--trace); justify-self: start; }
+.tag.secure { background: color-mix(in srgb, var(--green) 18%, transparent); }
+.tag.signaling { background: color-mix(in srgb, var(--cobalt) 16%, transparent); }
+.tag.trunk, .tag.desk { background: color-mix(in srgb, var(--violet) 16%, transparent); }
+.tag.bridge { background: color-mix(in srgb, var(--amber) 22%, transparent); }
+
+@media (max-width: 980px) {
+    .desk-row { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+    .path { flex-direction: column; padding: 16px; }
+    .jack, .jack:last-child { flex: none; grid-template-columns: 26px 1fr; column-gap: 12px; }
+    .jack > :not(.jack-head) { grid-column: 2; padding-right: 0; }
+    .jack-head { grid-row: 1 / span 4; flex-direction: column; align-self: stretch; margin: 0; }
+    .cable-run { width: 6px; height: auto; min-height: 20px; margin: 6px 0; }
+    .cable-run.live { background: var(--green); animation: none; }
+    .events li { grid-template-columns: 1fr; gap: 2px; }
+    .meter { grid-template-columns: 1fr; gap: 4px; }
+}

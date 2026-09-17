@@ -13,10 +13,12 @@ use serde::{Deserialize, Serialize};
 
 use super::auth::DigestChallenge;
 use super::message::{new_branch, random_token, split_list, Method, SipMessage};
+use super::tls::{TlsContext, TlsSettings};
 use super::transport::{Transport, TransportKind};
 use super::uri::{NameAddr, SipUri};
 use crate::codec::CodecKind;
 use crate::media::conference::Conference;
+use crate::media::dtls::{DtlsIdentity, DtlsRole};
 use crate::media::{AudioDirection, DtmfMode, DtmfSource, MediaConfig, MediaSession, MediaSink, MediaStats, NegotiatedMedia};
 use crate::net;
 use crate::sdp::{negotiate, CryptoAttr, Direction, MediaDescription, RtpMap, SessionDescription};
@@ -38,6 +40,17 @@ pub enum SrtpMode {
     Disabled,
     Optional,
     Mandatory,
+}
+
+/// How SRTP master keys are exchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SrtpKeying {
+    /// Keys in `a=crypto` (RFC 4568); requires a secure signaling path such as TLS.
+    #[default]
+    Sdes,
+    /// DTLS-SRTP handshake on the media path (RFC 5763/5764), as used by WebRTC.
+    Dtls,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -68,6 +81,7 @@ pub struct EndpointConfig {
     pub user_agent: String,
     pub audio_codecs: Vec<String>,
     pub srtp: SrtpMode,
+    pub srtp_keying: SrtpKeying,
     pub dtmf_mode: DtmfModeConfig,
     pub ice: bool,
     pub stun_server: Option<String>,
@@ -85,6 +99,11 @@ pub struct EndpointConfig {
     pub trace_sip: bool,
     pub keepalive_secs: u32,
     pub rtp_timeout_ms: u32,
+    pub tls_verify_server: bool,
+    pub tls_ca_file: Option<String>,
+    pub tls_pinned_fingerprints: Vec<String>,
+    pub tls_certificate_file: Option<String>,
+    pub tls_private_key_file: Option<String>,
 }
 
 impl Default for EndpointConfig {
@@ -106,6 +125,7 @@ impl Default for EndpointConfig {
             user_agent: format!("Voip.NET/{}", env!("CARGO_PKG_VERSION")),
             audio_codecs: vec!["G722".into(), "PCMU".into(), "PCMA".into()],
             srtp: SrtpMode::Disabled,
+            srtp_keying: SrtpKeying::Sdes,
             dtmf_mode: DtmfModeConfig::Rfc4733,
             ice: false,
             stun_server: None,
@@ -123,6 +143,11 @@ impl Default for EndpointConfig {
             trace_sip: false,
             keepalive_secs: 25,
             rtp_timeout_ms: 0,
+            tls_verify_server: true,
+            tls_ca_file: None,
+            tls_pinned_fingerprints: Vec::new(),
+            tls_certificate_file: None,
+            tls_private_key_file: None,
         }
     }
 }
@@ -259,6 +284,8 @@ struct ClientTx {
     provisional: bool,
     completed_at: Option<Instant>,
     auth_attempts: u8,
+    /// A reliable transport could not deliver the request (RFC 3261 §8.1.3.1: treat as 503).
+    transport_failed: bool,
 }
 
 struct ServerTx {
@@ -393,7 +420,23 @@ type Result<T> = std::result::Result<T, EndpointError>;
 impl Endpoint {
     pub fn start(cfg: EndpointConfig, handler: Arc<dyn EndpointHandler>) -> Result<Self> {
         let bind_ip: IpAddr = cfg.bind_address.parse().map_err(|_| EndpointError::InvalidArgument("bindAddress".into()))?;
-        let transport = Transport::bind(cfg.transport, SocketAddr::new(bind_ip, cfg.sip_port))?;
+        let tls = if matches!(cfg.transport, TransportKind::Tls | TransportKind::Wss) {
+            let settings = TlsSettings {
+                verify_server: cfg.tls_verify_server,
+                ca_file: cfg.tls_ca_file.clone(),
+                pinned_sha256: cfg.tls_pinned_fingerprints.clone(),
+                certificate_file: cfg.tls_certificate_file.clone(),
+                private_key_file: cfg.tls_private_key_file.clone(),
+            };
+            let mut names = vec!["localhost".to_owned()];
+            if !cfg.domain.is_empty() {
+                names.push(cfg.domain.clone());
+            }
+            Some(Arc::new(TlsContext::new(&settings, names).map_err(EndpointError::InvalidArgument)?))
+        } else {
+            None
+        };
+        let transport = Transport::bind(cfg.transport, SocketAddr::new(bind_ip, cfg.sip_port), tls)?;
         let bound = transport.local_addr();
         let advertised_ip = match &cfg.public_address {
             Some(p) => p.parse().map_err(|_| EndpointError::InvalidArgument("publicAddress".into()))?,
@@ -417,6 +460,7 @@ impl Endpoint {
             detect_inband_dtmf: cfg.detect_inband_dtmf,
             rtp_timeout_ms: cfg.rtp_timeout_ms,
             symmetric_rtp: true,
+            dtls_identity: Some(DtlsIdentity::generate().map_err(EndpointError::InvalidArgument)?),
         };
 
         let mut supported_audio: Vec<RtpMap> = cfg
@@ -492,6 +536,11 @@ impl Endpoint {
 
     pub fn local_address(&self) -> SocketAddr {
         self.inner.transport.local_addr()
+    }
+
+    /// SHA-256 fingerprint (`AA:BB:…`) of the certificate presented on the TLS transport.
+    pub fn tls_fingerprint(&self) -> Option<String> {
+        self.inner.transport.tls_fingerprint().map(str::to_owned)
     }
 
     pub fn contact_address(&self) -> SocketAddr {
@@ -758,7 +807,23 @@ impl Inner {
     }
 
     fn proxy_addr(&self) -> Option<SocketAddr> {
-        self.cfg.outbound_proxy.as_deref().and_then(|p| resolve_hostport(p, 5060))
+        self.cfg.outbound_proxy.as_deref().and_then(|p| self.resolve_host(p))
+    }
+
+    /// Resolves `host[:port]` with the transport's default port, remembering the name for TLS.
+    fn resolve_host(&self, s: &str) -> Option<SocketAddr> {
+        let s = s.trim().trim_start_matches("sips:").trim_start_matches("sip:");
+        let (host, port) = super::uri::split_host_port(s)?;
+        let addr = net::resolve(&host, port.unwrap_or(self.cfg.transport.default_port()))?;
+        self.transport.note_server_name(addr, &host);
+        Some(addr)
+    }
+
+    fn resolve_uri(&self, uri: &SipUri) -> Option<SocketAddr> {
+        let port = uri.port.unwrap_or(if uri.secure { 5061 } else { self.cfg.transport.default_port() });
+        let addr = net::resolve(&uri.host, port)?;
+        self.transport.note_server_name(addr, &uri.host);
+        Some(addr)
     }
 
     fn destination_for(&self, uri: &SipUri, routes: &[String]) -> Option<SocketAddr> {
@@ -766,22 +831,29 @@ impl Inner {
             return Some(p);
         }
         if let Some(first) = routes.first().and_then(|r| NameAddr::parse(r)) {
-            let (h, p) = first.uri.host_port();
-            return net::resolve(&h, p);
+            return self.resolve_uri(&first.uri);
         }
-        let (h, p) = uri.host_port();
-        net::resolve(&h, p)
+        self.resolve_uri(uri)
     }
 
     fn send_bytes(&self, dest: SocketAddr, msg: &SipMessage) -> Vec<u8> {
+        self.try_send_bytes(dest, msg).0
+    }
+
+    /// Sends a message and reports whether the transport accepted it.
+    fn try_send_bytes(&self, dest: SocketAddr, msg: &SipMessage) -> (Vec<u8>, bool) {
         let bytes = msg.to_bytes();
-        if let Err(e) = self.transport.send(dest, &bytes) {
-            self.log("warn", format!("send to {dest} failed: {e}"));
-        }
+        let sent = match self.transport.send(dest, &bytes) {
+            Ok(()) => true,
+            Err(e) => {
+                self.log("warn", format!("send to {dest} failed: {e}"));
+                false
+            }
+        };
         if self.cfg.trace_sip {
             self.emit(Event::SipTrace { direction: "out", remote: dest.to_string(), message: String::from_utf8_lossy(&bytes).into_owned() });
         }
-        bytes
+        (bytes, sent)
     }
 
     fn base_request(&self, method: Method, uri: &str, from: &str, to: &str, call_id: &str, cseq: u32, routes: &[String]) -> SipMessage {
@@ -807,7 +879,9 @@ impl Inner {
     }
 
     fn send_request(&self, st: &mut State, msg: SipMessage, dest: SocketAddr, purpose: Purpose) {
-        let bytes = self.send_bytes(dest, &msg);
+        let (bytes, sent) = self.try_send_bytes(dest, &msg);
+        // UDP send errors are transient (ICMP noise); stream transports fail for good.
+        let transport_failed = !sent && self.transport.is_reliable();
         // CANCEL shares the INVITE's branch (RFC 3261 §9.1), so transactions are keyed by branch + method.
         let Some(key) = msg.transaction_key() else { return };
         let now = Instant::now();
@@ -824,6 +898,7 @@ impl Inner {
                 provisional: false,
                 completed_at: None,
                 auth_attempts: 0,
+                transport_failed,
             },
         );
     }
@@ -875,7 +950,7 @@ impl Inner {
             return Err(EndpointError::InvalidArgument("domain is required to register".into()));
         }
         let registrar = self.cfg.registrar.clone().unwrap_or_else(|| self.cfg.domain.clone());
-        let dest = self.proxy_addr().or_else(|| resolve_hostport(&registrar, 5060)).ok_or_else(|| {
+        let dest = self.proxy_addr().or_else(|| self.resolve_host(&registrar)).ok_or_else(|| {
             EndpointError::InvalidArgument(format!("cannot resolve registrar {registrar}"))
         })?;
         let mut st = self.state.lock();
@@ -933,9 +1008,14 @@ impl Inner {
             .ok_or_else(|| EndpointError::InvalidArgument(format!("cannot resolve {}", uri.host)))?;
         let id = self.ids.fetch_add(1, Ordering::Relaxed);
         let media = self.new_media(id)?;
-        let use_srtp = self.cfg.srtp != SrtpMode::Disabled;
-        if use_srtp {
-            media.enable_srtp();
+        match (self.cfg.srtp, self.cfg.srtp_keying) {
+            (SrtpMode::Disabled, _) => {}
+            (_, SrtpKeying::Dtls) => {
+                media.enable_dtls();
+            }
+            (_, SrtpKeying::Sdes) => {
+                media.enable_srtp();
+            }
         }
 
         let mut st = self.state.lock();
@@ -1019,16 +1099,37 @@ impl Inner {
             ptime: Some(self.cfg.ptime_ms),
             ..Default::default()
         };
-        if let Some(offer_audio) = answer_to.and_then(|o| o.audio()) {
+        let offer_audio = answer_to.and_then(|o| o.audio());
+        if let Some(offer_audio) = offer_audio {
             m.protocol = offer_audio.protocol.clone();
             m.rtcp_mux = offer_audio.rtcp_mux;
+            m.mid = offer_audio.mid.clone();
         }
         if media.srtp_enabled() {
             let key = media.enable_srtp();
-            let tag = answer_to.and_then(|o| o.audio()).and_then(|a| a.crypto.first()).map_or(1, |c| c.tag);
+            let tag = offer_audio.and_then(|a| a.crypto.first()).map_or(1, |c| c.tag);
             m.crypto.push(CryptoAttr { tag, suite: SUITE_AES_CM_128_HMAC_SHA1_80.into(), key_params: key });
         }
-        if self.cfg.ice {
+        // DTLS-SRTP (RFC 5763): certificate fingerprint plus the connection role.
+        let dtls = media.dtls_enabled();
+        if let Some(fingerprint) = media.dtls_fingerprint() {
+            m.fingerprint = Some(format!("sha-256 {fingerprint}"));
+            m.setup = Some(
+                match media.dtls_role() {
+                    Some(DtlsRole::Client) => "active",
+                    Some(DtlsRole::Server) => "passive",
+                    None => "actpass",
+                }
+                .into(),
+            );
+            if answer_to.is_none() {
+                m.protocol = "UDP/TLS/RTP/SAVP".into();
+                m.mid = Some("0".into());
+            }
+        }
+        // WebRTC peers require ICE, so DTLS offers and ICE offers are answered with candidates.
+        let remote_ice = offer_audio.is_some_and(|a| a.ice_ufrag.is_some()) || answer_to.is_some_and(|o| o.ice_ufrag.is_some());
+        if self.cfg.ice || dtls || remote_ice {
             let (ufrag, pwd) = media.ice_credentials();
             m.ice_ufrag = Some(ufrag);
             m.ice_pwd = Some(pwd);
@@ -1059,11 +1160,18 @@ impl Inner {
                         protocol: om.protocol.clone(),
                         formats: om.formats.iter().take(1).cloned().collect(),
                         direction: Direction::Inactive,
+                        mid: om.mid.clone(),
                         ..Default::default()
                     });
                 }
             }
             sdp.media = lines;
+            // Keep BUNDLE (RFC 8843) for the accepted stream so WebRTC peers accept the answer.
+            if offer.groups.iter().any(|g| g.starts_with("BUNDLE")) {
+                if let Some(mid) = sdp.media.iter().find(|m| m.port != 0).and_then(|m| m.mid.clone()) {
+                    sdp.groups.push(format!("BUNDLE {mid}"));
+                }
+            }
         }
         sdp.to_string_sdp()
     }
@@ -1073,16 +1181,29 @@ impl Inner {
         let audio = offer.audio().filter(|a| a.port != 0).ok_or(488u16)?;
         let secure_profile = audio.protocol.contains("SAVP");
         let crypto = audio.crypto.iter().find(|c| c.suite == SUITE_AES_CM_128_HMAC_SHA1_80);
-        match (self.cfg.srtp, secure_profile, crypto) {
+        let fingerprint = audio.fingerprint.clone().or_else(|| offer.fingerprint.clone()).filter(|_| audio.protocol.contains("TLS"));
+        match (self.cfg.srtp, secure_profile, crypto.is_some() || fingerprint.is_some()) {
             (SrtpMode::Disabled, true, _) => return Err(488),
-            (SrtpMode::Mandatory, _, None) => return Err(488),
+            (SrtpMode::Mandatory, _, false) => return Err(488),
             _ => {}
         }
         let (codec, dtmf) = negotiate(&audio.formats, &self.supported_audio);
         let codec = codec.ok_or(488u16)?;
-        let use_srtp = crypto.is_some() && self.cfg.srtp != SrtpMode::Disabled;
+        // Prefer the configured keying when the offer carries both.
+        let use_dtls = self.cfg.srtp != SrtpMode::Disabled
+            && fingerprint.is_some()
+            && (crypto.is_none() || self.cfg.srtp_keying == SrtpKeying::Dtls);
+        let use_srtp = !use_dtls && crypto.is_some() && self.cfg.srtp != SrtpMode::Disabled;
         if use_srtp {
             media.enable_srtp();
+        }
+        if use_dtls {
+            media.enable_dtls().ok_or(488u16)?;
+            // RFC 5763 §5: the answerer takes the role the offerer left open, preferring active.
+            media.set_dtls_role(match audio.setup.as_deref() {
+                Some("active") => DtlsRole::Server,
+                _ => DtlsRole::Client,
+            });
         }
         let mut answer_formats = vec![codec.clone()];
         if let Some(d) = &dtmf {
@@ -1090,7 +1211,7 @@ impl Inner {
         }
         let remote_ip = offer.rtp_address(audio).and_then(|a| a.parse::<IpAddr>().ok());
         let negotiated = NegotiatedMedia {
-            remote: remote_ip.map(|ip| SocketAddr::new(ip, audio.port)),
+            remote: remote_ip.filter(|ip| !ip.is_unspecified()).map(|ip| SocketAddr::new(ip, audio.port)),
             codec,
             dtmf,
             direction: audio.direction.reversed(),
@@ -1099,6 +1220,8 @@ impl Inner {
             remote_ice_pwd: audio.ice_pwd.clone().or_else(|| offer.ice_pwd.clone()),
             remote_candidates: audio.candidates.iter().filter_map(|c| Candidate::parse(c)).collect(),
             ptime_ms: audio.ptime,
+            remote_fingerprint: fingerprint.filter(|_| use_dtls),
+            dtls_role: media.dtls_role(),
         };
         Ok((answer_formats, negotiated))
     }
@@ -1109,7 +1232,7 @@ impl Inner {
         let (codec, dtmf) = negotiate(&audio.formats, &self.supported_audio);
         let remote_ip: IpAddr = answer.rtp_address(audio)?.parse().ok()?;
         Some(NegotiatedMedia {
-            remote: Some(SocketAddr::new(remote_ip, audio.port)),
+            remote: Some(SocketAddr::new(remote_ip, audio.port)).filter(|a| !a.ip().is_unspecified()),
             codec: codec?,
             dtmf,
             direction: audio.direction.reversed(),
@@ -1118,6 +1241,9 @@ impl Inner {
             remote_ice_pwd: audio.ice_pwd.clone().or_else(|| answer.ice_pwd.clone()),
             remote_candidates: audio.candidates.iter().filter_map(|c| Candidate::parse(c)).collect(),
             ptime_ms: audio.ptime,
+            remote_fingerprint: audio.fingerprint.clone().or_else(|| answer.fingerprint.clone()),
+            // The answerer picked a role; we take the other one.
+            dtls_role: Some(if audio.setup.as_deref() == Some("active") { DtlsRole::Server } else { DtlsRole::Client }),
         })
     }
 
@@ -1137,7 +1263,7 @@ impl Inner {
                 codec: n.codec.encoding.clone(),
                 sample_rate: stats.sample_rate.max(8000),
                 remote: n.remote.map(|r| r.to_string()).unwrap_or_default(),
-                srtp: n.remote_srtp_key.is_some(),
+                srtp: n.remote_srtp_key.is_some() || n.remote_fingerprint.is_some(),
                 direction: n.direction.as_str(),
             });
         }
@@ -2118,12 +2244,16 @@ impl Inner {
             let reliable = self.transport.is_reliable();
 
             let mut timed_out = Vec::new();
-            st.client_txs.retain(|branch, tx| {
+            st.client_txs.retain(|_, tx| {
                 if let Some(done) = tx.completed_at {
                     return now.duration_since(done) < TX_TIMEOUT;
                 }
+                if tx.transport_failed {
+                    timed_out.push((503, "transport error", tx.purpose.clone()));
+                    return false;
+                }
                 if now.duration_since(tx.started) >= TX_TIMEOUT {
-                    timed_out.push((branch.clone(), tx.purpose.clone(), tx.request.method().cloned()));
+                    timed_out.push((408, "request timeout", tx.purpose.clone()));
                     return false;
                 }
                 let is_invite = tx.request.method() == Some(&Method::Invite);
@@ -2134,28 +2264,29 @@ impl Inner {
                 }
                 true
             });
-            for (_, purpose, _) in timed_out {
+            for (code, reason, purpose) in timed_out {
+                let title = if code == 408 { "Request Timeout" } else { "Service Unavailable" };
                 match purpose {
-                    Purpose::Invite(id) => self.terminate(st, id, 408, "request timeout", &mut events, &mut stop),
+                    Purpose::Invite(id) => self.terminate(st, id, code, reason, &mut events, &mut stop),
                     Purpose::Register => {
                         st.registration.registered = false;
                         st.registration.refresh_at = Some(now + Duration::from_secs(30));
-                        events.push(Event::RegistrationChanged { state: "failed", code: 408, reason: "Request Timeout".into(), expires: 0 });
+                        events.push(Event::RegistrationChanged { state: "failed", code, reason: title.into(), expires: 0 });
                     }
                     Purpose::ReInvite(id) | Purpose::Bye(id) => {
                         if matches!(purpose, Purpose::ReInvite(_)) {
-                            self.terminate(st, id, 408, "request timeout", &mut events, &mut stop);
+                            self.terminate(st, id, code, reason, &mut events, &mut stop);
                         }
                     }
                     Purpose::OutOfDialog { request_id, started } => events.push(Event::RequestResult {
                         request_id,
                         method: "?".into(),
-                        code: 408,
-                        reason: "Request Timeout".into(),
+                        code,
+                        reason: title.into(),
                         latency_ms: started.elapsed().as_millis() as u64,
                         user_agent: None,
                     }),
-                    Purpose::Refer(id) => events.push(Event::TransferProgress { call_id: id, code: 408, reason: "Request Timeout".into() }),
+                    Purpose::Refer(id) => events.push(Event::TransferProgress { call_id: id, code, reason: title.into() }),
                     _ => {}
                 }
             }
@@ -2221,7 +2352,7 @@ impl Inner {
                 if due {
                     reg.last_keepalive = Some(now);
                     let registrar = self.cfg.registrar.clone().unwrap_or_else(|| self.cfg.domain.clone());
-                    if let Some(d) = self.proxy_addr().or_else(|| resolve_hostport(&registrar, 5060)) {
+                    if let Some(d) = self.proxy_addr().or_else(|| self.resolve_host(&registrar)) {
                         let _ = self.transport.send(d, b"\r\n\r\n");
                     }
                 }
@@ -2527,5 +2658,86 @@ mod tests {
         let refer_to = format!("<sip:bob@example.com?Replaces={escaped}>");
         assert_eq!(extract_replaces(&refer_to).as_deref(), Some("abc@host;to-tag=1;from-tag=2"));
         assert_eq!(parse_dtmf_info("Signal=5\r\nDuration=160"), Some('5'));
+    }
+
+    fn tls_cfg(user: &str) -> EndpointConfig {
+        EndpointConfig { transport: TransportKind::Tls, ..cfg(user) }
+    }
+
+    #[test]
+    fn tls_call_with_pinned_certificate() {
+        let (rb, ra) = (Arc::new(Recorder::default()), Arc::new(Recorder::default()));
+        let b = Endpoint::start(tls_cfg("bob"), rb.clone()).unwrap();
+        let fingerprint = b.tls_fingerprint().expect("tls fingerprint");
+        let a = Endpoint::start(EndpointConfig { tls_pinned_fingerprints: vec![fingerprint], ..tls_cfg("alice") }, ra.clone()).unwrap();
+
+        let (a_call, b_call) = establish(&a, &b, &rb, &ra);
+        a.send_audio(a_call, &tone(), 16000).unwrap();
+        b.send_dtmf(b_call, "7", 80).unwrap();
+        std::thread::sleep(Duration::from_millis(1000));
+        assert!(rb.audio_frames.load(Ordering::Relaxed) > 20);
+        assert_eq!(ra.dtmf.lock().as_str(), "7");
+        b.hangup(b_call).unwrap();
+        ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("caller terminated");
+    }
+
+    #[test]
+    fn tls_rejects_untrusted_and_mismatched_certificates() {
+        let (rb, ra) = (Arc::new(Recorder::default()), Arc::new(Recorder::default()));
+        let b = Endpoint::start(tls_cfg("bob"), rb.clone()).unwrap();
+        let target = format!("sip:bob@{}", b.local_address());
+
+        // Self-signed certificate against the public roots.
+        let a = Endpoint::start(tls_cfg("alice"), ra.clone()).unwrap();
+        let call = a.make_call(&target).unwrap();
+        ra.wait_for(8000, |e| matches!(e, Event::CallState { call_id, state: "terminated", .. } if *call_id == call)).expect("untrusted fails");
+
+        // Wrong pin.
+        let rc = Arc::new(Recorder::default());
+        let c = Endpoint::start(EndpointConfig { tls_pinned_fingerprints: vec!["00:11".into()], ..tls_cfg("carol") }, rc.clone()).unwrap();
+        let call = c.make_call(&target).unwrap();
+        rc.wait_for(8000, |e| matches!(e, Event::CallState { call_id, state: "terminated", .. } if *call_id == call)).expect("pin mismatch fails");
+        assert!(rb.incoming_calls().is_empty());
+
+        // Verification disabled.
+        let rd = Arc::new(Recorder::default());
+        let d = Endpoint::start(EndpointConfig { tls_verify_server: false, ..tls_cfg("dave") }, rd.clone()).unwrap();
+        d.make_call(&target).unwrap();
+        rb.wait_for_incoming(3000, 0).expect("unverified connection reaches bob");
+    }
+
+    #[test]
+    fn dtls_srtp_call_encrypts_media() {
+        let dtls = |user: &str| EndpointConfig { srtp: SrtpMode::Mandatory, srtp_keying: SrtpKeying::Dtls, ..cfg(user) };
+        // The callee only prefers SDES but accepts a DTLS offer.
+        let (a, ra, b, rb) = pair(dtls("alice"), EndpointConfig { srtp: SrtpMode::Optional, ..cfg("bob") });
+        let (a_call, b_call) = establish(&a, &b, &rb, &ra);
+        ra.wait_for(5000, |e| matches!(e, Event::MediaEvent { kind, .. } if kind == "dtls-connected")).expect("caller DTLS keys");
+        rb.wait_for(5000, |e| matches!(e, Event::MediaEvent { kind, .. } if kind == "dtls-connected")).expect("callee DTLS keys");
+        a.send_audio(a_call, &tone(), 16000).unwrap();
+        b.send_dtmf(b_call, "9", 80).unwrap();
+        std::thread::sleep(Duration::from_millis(1000));
+        assert!(rb.audio_frames.load(Ordering::Relaxed) > 20, "bob heard {}", rb.audio_frames.load(Ordering::Relaxed));
+        assert_eq!(ra.dtmf.lock().as_str(), "9");
+        assert_eq!(a.call_stats(a_call).unwrap().srtp_active, 1);
+        assert_eq!(b.call_stats(b_call).unwrap().srtp_active, 1);
+        a.hangup(a_call).unwrap();
+    }
+
+    #[test]
+    fn websocket_calls_over_ws_and_wss() {
+        for kind in [TransportKind::Ws, TransportKind::Wss] {
+            let (rb, ra) = (Arc::new(Recorder::default()), Arc::new(Recorder::default()));
+            let b = Endpoint::start(EndpointConfig { transport: kind, ..cfg("bob") }, rb.clone()).unwrap();
+            let pins = b.tls_fingerprint().into_iter().collect();
+            let a = Endpoint::start(EndpointConfig { transport: kind, tls_pinned_fingerprints: pins, ..cfg("alice") }, ra.clone()).unwrap();
+            let (a_call, b_call) = establish(&a, &b, &rb, &ra);
+            a.send_audio(a_call, &tone(), 16000).unwrap();
+            std::thread::sleep(Duration::from_millis(800));
+            assert!(rb.audio_frames.load(Ordering::Relaxed) > 20, "{kind:?}");
+            // In-dialog request from the callee travels back over the caller's connection.
+            b.hangup(b_call).unwrap();
+            ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("caller terminated");
+        }
     }
 }

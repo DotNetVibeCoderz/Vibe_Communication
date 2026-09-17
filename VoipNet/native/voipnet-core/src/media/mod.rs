@@ -1,6 +1,7 @@
 //! Media processing: sessions, conferencing and resampling.
 
 pub mod conference;
+pub mod dtls;
 pub mod resample;
 pub mod session;
 

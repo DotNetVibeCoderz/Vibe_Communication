@@ -13,12 +13,12 @@
 ├────┼──────────────────────── C ABI ───────────────────────────────┤
 │    ▼                        Rust (voipnet-core)                    │
 │ ffi.rs        handles, JSON config/events, zero-copy audio         │
-│ sip/          transport (UDP/TCP) · message · auth · endpoint (UA) │
+│ sip/          transport (UDP/TCP/TLS/WS) · tls · message · UA      │
 │ sdp.rs        offer/answer · codec negotiation                     │
-│ media/        session (threads, pacing, ICE, SRTP) · conference   │
+│ media/        session (threads, ICE, SRTP) · dtls · conference     │
 │ rtp/          packet · adaptive jitter buffer                      │
 │ codec/        G.711 · G.722 · L16 · DTMF (RFC 4733, Goertzel) · PLC │
-│ srtp.rs       AES-CM-128 + HMAC-SHA1-80, replay window, ROC        │
+│ srtp.rs       AES-CM-128-HMAC-SHA1-80 · AES-GCM · replay window    │
 │ stun.rs       STUN · ICE candidates · TURN allocation              │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -38,7 +38,9 @@ Outbound audio is **queued and paced**: `SendAudio` can be called with bursts (f
 
 **Jitter buffer (`rtp/jitter.rs`).** Orders by extended sequence number, tracks RFC 3550 inter-arrival jitter and sets its target depth to about three times the jitter plus one frame, between the configured minimum and maximum. Loss is reported so the decoder can conceal it; sustained excess depth is trimmed to keep latency low.
 
-**Security.** SRTP contexts are keyed with SDES (`a=crypto`). Key derivation matches the RFC 3711 test vectors, the roll-over counter is estimated per §3.3.1, and a 64-packet replay window rejects duplicates. `SrtpMode.Mandatory` offers RTP/SAVP; `Optional` offers keys in RTP/AVP; `Disabled` refuses RTP/SAVP with 488.
+**Security.** SRTP contexts use AES-CM-128-HMAC-SHA1-80 (checked against the RFC 3711 key-derivation vectors) or AEAD-AES-128/256-GCM (RFC 7714 vectors); the roll-over counter is estimated per §3.3.1 and a 64-packet replay window rejects duplicates. Keys arrive by SDES (`a=crypto`) or by DTLS-SRTP: `media/dtls.rs` drives the pure-Rust dimpl DTLS 1.2 engine on the media socket (packets are told apart from STUN and RTP by their first byte), checks the peer certificate against `a=fingerprint`, and installs the exported keys; until then no RTP is sent or accepted. `SrtpMode.Mandatory` offers RTP/SAVP (or UDP/TLS/RTP/SAVP with DTLS); `Optional` offers SDES keys in RTP/AVP; `Disabled` refuses secure offers with 488.
+
+**Signaling transports.** `sip/transport.rs` treats TCP, TLS, WS and WSS as one connection model: a byte stream (plain, or rustls with the ring provider) that optionally carries WebSocket frames, with SIP framed by Content-Length. Each connection has a reader thread; senders share the rustls state behind a lock that is never held across a blocking read. A connection that fails its TLS handshake fails the pending transaction at once with 503. Server certificates are verified against the Mozilla roots plus an optional CA file, or pinned by SHA-256 fingerprint.
 
 ## The boundary
 

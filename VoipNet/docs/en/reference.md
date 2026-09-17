@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `BindAddress` | `0.0.0.0` | Local address for SIP and RTP. |
 | `SipPort` | `5060` | Local SIP port; `0` picks a free port. |
-| `Transport` | `Udp` | `Udp` or `Tcp`. |
+| `Transport` | `Udp` | `Udp`, `Tcp`, `Tls` (default remote port 5061), `Ws` or `Wss` (SIP over WebSocket). |
 | `PublicAddress` | — | Address advertised in Via, Contact and SDP (static NAT). |
 | `DisplayName` | — | Display name in From. |
 | `Username` | `voipnet` | User part of the address of record. |
@@ -22,6 +22,7 @@
 | `UserAgent` | `Voip.NET/1.0 (Gravicode Studios)` | User-Agent / Server header. |
 | `AudioCodecs` | `G722, PCMU, PCMA` | Preference order. |
 | `Srtp` | `Disabled` | `Disabled`, `Optional`, `Mandatory`. |
+| `SrtpKeying` | `Sdes` | `Sdes` (`a=crypto`) or `Dtls` (DTLS-SRTP with ICE, as WebRTC uses). Incoming offers may use either. |
 | `DtmfMode` | `Rfc4733` | `Rfc4733`, `InBand`, `SipInfo`. |
 | `Ice` | `false` | Advertise candidates and send connectivity checks. |
 | `StunServer` | — | `host:port` for the server-reflexive media address. |
@@ -35,6 +36,10 @@
 | `TraceSip` | `false` | Raise `SipTrace` for every message. |
 | `KeepaliveSecs` | `25` | CRLF keep-alives to the registrar over UDP. |
 | `RtpTimeoutMs` | `0` | Raise a `rtp-timeout` media event after this much silence on the wire. |
+| `TlsVerifyServer` | `true` | Validate the server certificate chain and host name (Mozilla roots plus `TlsCaFile`). |
+| `TlsCaFile` | — | PEM file with extra trust anchors, e.g. a private PBX CA. |
+| `TlsPinnedFingerprints` | — | SHA-256 fingerprints to accept; only these certificates pass, self-signed included. |
+| `TlsCertificateFile`, `TlsPrivateKeyFile` | — | PEM certificate chain and key presented to peers; a self-signed certificate is generated otherwise. |
 | `EventSynchronizationContext` | — | Marshal events to a UI thread. |
 
 ## `VoipClient`
@@ -49,7 +54,7 @@
 | `SendMessageAsync(target, body, contentType)` | SIP MESSAGE. |
 | `CreateConference()` | New `VoipConference`. |
 | `Calls`, `FindCall(id)` | Current and recently ended calls. |
-| `LocalAddress`, `RegistrationState`, `EngineVersion` | State. |
+| `LocalAddress`, `RegistrationState`, `EngineVersion`, `TlsFingerprint` | State. |
 | Events | `IncomingCall`, `CallStateChanged`, `MediaStarted`, `RegistrationChanged`, `DtmfReceived`, `MessageReceived`, `TransferRequested`, `TransferProgress`, `MediaNotification`, `SipTrace`. |
 
 ## `VoipCall`

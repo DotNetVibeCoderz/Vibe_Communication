@@ -10,10 +10,12 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 
 | Suite | Result · Hasil |
 | --- | --- |
-| Rust engine `cargo test --lib` | **53 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 vectors), STUN, loopback media, full SIP call flows, FFI |
-| .NET `tests/VoipNet.Tests` | **35 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling) and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
-| `dotnet build Voip.Net.slnx -c Release` | 13 projects · proyek, **0 warnings, 0 errors** |
+| Rust engine `cargo test --lib` | **63 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
+| .NET `tests/VoipNet.Tests` | **37 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling) and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
+| `dotnet build Voip.Net.slnx -c Release` | 14 projects · proyek, **0 warnings, 0 errors** |
 | CLI end-to-end · ujung ke ujung | `sip listen --echo` ↔ `sip call --dtmf 123 --pcap`: MOS 4.38, all DTMF received · semua DTMF diterima |
+| CLI over TLS and WebSocket · CLI lewat TLS dan WebSocket | `--transport tls --tls-pin …` and `--transport ws --dtls`: MOS 4.38, SRTP on · SRTP aktif |
+| Browser interop · Interop browser | Headless Edge (fake microphone) → `samples/VoipNet.WebPhone`: SIP over WebSocket, ICE, DTLS connected, `SRTP_AES128_CM_HMAC_SHA1_80`, ~200 packets each way, 0 lost, desk leg MOS 4.38 (`tools/VoipNet.DocShots webphone`) · paket ~200 tiap arah, 0 hilang |
 | Samples · Sample | Softphone, Gallery, Call Centre, IVR Studio run; screenshots rendered from the running apps · berjalan; screenshot diambil dari aplikasi yang berjalan |
 | Realtime Agent demo | Scripted caller ↔ real gpt-5-mini conversation incl. memory restore · percakapan dengan model nyata termasuk pemulihan memori |
 
@@ -34,7 +36,8 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | Digest auth (401/407), NAT rport learning, keep-alive | ✅ | |
 | Transfer blind / attended (Replaces), hold, conferencing, recording | ✅ | |
 | UDP, TCP transports | ✅ | |
-| TLS transport (SIPS) | ⏳ | |
+| WebSocket transports `ws`/`wss` (RFC 7118) | ✅ | server and client, `sip` subprotocol, shared TLS stack · server dan client, subprotokol `sip` |
+| TLS transport (SIPS) | ✅ | rustls (TLS 1.2/1.3, ring), Mozilla roots + custom CA, SHA-256 pinning, self-signed or PEM identity · root Mozilla + CA sendiri, pinning SHA-256, identitas self-signed atau PEM |
 | RTP/RTCP, adaptive jitter buffer, PLC | ✅ | |
 | G.711, G.722, L16 | ✅ | native |
 | G.729, Opus, SILK, Speex | 🟡 | negotiated, pass-through payloads · dinegosiasikan, payload pass-through |
@@ -49,10 +52,10 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | --- | --- | --- |
 | ICE host/srflx/relay candidates, connectivity checks | 🟡 | ICE-lite style responder + checks; no full ICE state machine · belum state machine ICE penuh |
 | STUN, TURN allocation / permissions / send-data | ✅ | |
-| SRTP (SDES) | ✅ | |
-| DTLS-SRTP | ⏳ | required for browsers · diperlukan untuk browser |
+| SRTP AES_CM_128_HMAC_SHA1_80 and AEAD_AES_128/256_GCM (RFC 7714) | ✅ | SDES or DTLS keys · kunci SDES atau DTLS |
+| DTLS-SRTP (RFC 5763/5764) | ✅ | dimpl DTLS 1.2 (pure Rust), fingerprint check, `a=setup` roles, no plain RTP before keys · tanpa RTP polos sebelum kunci siap |
 | Data channels (SCTP) | ⏳ | |
-| Browser interop | ⏳ | depends on DTLS-SRTP · bergantung pada DTLS-SRTP |
+| Browser interop | 🟡 | verified with Edge (Chromium); Firefox and Safari not tested yet; no trickle ICE · diverifikasi dengan Edge; Firefox dan Safari belum diuji; belum trickle ICE |
 
 ## 🎥 Video · Fitur video
 
@@ -62,7 +65,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 | --- | --- | --- |
 | Video call support — voice + video in one SIP session · panggilan suara + video dalam satu sesi SIP | 🟡 | `m=video` lines are negotiated and H.264/VP8/VP9 payloads can be exchanged with `SendEncoded`/`EncodedReceived`; no camera capture, codec, packetiser or frame jitter buffer yet · baris `m=video` dinegosiasikan dan payload bisa dipertukarkan secara pass-through; belum ada kamera, codec, paketisasi, atau jitter buffer frame |
 | Video conferencing with layout control · konferensi video multipihak dengan kontrol layout | ⏳ | audio conferencing exists; video compositor/SFU planned · konferensi audio sudah ada; compositor/SFU video direncanakan |
-| Screen sharing (desktop & web) · berbagi layar (desktop & web) | ⏳ | web sharing depends on DTLS-SRTP/WebRTC · berbagi dari web bergantung pada DTLS-SRTP/WebRTC |
+| Screen sharing (desktop & web) · berbagi layar (desktop & web) | ⏳ | the browser media path (ICE, DTLS-SRTP) exists for audio; video streams are still needed · jalur media browser sudah ada untuk audio; stream video belum |
 | Video recording to MP4/AVI · perekaman audio + video ke MP4/AVI | ⏳ | audio recording (WAV/MP3) exists · perekaman audio (WAV/MP3) sudah ada |
 
 ## AI call centre · AI call center
@@ -98,6 +101,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 | Sample: IVR with AI (Blazor Server) | ✅ |
 | Sample: realtime agent demo (console) | ✅ |
 | Sample: Voip.NET Gallery (Avalonia) | ✅ |
+| Sample: WebRTC gateway, browser ↔ SIP (Blazor Server) | ✅ |
 | CLI: SIP tester, RTP analyser | ✅ |
 | Diagnostics: logging, packet capture (pcap), performance counters (Metrics) | ✅ |
 
@@ -108,7 +112,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 | IVR builder with AI dialog | ✅ |
 | Queue management, agent monitoring, supervisor listen/whisper | ✅ |
 | Recording WAV/MP3 (MP3 on Windows; WAV elsewhere · MP3 di Windows, WAV di platform lain), analytics dashboards | ✅ |
-| TLS, SRTP, ZRTP, end-to-end encryption | 🟡 SRTP ✅ · TLS ⏳ · ZRTP ⏳ |
+| TLS, SRTP, ZRTP, end-to-end encryption | 🟡 SRTP ✅ · DTLS-SRTP ✅ · TLS ✅ · ZRTP ⏳ |
 | CRM integration via AI functions | ✅ |
 
 ## Documentation · Dokumentasi
@@ -117,10 +121,18 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 | --- | --- |
 | README EN + ID | ✅ |
 | docs/en + docs/id (8 guides each · 8 panduan per bahasa) | ✅ |
-| Screenshots from real apps · Screenshot dari aplikasi nyata | ✅ 16 images |
+| Screenshots from real apps · Screenshot dari aplikasi nyata | ✅ 17 images |
 | Gravicode Studios / Kang Fadhil credit in apps & docs · kredit di aplikasi & dokumen | ✅ |
 
 ## Changelog
+
+### Unreleased · Belum dirilis
+
+- SIP over TLS with rustls: Mozilla roots, custom CA, SHA-256 pinning, PEM or self-signed identity; a failed handshake ends the request with 503 at once. · SIP melalui TLS; handshake yang gagal langsung mengakhiri request dengan 503.
+- SIP over WebSocket (`ws`, `wss`, RFC 7118), server and client. · SIP over WebSocket, server dan client.
+- DTLS-SRTP keying (`SrtpKeying.Dtls`) and SRTP AEAD-AES-GCM profiles, so browsers can call Voip.NET directly. · Kunci DTLS-SRTP dan profil AES-GCM, sehingga browser bisa menelepon Voip.NET langsung.
+- `samples/VoipNet.WebPhone`: a WebRTC to SIP gateway, verified with a real browser call. · Sample gateway WebRTC ke SIP, diverifikasi dengan panggilan browser sungguhan.
+- CLI: `--transport tls|ws|wss`, `--tls-pin`, `--tls-insecure`, `--dtls`. `--srtp` now applies to every `sip` command; before, `sip call` ignored it. · `--srtp` kini berlaku untuk semua perintah `sip`; sebelumnya `sip call` mengabaikannya.
 
 ### 1.0.0 — 2026-09-16
 

@@ -223,4 +223,78 @@ public sealed class VoipClientTests
         await leg1.HangupAsync();
         await leg2.HangupAsync();
     }
+
+    [Fact]
+    public async Task TlsSignalingWithPinnedCertificate()
+    {
+        await using var bob = new VoipClient(Tls(TestHelpers.LoopbackOptions("bob")));
+        await bob.StartAsync();
+        Assert.Matches("^([0-9A-F]{2}:){31}[0-9A-F]{2}$", bob.TlsFingerprint);
+
+        await using var alice = new VoipClient(Tls(TestHelpers.LoopbackOptions("alice"), bob.TlsFingerprint));
+        await alice.StartAsync();
+        bob.IncomingCall += async (_, e) => await e.Call.AnswerAsync();
+
+        var call = await alice.CallAsync($"sip:bob@{bob.LocalAddress}").WaitAsync(Timeout);
+        Assert.Equal(CallState.Connected, call.State);
+        await TestHelpers.WaitUntilAsync(() => call.GetStatistics().SecureRtp, Timeout, "SRTP over the TLS call");
+        await call.HangupAsync();
+
+        await using var mallory = new VoipClient(Tls(TestHelpers.LoopbackOptions("mallory"), "00:11:22"));
+        await mallory.StartAsync();
+        var refused = mallory.Call($"sip:bob@{bob.LocalAddress}");
+        var ended = await refused.Completion.WaitAsync(Timeout);
+        Assert.Equal(503, ended.StatusCode);
+
+        static VoipClientOptions Tls(VoipClientOptions options, string? pin = null)
+        {
+            options.Transport = SipTransport.Tls;
+            options.Srtp = SrtpMode.Mandatory;
+            if (pin is not null)
+            {
+                options.TlsPinnedFingerprints = [pin];
+            }
+
+            return options;
+        }
+    }
+
+    [Fact]
+    public async Task WebSocketSignalingWithDtlsSrtp()
+    {
+        await using var gateway = new VoipClient(WebRtc(TestHelpers.LoopbackOptions("gateway")));
+        await using var browser = new VoipClient(WebRtc(TestHelpers.LoopbackOptions("browser")));
+        await gateway.StartAsync();
+        await browser.StartAsync();
+
+        var secured = new ConcurrentQueue<string>();
+        gateway.MediaNotification += (_, e) =>
+        {
+            if (e.Kind == "dtls-connected")
+            {
+                secured.Enqueue(e.Detail);
+            }
+        };
+        VoipCall? incoming = null;
+        gateway.IncomingCall += async (_, e) =>
+        {
+            incoming = e.Call;
+            await e.Call.AnswerAsync();
+        };
+
+        var call = await browser.CallAsync($"sip:gateway@{gateway.LocalAddress}").WaitAsync(Timeout);
+        await TestHelpers.WaitUntilAsync(() => !secured.IsEmpty, Timeout, "DTLS handshake");
+        call.SendAudio(TestHelpers.Tone(16000, 500), 16000);
+        await TestHelpers.WaitUntilAsync(() => incoming?.GetStatistics().PacketsReceived > 10, Timeout, "encrypted audio at the gateway");
+        Assert.True(call.GetStatistics().SecureRtp);
+        await call.HangupAsync();
+
+        static VoipClientOptions WebRtc(VoipClientOptions options)
+        {
+            options.Transport = SipTransport.Ws;
+            options.Srtp = SrtpMode.Mandatory;
+            options.SrtpKeying = SrtpKeying.Dtls;
+            return options;
+        }
+    }
 }

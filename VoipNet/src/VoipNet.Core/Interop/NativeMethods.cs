@@ -164,6 +164,9 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "voipnet_local_address")]
     internal static partial nint LocalAddress(nint handle);
 
+    [LibraryImport(Library, EntryPoint = "voipnet_tls_fingerprint")]
+    internal static partial nint TlsFingerprint(nint handle);
+
     [LibraryImport(Library, EntryPoint = "voipnet_version")]
     internal static partial nint Version();
 

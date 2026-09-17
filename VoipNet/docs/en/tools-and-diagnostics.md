@@ -14,13 +14,13 @@ voipnet --help
 | `voipnet version` | SDK, engine and runtime versions |
 | `voipnet sip ping <uri> [--count 4]` | OPTIONS round-trip times and the responder's User-Agent |
 | `voipnet sip register -d pbx -u 1001 -p secret` | test credentials against a registrar |
-| `voipnet sip call <uri> [--duration 10] [--tone 440] [--dtmf 123] [--record out.wav] [--register] [--srtp]` | place a test call and watch MOS, loss, jitter live |
+| `voipnet sip call <uri> [--duration 10] [--tone 440] [--dtmf 123] [--record out.wav] [--register]` | place a test call and watch MOS, loss, jitter live |
 | `voipnet sip listen [--sip-port 5060] [--echo]` | answer calls; `--echo` turns it into an echo test service |
 | `voipnet sip message <uri> "text"` | send a SIP MESSAGE |
 | `voipnet rtp analyze capture.pcap [--json]` | loss, jitter, ordering and MOS for every RTP stream in a capture |
 | `voipnet rtp listen --port 40000 [--seconds 30]` | receive RTP on a port and analyse it live |
 
-Common options for `sip` commands: `--domain`, `--user`, `--password`, `--proxy`, `--transport udp|tcp`, `--bind`, `--port`, `--trace` (print SIP), `--pcap file` (write SIP to a capture).
+Common options for `sip` commands: `--domain`, `--user`, `--password`, `--proxy`, `--transport udp|tcp|tls|ws|wss`, `--tls-pin fingerprint`, `--tls-insecure`, `--srtp`, `--dtls` (DTLS-SRTP keys), `--bind`, `--port`, `--trace` (print SIP), `--pcap file` (write SIP to a capture).
 
 Example — an echo test in two terminals:
 
@@ -112,6 +112,12 @@ A PBX, five agent softphones and a Poisson traffic generator, all real SIP/RTP o
 
 Edit menus, options and AI instructions; see the call path; press keys on a phone in the browser that dials the flow for real; type as the caller once the IVR hands off to the AI agent. Flows are saved to `App_Data/flow.json` and exported at `/flow.json`.
 
+### WebPhone (Blazor Server)
+
+![WebRTC gateway](../images/webphone-call.png)
+
+A WebRTC gateway on one machine. The page's script is a small SIP-over-WebSocket client: it calls the gateway endpoint (`ws://host:5090`) with an `RTCPeerConnection` offer, and the gateway answers with ICE and DTLS-SRTP, then relays the audio to an ordinary SIP/UDP call to a desk phone (an echo or a tone player). The signal path at the top lights up hop by hop; both legs show codec, encryption, packets and MOS, next to what the browser itself reports from `getStats()`.
+
 ### Realtime Agent (console)
 
 ```bash
@@ -126,6 +132,7 @@ Configure providers in `appsettings.json` (`AI:Chat`, `AI:SpeechToText`, `AI:Tex
 `tools/VoipNet.DocShots` drives headless Edge/Chrome through the DevTools protocol to capture the Blazor samples:
 
 ```bash
-dotnet run --project tools/VoipNet.DocShots -- ivrstudio http://127.0.0.1:5190 docs/images
+dotnet run --project tools/VoipNet.DocShots -- ivrstudio http://127.0.0.1:5209 docs/images
 dotnet run --project tools/VoipNet.DocShots -- callcenter http://127.0.0.1:5184 docs/images
+dotnet run --project tools/VoipNet.DocShots -- webphone http://localhost:5190 docs/images
 ```

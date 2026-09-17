@@ -389,17 +389,19 @@ public sealed class SecurityPage : DemoPage
     private readonly Lab _lab = new();
 
     public SecurityPage()
-        : base("CALLS", "SRTP", "Media encryption with AES-CM-128 and HMAC-SHA1-80, keyed through SDP (SDES). A peer that insists on encryption is refused by one that disables it, with 488 Not Acceptable Here.")
+        : base("CALLS", "TLS & SRTP", "Signaling over TLS with certificate pinning, and media encryption with AES-CM-128 and HMAC-SHA1-80 keyed through SDP (SDES). A peer that insists on encryption is refused by one that disables it, with 488 Not Acceptable Here.")
     {
         AddAction("Mandatory ↔ optional", () => RunAsync(SrtpMode.Optional), "go");
         AddAction("Mandatory ↔ disabled", () => RunAsync(SrtpMode.Disabled), "quiet");
+        AddAction("TLS + SRTP, pinned", RunTlsAsync, "go");
     }
 
     public override string Code => """
         var secure = new VoipClient(new VoipClientOptions
         {
             Srtp = SrtpMode.Mandatory,     // RTP/SAVP + a=crypto
-            Transport = SipTransport.Tcp,
+            Transport = SipTransport.Tls,  // SIPS signaling, port 5061
+            TlsPinnedFingerprints = ["3F:A2:…"],
         });
 
         var stats = call.GetStatistics();
@@ -432,6 +434,32 @@ public sealed class SecurityPage : DemoPage
         SetMetric("Result", "connected");
         SetMetric("Media", stats.SecureRtp ? "SRTP · AES_CM_128_HMAC_SHA1_80" : "plain RTP");
         Write($"SRTP active: {stats.SecureRtp}");
+        await call.HangupAsync();
+    }
+
+    private async Task RunTlsAsync()
+    {
+        await _lab.ResetAsync();
+        var callee = await _lab.StartAsync("peer", o => { o.Transport = SipTransport.Tls; o.Srtp = SrtpMode.Mandatory; });
+        Write($"callee certificate {callee.TlsFingerprint}");
+        var caller = await _lab.StartAsync("secure", o =>
+        {
+            o.Transport = SipTransport.Tls;
+            o.Srtp = SrtpMode.Mandatory;
+            o.TlsPinnedFingerprints = [callee.TlsFingerprint!];
+        });
+        Lab.AutoAnswer(callee, 50);
+        callee.IncomingCall += (_, e) => TraceAudio(e.Call);
+
+        var call = caller.Call(Lab.Uri(callee, "peer"));
+        await call.Connected.WaitAsync(TimeSpan.FromSeconds(10));
+        call.SendAudio(Voice(2000), 16000);
+        await Task.Delay(1500);
+        var stats = call.GetStatistics();
+        SetMetric("Result", "connected over TLS");
+        SetMetric("Signaling", "TLS · pinned SHA-256");
+        SetMetric("Media", stats.SecureRtp ? "SRTP · AES_CM_128_HMAC_SHA1_80" : "plain RTP");
+        Write("SIP over TLS, SDES keys never cross the wire in clear text");
         await call.HangupAsync();
     }
 

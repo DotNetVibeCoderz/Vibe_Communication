@@ -111,9 +111,34 @@ Stereo menaruh pihak lawan di kanal kiri dan endpoint ini di kanal kanan. Encodi
 ## Keamanan
 
 ```csharp
-new VoipClientOptions { Srtp = SrtpMode.Mandatory, Transport = SipTransport.Tcp };
+new VoipClientOptions
+{
+    Transport = SipTransport.Tls,          // SIP melalui TLS 1.2/1.3 (rustls), port 5061
+    TlsPinnedFingerprints = ["3F:A2:…"],   // opsional: hanya terima sertifikat ini
+    Srtp = SrtpMode.Mandatory,             // kunci SDES kini dikirim di dalam TLS
+};
 call.GetStatistics().SecureRtp;   // true bila kedua arah terlindungi
 ```
+
+Sertifikat server diperiksa terhadap root store Mozilla ditambah `TlsCaFile`, termasuk nama host dari URI tujuan, registrar, atau proxy. Pinning menggantikan validasi rantai, cocok untuk PBX dengan sertifikat self-signed. Setiap endpoint menyajikan `TlsCertificateFile`/`TlsPrivateKeyFile`, atau sertifikat self-signed yang dibuat otomatis dengan fingerprint `client.TlsFingerprint`. Handshake yang gagal langsung mengakhiri request dengan `503`.
+
+## Browser WebRTC
+
+Browser dapat menelepon `VoipClient` secara langsung: SIP over WebSocket (RFC 7118) untuk signaling, ICE untuk jalur media, dan DTLS-SRTP untuk kunci.
+
+```csharp
+var gateway = new VoipClient(new VoipClientOptions
+{
+    Transport = SipTransport.Ws,           // atau Wss dengan sertifikat TLS
+    SipPort = 5090,
+    Srtp = SrtpMode.Mandatory,
+    SrtpKeying = SrtpKeying.Dtls,          // a=fingerprint + a=setup, UDP/TLS/RTP/SAVP
+    Ice = true,
+});
+gateway.MediaNotification += (_, e) => Console.WriteLine($"{e.Kind} {e.Detail}"); // ice-connected, dtls-connected AES_CM_128_HMAC_SHA1_80
+```
+
+Engine menerima offer `UDP/TLS/RTP/SAVPF`, menjawab dengan kandidat ICE, `a=mid`, dan BUNDLE, memverifikasi sertifikat peer terhadap fingerprint dari signaling, dan tidak mengirim media sebelum kunci DTLS siap. SRTP berjalan dengan AES-CM-128-HMAC-SHA1-80 atau AEAD-AES-128/256-GCM, sesuai hasil handshake. Offer masuk diterima baik dengan kunci SDES maupun DTLS apa pun nilai `SrtpKeying`; pengaturan itu menentukan apa yang ditawarkan client ini. Sisi browser bisa berupa client SIP over WebSocket apa saja; `samples/VoipNet.WebPhone` menyertakan versi kecil dan menjembatani browser ke telepon SIP biasa.
 
 ## NAT dan konektivitas
 
