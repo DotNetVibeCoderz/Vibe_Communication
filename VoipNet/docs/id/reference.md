@@ -24,7 +24,7 @@
 | `Srtp` | `Disabled` | `Disabled`, `Optional`, `Mandatory`. |
 | `SrtpKeying` | `Sdes` | `Sdes` (`a=crypto`) atau `Dtls` (DTLS-SRTP dengan ICE, seperti WebRTC). Offer masuk boleh memakai keduanya. |
 | `DtmfMode` | `Rfc4733` | `Rfc4733`, `InBand`, `SipInfo`. |
-| `Ice` | `false` | Iklankan kandidat dan kirim connectivity check. |
+| `Ice` | `false` | Jalankan agen ICE penuh (kandidat, check, nominasi, trickle, restart). Otomatis aktif dengan kunci DTLS atau offer ICE. |
 | `StunServer` | — | `host:port` untuk alamat media server-reflexive. |
 | `TurnServer`, `TurnUsername`, `TurnPassword` | — | Relay TURN. |
 | `RtpPortMin`, `RtpPortMax` | `10000`–`20000` | Rentang port RTP. |
@@ -55,14 +55,14 @@
 | `CreateConference()` | `VoipConference` baru. |
 | `Calls`, `FindCall(id)` | Panggilan aktif dan yang baru selesai. |
 | `LocalAddress`, `RegistrationState`, `EngineVersion`, `TlsFingerprint` | State. |
-| Event | `IncomingCall`, `CallStateChanged`, `MediaStarted`, `RegistrationChanged`, `DtmfReceived`, `MessageReceived`, `TransferRequested`, `TransferProgress`, `MediaNotification`, `SipTrace`. |
+| Event | `IncomingCall`, `CallStateChanged`, `MediaStarted`, `RegistrationChanged`, `DtmfReceived`, `MessageReceived`, `TransferRequested`, `TransferProgress`, `MediaNotification` (`ice-candidates`, `ice-connected`, `ice-disconnected`, `ice-failed`, `dtls-connected`, `dtls-failed`, `rtp-timeout`), `SipTrace`. |
 
 ## `VoipCall`
 
 | Member | Keterangan |
 | --- | --- |
 | `AnswerAsync()`, `Reject(code)`, `Hangup()`, `HangupAsync()` | Kontrol. |
-| `SetHold(bool)`, `SetMute(bool)`, `SendDtmf(digits, ms)` | Kontrol. |
+| `SetHold(bool)`, `SetMute(bool)`, `SendDtmf(digits, ms)`, `RestartIce()` | Kontrol. |
 | `Transfer(target)`, `TransferTo(call)` | Transfer blind dan attended. |
 | `SendAudio(samples, rate)`, `SendAudio(bytes, rate)`, `SendAudioStreamAsync(...)`, `ClearAudio()`, `QueuedAudioMs` | Audio keluar. |
 | `AudioReceived`, `ReadAudioAsync(direction)` | Audio dari panggilan. |

@@ -2,6 +2,7 @@
 
 pub mod conference;
 pub mod dtls;
+pub mod ice;
 pub mod resample;
 pub mod session;
 

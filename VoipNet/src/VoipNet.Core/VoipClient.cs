@@ -286,6 +286,8 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
 
     internal void SetMute(ulong id, bool mute) => Check(NativeMethods.SetMute(_handle, id, mute ? 1 : 0), "mute");
 
+    internal void RestartIce(ulong id) => Check(NativeMethods.RestartIce(_handle, id), "restart ICE");
+
     internal void SendDtmf(ulong id, string digits, int durationMs) =>
         Check(NativeMethods.SendDtmf(_handle, id, digits, (uint)durationMs), "send DTMF");
 

@@ -575,6 +575,11 @@ impl Endpoint {
         self.inner.set_hold(call_id, hold)
     }
 
+    /// Restarts ICE with new credentials (for example after a network change).
+    pub fn restart_ice(&self, call_id: u64) -> Result<()> {
+        self.inner.restart_ice(call_id)
+    }
+
     pub fn set_mute(&self, call_id: u64, mute: bool) -> Result<()> {
         let st = self.inner.state.lock();
         let media = st.calls.get(&call_id).ok_or(EndpointError::NotFound)?.media.clone();
@@ -872,7 +877,7 @@ impl Inner {
         }
         if matches!(method, Method::Invite | Method::Options) {
             m.add_header("Allow", "INVITE, ACK, CANCEL, BYE, OPTIONS, REFER, NOTIFY, INFO, MESSAGE, UPDATE");
-            m.add_header("Supported", "replaces");
+            m.add_header("Supported", "replaces, trickle-ice");
         }
         m.add_header("User-Agent", self.cfg.user_agent.clone());
         m
@@ -1133,6 +1138,7 @@ impl Inner {
             let (ufrag, pwd) = media.ice_credentials();
             m.ice_ufrag = Some(ufrag);
             m.ice_pwd = Some(pwd);
+            m.other_attributes.push("ice-options:trickle".into());
             m.candidates = media.local_candidates().iter().filter(|c| c.address.ip() == addr.ip() || true).map(Candidate::to_sdp).collect();
         }
         let mut sdp = SessionDescription {
@@ -1189,6 +1195,13 @@ impl Inner {
         }
         let (codec, dtmf) = negotiate(&audio.formats, &self.supported_audio);
         let codec = codec.ok_or(488u16)?;
+        // New ICE credentials in an offer mean the peer restarted ICE; answer with new ones too.
+        let offered_ufrag = audio.ice_ufrag.clone().or_else(|| offer.ice_ufrag.clone());
+        if let (Some(current), Some(offered)) = (media.remote_ice_ufrag(), offered_ufrag.as_ref()) {
+            if &current != offered {
+                media.restart_ice();
+            }
+        }
         // Prefer the configured keying when the offer carries both.
         let use_dtls = self.cfg.srtp != SrtpMode::Disabled
             && fingerprint.is_some()
@@ -1218,6 +1231,7 @@ impl Inner {
             remote_srtp_key: if use_srtp { crypto.map(|c| c.key_params.clone()) } else { None },
             remote_ice_ufrag: audio.ice_ufrag.clone().or_else(|| offer.ice_ufrag.clone()),
             remote_ice_pwd: audio.ice_pwd.clone().or_else(|| offer.ice_pwd.clone()),
+            ice_controlling: offer.ice_lite,
             remote_candidates: audio.candidates.iter().filter_map(|c| Candidate::parse(c)).collect(),
             ptime_ms: audio.ptime,
             remote_fingerprint: fingerprint.filter(|_| use_dtls),
@@ -1239,6 +1253,7 @@ impl Inner {
             remote_srtp_key: audio.crypto.iter().find(|c| c.suite == SUITE_AES_CM_128_HMAC_SHA1_80).map(|c| c.key_params.clone()),
             remote_ice_ufrag: audio.ice_ufrag.clone().or_else(|| answer.ice_ufrag.clone()),
             remote_ice_pwd: audio.ice_pwd.clone().or_else(|| answer.ice_pwd.clone()),
+            ice_controlling: true,
             remote_candidates: audio.candidates.iter().filter_map(|c| Candidate::parse(c)).collect(),
             ptime_ms: audio.ptime,
             remote_fingerprint: audio.fingerprint.clone().or_else(|| answer.fingerprint.clone()),
@@ -1304,7 +1319,7 @@ impl Inner {
             let mut resp = self.response_for(&invite, 200, Some(&call.local_tag));
             resp.add_header("Contact", self.contact_uri());
             resp.add_header("Allow", "INVITE, ACK, CANCEL, BYE, OPTIONS, REFER, NOTIFY, INFO, MESSAGE, UPDATE");
-            resp.add_header("Supported", "replaces");
+            resp.add_header("Supported", "replaces, trickle-ice");
             resp.set_body("application/sdp", body.into_bytes());
             let bytes = self.send_bytes(call.peer, &resp);
             let now = Instant::now();
@@ -1447,6 +1462,35 @@ impl Inner {
         call.session_version += 1;
         call.local_cseq += 1;
         let direction = match (hold, call.remote_hold) {
+            (true, true) => Direction::Inactive,
+            (true, false) => Direction::SendOnly,
+            (false, true) => Direction::RecvOnly,
+            (false, false) => Direction::SendRecv,
+        };
+        let sdp = self.local_offer(call, direction);
+        let mut req = self.dialog_request(call, Method::Invite);
+        req.set_body("application/sdp", sdp.into_bytes());
+        let dest = self.dialog_dest(call);
+        self.send_request(st, req, dest, Purpose::ReInvite(call_id));
+        Ok(())
+    }
+
+    /// Restarts ICE on an established call: fresh credentials in a re-INVITE (RFC 8445 §9).
+    fn restart_ice(&self, call_id: u64) -> Result<()> {
+        let mut st = self.state.lock();
+        let st = &mut *st;
+        let call = st.calls.get_mut(&call_id).ok_or(EndpointError::NotFound)?;
+        if !call.state.is_established() {
+            return Err(EndpointError::InvalidState("call is not established"));
+        }
+        let media = call.media.clone().ok_or(EndpointError::InvalidState("no media"))?;
+        if media.remote_ice_ufrag().is_none() {
+            return Err(EndpointError::InvalidState("ICE is not in use on this call"));
+        }
+        media.restart_ice();
+        call.session_version += 1;
+        call.local_cseq += 1;
+        let direction = match (call.local_hold, call.remote_hold) {
             (true, true) => Direction::Inactive,
             (true, false) => Direction::SendOnly,
             (false, true) => Direction::RecvOnly,
@@ -1651,7 +1695,7 @@ impl Inner {
                 Method::Options => {
                     let mut resp = self.response_for(&req, 200, Some(&random_token(8)));
                     resp.add_header("Allow", "INVITE, ACK, CANCEL, BYE, OPTIONS, REFER, NOTIFY, INFO, MESSAGE, UPDATE");
-                    resp.add_header("Accept", "application/sdp, application/dtmf-relay, message/sipfrag, text/plain");
+                    resp.add_header("Accept", "application/sdp, application/dtmf-relay, application/trickle-ice-sdpfrag, message/sipfrag, text/plain");
                     resp.add_header("Supported", "replaces");
                     self.respond(st, &req, from, resp);
                 }
@@ -1663,6 +1707,17 @@ impl Inner {
                         if ct.starts_with("application/dtmf-relay") || ct.starts_with("application/dtmf") {
                             if let Some(d) = parse_dtmf_info(req.body_str()) {
                                 let _ = self.events.lock().send(Dispatch::Dtmf(id, d, DtmfSource::SipInfo));
+                            }
+                        } else if ct.starts_with("application/trickle-ice-sdpfrag") {
+                            // Trickled candidates (RFC 8840).
+                            let candidates: Vec<Candidate> = req
+                                .body_str()
+                                .lines()
+                                .filter_map(|l| l.trim().strip_prefix("a=candidate:"))
+                                .filter_map(Candidate::parse)
+                                .collect();
+                            if let Some(media) = st.calls.get(&id).and_then(|c| c.media.clone()) {
+                                media.add_remote_candidates(&candidates);
                             }
                         }
                     }
@@ -2469,6 +2524,25 @@ mod tests {
                 .collect()
         }
 
+        /// Waits until at least `min` loud inbound frames arrived; returns the count. Paced media takes
+        /// longer on busy CI machines, so tests wait for it instead of sleeping a fixed time.
+        fn wait_frames(&self, min: u32, timeout_ms: u64) -> u32 {
+            let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+            while self.audio_frames.load(Ordering::Relaxed) < min && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            self.audio_frames.load(Ordering::Relaxed)
+        }
+
+        /// Waits until the received DTMF digits equal `expected`; returns what arrived.
+        fn wait_dtmf(&self, expected: &str, timeout_ms: u64) -> String {
+            let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+            while self.dtmf.lock().as_str() != expected && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            self.dtmf.lock().clone()
+        }
+
         /// Waits until more than `already` incoming calls were seen and returns the latest id.
         fn wait_for_incoming(&self, timeout_ms: u64, already: usize) -> Option<u64> {
             let deadline = Instant::now() + Duration::from_millis(timeout_ms);
@@ -2527,9 +2601,8 @@ mod tests {
 
         a.send_audio(a_call, &tone(), 16000).unwrap();
         b.send_dtmf(b_call, "42", 80).unwrap();
-        std::thread::sleep(Duration::from_millis(1200));
-        assert!(rb.audio_frames.load(Ordering::Relaxed) > 20, "bob heard {} frames", rb.audio_frames.load(Ordering::Relaxed));
-        assert_eq!(ra.dtmf.lock().as_str(), "42");
+        assert!(rb.wait_frames(20, 5000) >= 20, "bob heard {} frames", rb.audio_frames.load(Ordering::Relaxed));
+        assert_eq!(ra.wait_dtmf("42", 5000), "42");
 
         a.hangup(a_call).unwrap();
         rb.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("bob terminated");
@@ -2640,9 +2713,8 @@ mod tests {
         let (a, ra, b, rb) = pair(ca, cb);
         let (a_call, b_call) = establish(&a, &b, &rb, &ra);
         a.send_audio(a_call, &tone(), 16000).unwrap();
-        std::thread::sleep(Duration::from_millis(900));
         assert_eq!(b.call_stats(b_call).unwrap().srtp_active, 1);
-        assert!(rb.audio_frames.load(Ordering::Relaxed) > 10);
+        assert!(rb.wait_frames(10, 5000) >= 10);
         a.hangup(a_call).unwrap();
 
         // Disabled SRTP must reject an RTP/SAVP offer with 488.
@@ -2674,9 +2746,8 @@ mod tests {
         let (a_call, b_call) = establish(&a, &b, &rb, &ra);
         a.send_audio(a_call, &tone(), 16000).unwrap();
         b.send_dtmf(b_call, "7", 80).unwrap();
-        std::thread::sleep(Duration::from_millis(1000));
-        assert!(rb.audio_frames.load(Ordering::Relaxed) > 20);
-        assert_eq!(ra.dtmf.lock().as_str(), "7");
+        assert!(rb.wait_frames(20, 5000) >= 20);
+        assert_eq!(ra.wait_dtmf("7", 5000), "7");
         b.hangup(b_call).unwrap();
         ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("caller terminated");
     }
@@ -2716,9 +2787,8 @@ mod tests {
         rb.wait_for(5000, |e| matches!(e, Event::MediaEvent { kind, .. } if kind == "dtls-connected")).expect("callee DTLS keys");
         a.send_audio(a_call, &tone(), 16000).unwrap();
         b.send_dtmf(b_call, "9", 80).unwrap();
-        std::thread::sleep(Duration::from_millis(1000));
-        assert!(rb.audio_frames.load(Ordering::Relaxed) > 20, "bob heard {}", rb.audio_frames.load(Ordering::Relaxed));
-        assert_eq!(ra.dtmf.lock().as_str(), "9");
+        assert!(rb.wait_frames(20, 5000) >= 20, "bob heard {}", rb.audio_frames.load(Ordering::Relaxed));
+        assert_eq!(ra.wait_dtmf("9", 5000), "9");
         assert_eq!(a.call_stats(a_call).unwrap().srtp_active, 1);
         assert_eq!(b.call_stats(b_call).unwrap().srtp_active, 1);
         a.hangup(a_call).unwrap();
@@ -2733,11 +2803,33 @@ mod tests {
             let a = Endpoint::start(EndpointConfig { transport: kind, tls_pinned_fingerprints: pins, ..cfg("alice") }, ra.clone()).unwrap();
             let (a_call, b_call) = establish(&a, &b, &rb, &ra);
             a.send_audio(a_call, &tone(), 16000).unwrap();
-            std::thread::sleep(Duration::from_millis(800));
-            assert!(rb.audio_frames.load(Ordering::Relaxed) > 20, "{kind:?}");
+            assert!(rb.wait_frames(20, 5000) >= 20, "{kind:?}");
             // In-dialog request from the callee travels back over the caller's connection.
             b.hangup(b_call).unwrap();
             ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("caller terminated");
         }
+    }
+
+    #[test]
+    fn ice_nominates_a_pair_and_restarts_mid_call() {
+        let ice = |user: &str| EndpointConfig { ice: true, srtp: SrtpMode::Mandatory, srtp_keying: SrtpKeying::Dtls, ..cfg(user) };
+        let (a, ra, b, rb) = pair(ice("alice"), ice("bob"));
+        let (a_call, b_call) = establish(&a, &b, &rb, &ra);
+        let connected = |r: &Recorder| r.events.lock().iter().filter(|e| matches!(e, Event::MediaEvent { kind, .. } if kind == "ice-connected")).count();
+        ra.wait_for(5000, |e| matches!(e, Event::MediaEvent { kind, .. } if kind == "dtls-connected")).expect("keys after ICE");
+        assert_eq!(connected(&ra), 1);
+        assert_eq!(connected(&rb), 1);
+        assert_eq!(a.call_stats(a_call).unwrap().ice_connected, 1);
+
+        a.restart_ice(a_call).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while (connected(&ra) < 2 || connected(&rb) < 2) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!((connected(&ra), connected(&rb)), (2, 2), "both sides select a pair again after the restart");
+
+        a.send_audio(a_call, &tone(), 16000).unwrap();
+        assert!(rb.wait_frames(20, 5000) >= 20);
+        b.hangup(b_call).unwrap();
     }
 }

@@ -24,7 +24,7 @@
 | `Srtp` | `Disabled` | `Disabled`, `Optional`, `Mandatory`. |
 | `SrtpKeying` | `Sdes` | `Sdes` (`a=crypto`) or `Dtls` (DTLS-SRTP with ICE, as WebRTC uses). Incoming offers may use either. |
 | `DtmfMode` | `Rfc4733` | `Rfc4733`, `InBand`, `SipInfo`. |
-| `Ice` | `false` | Advertise candidates and send connectivity checks. |
+| `Ice` | `false` | Run a full ICE agent (candidates, checks, nomination, trickle, restart). Implied by DTLS keying or an ICE offer. |
 | `StunServer` | — | `host:port` for the server-reflexive media address. |
 | `TurnServer`, `TurnUsername`, `TurnPassword` | — | TURN relay. |
 | `RtpPortMin`, `RtpPortMax` | `10000`–`20000` | RTP port range. |
@@ -55,14 +55,14 @@
 | `CreateConference()` | New `VoipConference`. |
 | `Calls`, `FindCall(id)` | Current and recently ended calls. |
 | `LocalAddress`, `RegistrationState`, `EngineVersion`, `TlsFingerprint` | State. |
-| Events | `IncomingCall`, `CallStateChanged`, `MediaStarted`, `RegistrationChanged`, `DtmfReceived`, `MessageReceived`, `TransferRequested`, `TransferProgress`, `MediaNotification`, `SipTrace`. |
+| Events | `IncomingCall`, `CallStateChanged`, `MediaStarted`, `RegistrationChanged`, `DtmfReceived`, `MessageReceived`, `TransferRequested`, `TransferProgress`, `MediaNotification` (`ice-candidates`, `ice-connected`, `ice-disconnected`, `ice-failed`, `dtls-connected`, `dtls-failed`, `rtp-timeout`), `SipTrace`. |
 
 ## `VoipCall`
 
 | Member | Description |
 | --- | --- |
 | `AnswerAsync()`, `Reject(code)`, `Hangup()`, `HangupAsync()` | Control. |
-| `SetHold(bool)`, `SetMute(bool)`, `SendDtmf(digits, ms)` | Control. |
+| `SetHold(bool)`, `SetMute(bool)`, `SendDtmf(digits, ms)`, `RestartIce()` | Control. |
 | `Transfer(target)`, `TransferTo(call)` | Blind and attended transfer. |
 | `SendAudio(samples, rate)`, `SendAudio(bytes, rate)`, `SendAudioStreamAsync(...)`, `ClearAudio()`, `QueuedAudioMs` | Outbound audio. |
 | `AudioReceived`, `ReadAudioAsync(direction)` | Audio from the call. |

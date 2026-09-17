@@ -6,12 +6,12 @@ Current state · Kondisi saat ini: see · lihat [Progress.md](Progress.md).
 
 ## 1.1 — Secure transports and browser reach · Transport aman dan jangkauan browser
 
-SIP over TLS and WebSocket, DTLS-SRTP, and the WebRTC gateway sample are done (see Progress.md). What remains: · SIP melalui TLS dan WebSocket, DTLS-SRTP, serta sample gateway WebRTC sudah selesai. Sisanya:
+SIP over TLS and WebSocket, DTLS-SRTP, the full ICE agent with trickle and restart, and browser interop with Edge and Firefox are done (see Progress.md). What remains: · Sudah selesai: SIP melalui TLS dan WebSocket, DTLS-SRTP, agen ICE penuh dengan trickle dan restart, serta interop dengan Edge dan Firefox. Sisanya:
 
-- **Full ICE** agent: candidate pairing, priorities, nomination, consent freshness, ICE restarts, trickle ICE. · Agen ICE penuh, termasuk trickle ICE.
-- Automated browser interop in CI (Edge, Firefox, Safari); today it runs locally with `tools/VoipNet.DocShots webphone` against Edge. · Uji interop browser otomatis di CI; saat ini dijalankan lokal dengan Edge.
+- Browser interop runs in CI (Edge and Firefox on Linux, Safari on macOS). · Uji interop browser di CI, termasuk Safari.
 - **Data channels** (SCTP over DTLS, RFC 8831) for chat and file transfer next to calls. · Data channel untuk chat dan transfer file.
 - Mutual TLS (client certificates) and certificate reload without restart. · TLS dua arah dan muat ulang sertifikat.
+- Sending our own candidates by trickle ICE (useful when STUN/TURN gathering is slow). · Mengirim kandidat sendiri lewat trickle ICE.
 
 ## 1.2 — Codecs and media · Codec dan media
 

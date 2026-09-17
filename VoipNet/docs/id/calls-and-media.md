@@ -148,8 +148,21 @@ Engine menerima offer `UDP/TLS/RTP/SAVPF`, menjawab dengan kandidat ICE, `a=mid`
 | `PublicAddress` | NAT statis 1:1 |
 | `StunServer` | media harus mengiklankan alamat publik |
 | `TurnServer`, `TurnUsername`, `TurnPassword` | NAT simetris atau firewall ketat |
-| `Ice = true` | berkomunikasi dengan peer yang mendukung ICE |
+| `Ice = true` | berkomunikasi dengan peer yang mendukung ICE, atau ada beberapa jalur jaringan (lihat ICE di bawah) |
 | `KeepaliveSecs` | menjaga lubang NAT UDP tetap terbuka di antara registrasi |
+
+### ICE
+
+Dengan `Ice = true` (selalu aktif untuk DTLS-SRTP dan setiap kali peer menawarkan ICE), setiap panggilan menjalankan agen ICE penuh (RFC 8445): memasangkan kandidat host, server-reflexive, dan relay lokal dengan milik peer, mengatur tempo connectivity check, menjawab check dengan triggered check, mempelajari kandidat peer-reflexive (menangani browser yang menyembunyikan alamat di balik nama mDNS), menyelesaikan konflik peran, dan menominasikan satu pasangan. Pihak yang mengirim offer menjadi agen controlling. Kandidat yang dikirim peer belakangan lewat SIP INFO (`application/trickle-ice-sdpfrag`, RFC 8840) ikut diperiksa. Setelah pasangan terpilih, consent diperbarui setiap beberapa detik (RFC 7675).
+
+```csharp
+client.MediaNotification += (_, e) => Console.WriteLine($"{e.Kind}: {e.Detail}");
+// ice-candidates: host 192.168.1.20:50901     (dikirim peer secara trickle)
+// ice-connected: host → prflx 192.168.1.20:50901
+// ice-disconnected: consent expired            ice-failed: no candidate pair worked
+
+call.RestartIce();   // setelah jaringan berubah: re-INVITE dengan kredensial baru; media tetap jalan sampai pasangan baru terpilih
+```
 
 ## Statistik kualitas
 

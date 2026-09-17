@@ -297,4 +297,37 @@ public sealed class VoipClientTests
             return options;
         }
     }
+
+    [Fact]
+    public async Task IceSelectsAPairAndRestarts()
+    {
+        await using var alice = new VoipClient(Ice(TestHelpers.LoopbackOptions("alice")));
+        await using var bob = new VoipClient(Ice(TestHelpers.LoopbackOptions("bob")));
+        await alice.StartAsync();
+        await bob.StartAsync();
+
+        var selections = new ConcurrentQueue<string>();
+        alice.MediaNotification += (_, e) =>
+        {
+            if (e.Kind == "ice-connected")
+            {
+                selections.Enqueue(e.Detail);
+            }
+        };
+        bob.IncomingCall += async (_, e) => await e.Call.AnswerAsync();
+
+        var call = await alice.CallAsync($"sip:bob@{bob.LocalAddress}").WaitAsync(Timeout);
+        await TestHelpers.WaitUntilAsync(() => selections.Count == 1, Timeout, "ICE pair selection");
+        Assert.True(call.GetStatistics().IceConnected);
+
+        call.RestartIce();
+        await TestHelpers.WaitUntilAsync(() => selections.Count == 2, Timeout, "selection after ICE restart");
+        await call.HangupAsync();
+
+        static VoipClientOptions Ice(VoipClientOptions options)
+        {
+            options.Ice = true;
+            return options;
+        }
+    }
 }

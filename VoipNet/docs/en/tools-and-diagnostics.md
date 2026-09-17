@@ -129,10 +129,11 @@ Configure providers in `appsettings.json` (`AI:Chat`, `AI:SpeechToText`, `AI:Tex
 
 ### Documentation screenshots
 
-`tools/VoipNet.DocShots` drives headless Edge/Chrome through the DevTools protocol to capture the Blazor samples:
+`tools/VoipNet.DocShots` drives headless Edge/Chrome (DevTools protocol) or Firefox (WebDriver BiDi, `--firefox [path]`) to capture the Blazor samples. The `webphone` scenario is also a browser interop test: it prints the browser's WebRTC statistics and exits with 1 when the call does not carry encrypted audio both ways.
 
 ```bash
 dotnet run --project tools/VoipNet.DocShots -- ivrstudio http://127.0.0.1:5209 docs/images
 dotnet run --project tools/VoipNet.DocShots -- callcenter http://127.0.0.1:5184 docs/images
 dotnet run --project tools/VoipNet.DocShots -- webphone http://localhost:5190 docs/images
+dotnet run --project tools/VoipNet.DocShots -- webphone http://localhost:5190 out --firefox "C:\Program Files\Mozilla Firefox\firefox.exe"
 ```

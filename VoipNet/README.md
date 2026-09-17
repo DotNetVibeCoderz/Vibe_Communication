@@ -47,8 +47,8 @@ await call.HangupAsync();
 | Codecs: G.722, G.711 μ-law/A-law, L16 (native) · G.729, Opus, SILK, Speex, H.264, VP8, VP9 (negotiated as pass-through) | ✅ / pass-through |
 | DTMF: RFC 4733, SIP INFO, in-band generation and detection | ✅ |
 | SRTP: AES-CM-128-HMAC-SHA1-80, AEAD-AES-128/256-GCM; keys via SDES or DTLS-SRTP | ✅ |
-| WebRTC browsers calling SIP (SIP over WebSocket, ICE, DTLS-SRTP), verified with Edge | ✅ · data channels planned |
-| ICE (host, server-reflexive, relayed candidates, connectivity checks), STUN, TURN allocation | ✅ · full ICE agent planned |
+| WebRTC browsers calling SIP (SIP over WebSocket, ICE, DTLS-SRTP), verified with Edge and Firefox | ✅ · data channels planned |
+| ICE (RFC 8445): candidate pairs, nomination, role conflicts, peer-reflexive candidates, trickle ICE, ICE restart, consent freshness · STUN, TURN | ✅ |
 | Conferencing with mix-minus | ✅ |
 | Recording WAV/MP3, stereo or mono | ✅ |
 | LLMs: OpenAI, Azure OpenAI, DeepSeek & compatible servers, Anthropic, Gemini — streaming and tool calling | ✅ |

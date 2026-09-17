@@ -247,7 +247,10 @@ public sealed class Gateway(ILogger<Gateway> logger) : IHostedService, IAsyncDis
         {
             case "ice-connected":
                 bridge?.IceConnected = true;
-                Log(Hop.Secure, $"ICE check succeeded from {e.Detail}");
+                Log(Hop.Secure, $"ICE selected {e.Detail}");
+                break;
+            case "ice-candidates":
+                Log(Hop.Secure, $"trickled candidates: {(e.Detail.Length > 0 ? e.Detail : "end of candidates")}");
                 break;
             case "dtls-connected":
                 bridge?.DtlsProfile = e.Detail;
@@ -256,6 +259,10 @@ public sealed class Gateway(ILogger<Gateway> logger) : IHostedService, IAsyncDis
             case "dtls-failed":
                 bridge?.SecurityError = e.Detail;
                 Log(Hop.Secure, $"DTLS failed: {e.Detail}");
+                break;
+            case "ice-failed" or "ice-disconnected":
+                bridge?.SecurityError = e.Detail;
+                Log(Hop.Secure, $"ICE {e.Kind[4..]}: {e.Detail}");
                 break;
         }
     }

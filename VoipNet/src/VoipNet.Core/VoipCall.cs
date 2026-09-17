@@ -132,6 +132,13 @@ public sealed class VoipCall
     /// <param name="hold">True to hold, false to resume.</param>
     public void SetHold(bool hold) => _client.SetHold(Id, hold);
 
+    /// <summary>
+    /// Restarts ICE with fresh credentials, for example after the network changed. Media keeps flowing on the
+    /// current path until a new candidate pair is selected; <see cref="VoipClient.MediaNotification"/> reports
+    /// <c>ice-connected</c> again. Only for calls that negotiated ICE.
+    /// </summary>
+    public void RestartIce() => _client.RestartIce(Id);
+
     /// <summary>Mutes or unmutes the transmitted audio. Muting keeps the RTP stream alive.</summary>
     /// <param name="mute">True to mute.</param>
     public void SetMute(bool mute)

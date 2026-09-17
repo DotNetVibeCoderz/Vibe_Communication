@@ -148,8 +148,21 @@ The engine accepts `UDP/TLS/RTP/SAVPF` offers, answers with ICE candidates, `a=m
 | `PublicAddress` | static 1:1 NAT |
 | `StunServer` | media must advertise the public address |
 | `TurnServer`, `TurnUsername`, `TurnPassword` | symmetric NAT or strict firewalls |
-| `Ice = true` | talking to ICE-capable peers |
+| `Ice = true` | talking to ICE-capable peers, or several network paths (see ICE below) |
 | `KeepaliveSecs` | keep UDP pinholes open between registrations |
+
+### ICE
+
+With `Ice = true` (always on for DTLS-SRTP and whenever the peer offers ICE), each call runs a full ICE agent (RFC 8445): it pairs local host, server-reflexive and relayed candidates with the peer's, paces connectivity checks, answers checks with triggered checks, learns peer-reflexive candidates (which covers browsers that hide addresses behind mDNS names), resolves role conflicts, and nominates one pair. The offerer is the controlling agent. Candidates the peer trickles later in SIP INFO (`application/trickle-ice-sdpfrag`, RFC 8840) join the checks. Once a pair is selected, consent is refreshed every few seconds (RFC 7675).
+
+```csharp
+client.MediaNotification += (_, e) => Console.WriteLine($"{e.Kind}: {e.Detail}");
+// ice-candidates: host 192.168.1.20:50901     (trickled by the peer)
+// ice-connected: host → prflx 192.168.1.20:50901
+// ice-disconnected: consent expired            ice-failed: no candidate pair worked
+
+call.RestartIce();   // after a network change: re-INVITE with new credentials; media continues until a new pair is chosen
+```
 
 ## Quality statistics
 

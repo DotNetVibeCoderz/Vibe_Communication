@@ -10,12 +10,12 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 
 | Suite | Result · Hasil |
 | --- | --- |
-| Rust engine `cargo test --lib` | **63 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
-| .NET `tests/VoipNet.Tests` | **37 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling) and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
+| Rust engine `cargo test --lib` | **70 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
+| .NET `tests/VoipNet.Tests` | **38 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling) and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
 | `dotnet build Voip.Net.slnx -c Release` | 14 projects · proyek, **0 warnings, 0 errors** |
 | CLI end-to-end · ujung ke ujung | `sip listen --echo` ↔ `sip call --dtmf 123 --pcap`: MOS 4.38, all DTMF received · semua DTMF diterima |
 | CLI over TLS and WebSocket · CLI lewat TLS dan WebSocket | `--transport tls --tls-pin …` and `--transport ws --dtls`: MOS 4.38, SRTP on · SRTP aktif |
-| Browser interop · Interop browser | Headless Edge (fake microphone) → `samples/VoipNet.WebPhone`: SIP over WebSocket, ICE, DTLS connected, `SRTP_AES128_CM_HMAC_SHA1_80`, ~200 packets each way, 0 lost, desk leg MOS 4.38 (`tools/VoipNet.DocShots webphone`) · paket ~200 tiap arah, 0 hilang |
+| Browser interop · Interop browser | `tools/VoipNet.DocShots webphone` with a fake microphone against `samples/VoipNet.WebPhone`: **Edge** — trickle ICE over INFO, DTLS, `SRTP_AES128_CM_HMAC_SHA1_80`; **Firefox** (WebDriver BiDi) — trickle ICE, DTLS, `SRTP_AEAD_AES_128_GCM`; both ~200 packets each way, 0 lost, desk leg MOS 4.38 · keduanya ~200 paket tiap arah, 0 hilang |
 | Samples · Sample | Softphone, Gallery, Call Centre, IVR Studio run; screenshots rendered from the running apps · berjalan; screenshot diambil dari aplikasi yang berjalan |
 | Realtime Agent demo | Scripted caller ↔ real gpt-5-mini conversation incl. memory restore · percakapan dengan model nyata termasuk pemulihan memori |
 
@@ -50,12 +50,13 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 
 | Item | Status | Notes · Catatan |
 | --- | --- | --- |
-| ICE host/srflx/relay candidates, connectivity checks | 🟡 | ICE-lite style responder + checks; no full ICE state machine · belum state machine ICE penuh |
+| ICE agent (RFC 8445): pairs, pacing, nomination, role conflicts, peer-reflexive candidates, consent freshness (RFC 7675), restart | ✅ | `media/ice.rs`, sans-IO with unit tests · agen ICE penuh |
+| Trickle ICE (RFC 8838/8840) | ✅ | receives candidates in INFO `application/trickle-ice-sdpfrag`; own candidates are gathered before the offer · menerima kandidat lewat INFO |
 | STUN, TURN allocation / permissions / send-data | ✅ | |
 | SRTP AES_CM_128_HMAC_SHA1_80 and AEAD_AES_128/256_GCM (RFC 7714) | ✅ | SDES or DTLS keys · kunci SDES atau DTLS |
 | DTLS-SRTP (RFC 5763/5764) | ✅ | dimpl DTLS 1.2 (pure Rust), fingerprint check, `a=setup` roles, no plain RTP before keys · tanpa RTP polos sebelum kunci siap |
 | Data channels (SCTP) | ⏳ | |
-| Browser interop | 🟡 | verified with Edge (Chromium); Firefox and Safari not tested yet; no trickle ICE · diverifikasi dengan Edge; Firefox dan Safari belum diuji; belum trickle ICE |
+| Browser interop | ✅ | Edge and Firefox verified; Safari not tested (no macOS test machine) · Edge dan Firefox terverifikasi; Safari belum diuji |
 
 ## 🎥 Video · Fitur video
 
@@ -132,6 +133,9 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 - SIP over WebSocket (`ws`, `wss`, RFC 7118), server and client. · SIP over WebSocket, server dan client.
 - DTLS-SRTP keying (`SrtpKeying.Dtls`) and SRTP AEAD-AES-GCM profiles, so browsers can call Voip.NET directly. · Kunci DTLS-SRTP dan profil AES-GCM, sehingga browser bisa menelepon Voip.NET langsung.
 - `samples/VoipNet.WebPhone`: a WebRTC to SIP gateway, verified with a real browser call. · Sample gateway WebRTC ke SIP, diverifikasi dengan panggilan browser sungguhan.
+- Full ICE agent (RFC 8445) with trickle ICE, ICE restart (`VoipCall.RestartIce()`) and consent freshness; WebPhone now trickles candidates. · Agen ICE penuh dengan trickle ICE, ICE restart, dan consent freshness.
+- Browser interop verified with Edge and Firefox; Firefox negotiates SRTP AEAD-AES-128-GCM. `tools/VoipNet.DocShots` drives Firefox over WebDriver BiDi (`--firefox`) and exits 1 when a browser call fails. · Interop browser diverifikasi dengan Edge dan Firefox.
+- Tests wait for media and IVR prompts instead of sleeping fixed times, which failed on slow CI runners. · Test menunggu media dan prompt IVR, bukan jeda tetap.
 - CLI: `--transport tls|ws|wss`, `--tls-pin`, `--tls-insecure`, `--dtls`. `--srtp` now applies to every `sip` command; before, `sip call` ignored it. · `--srtp` kini berlaku untuk semua perintah `sip`; sebelumnya `sip call` mengabaikannya.
 
 ### 1.0.0 — 2026-09-16

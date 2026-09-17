@@ -391,7 +391,7 @@ pub enum CandidateKind {
 }
 
 impl CandidateKind {
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Host => "host",
             Self::ServerReflexive => "srflx",

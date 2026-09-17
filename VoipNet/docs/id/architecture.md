@@ -31,8 +31,8 @@
 
 **Media session (`media/session.rs`).** Setiap panggilan punya satu socket UDP (RTP dan RTCP digabung) dan dua thread:
 
-- *receive*: STUN (cek ICE), unprotect SRTP, parse RTP, telephone-event, memasukkan ke jitter buffer, payload pass-through ke aplikasi;
-- *playout*: setiap interval paket mengambil frame dari jitter buffer, men-decode atau menyamarkan paket hilang, mendeteksi DTMF in-band, mengirim PCM ke .NET, mencampur konferensi, lalu mengirim tepat satu frame dari antrean keluar.
+- *receive*: STUN (ke agen ICE di `media/ice.rs`), record DTLS, unprotect SRTP, parse RTP, telephone-event, memasukkan ke jitter buffer, payload pass-through ke aplikasi;
+- *playout*: setiap interval paket menjalankan timer ICE dan DTLS, mengambil frame dari jitter buffer, men-decode atau menyamarkan paket hilang, mendeteksi DTMF in-band, mengirim PCM ke .NET, mencampur konferensi, lalu mengirim tepat satu frame dari antrean keluar.
 
 Audio keluar **diantrekan dan diberi tempo**: `SendAudio` boleh dipanggil dengan data sekaligus (misalnya keluaran TTS) dan engine mengirim satu frame per ptime. `ClearAudio` membuang antrean untuk barge-in. Input pada sample rate apa pun di-resample ke rate codec.
 

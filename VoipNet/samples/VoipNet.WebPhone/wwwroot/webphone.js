@@ -1,5 +1,6 @@
 // A deliberately small SIP-over-WebSocket user agent (RFC 7118) for one outgoing call:
-// INVITE with a complete (non-trickle) WebRTC offer, ACK, BYE, and answers to in-dialog requests.
+// INVITE with the WebRTC offer right away, ICE candidates trickled afterwards in INFO requests
+// (RFC 8840), ACK, BYE, and answers to in-dialog requests.
 // Everything else — ICE, DTLS-SRTP, codecs — is the browser's RTCPeerConnection talking to Voip.NET.
 
 const token = (n = 10) => Array.from(crypto.getRandomValues(new Uint8Array(n)), b => (b % 36).toString(36)).join("");
@@ -33,15 +34,6 @@ function parse(text) {
 
 const uriOf = value => (/<([^>]+)>/.exec(value) ?? [null, value.split(";")[0]])[1];
 
-function waitForIce(pc) {
-    if (pc.iceGatheringState === "complete") return Promise.resolve();
-    return new Promise(resolve => {
-        const done = () => pc.iceGatheringState === "complete" && resolve();
-        pc.addEventListener("icegatheringstatechange", done);
-        setTimeout(resolve, 3000); // host candidates are enough on a local network
-    });
-}
-
 async function collectStats(pc) {
     const out = { packetsSent: 0, packetsReceived: 0, packetsLost: 0, jitterMs: 0, micLevel: 0, remoteLevel: 0, codec: "", dtlsState: "", srtpCipher: "", candidatePair: "" };
     const report = await pc.getStats();
@@ -65,7 +57,7 @@ async function collectStats(pc) {
             if (pair) {
                 const local = byId.get(pair.localCandidateId);
                 const remote = byId.get(pair.remoteCandidateId);
-                if (local && remote) out.candidatePair = `${local.address ?? local.ip}:${local.port} ⇄ ${remote.address ?? remote.ip}:${remote.port}`;
+                if (local && remote) out.candidatePair = `${local.candidateType} ${local.address ?? local.ip}:${local.port} ⇄ ${remote.candidateType} ${remote.address ?? remote.ip}:${remote.port}`;
             }
         }
     });
@@ -92,6 +84,7 @@ export async function call(view, wsUrl, desk, audioElement) {
         `Call-ID: ${state.callId}`,
         `CSeq: ${cseq} ${method}`,
         `Contact: <sip:browser@${domain};transport=ws>`,
+        "Supported: trickle-ice",
         "User-Agent: Voip.NET WebPhone sample",
     ];
     state.send = text => state.ws?.readyState === WebSocket.OPEN && state.ws.send(text);
@@ -114,8 +107,13 @@ export async function call(view, wsUrl, desk, audioElement) {
             audioElement.play().catch(() => { });
         };
         pc.onconnectionstatechange = () => report(`pc-${pc.connectionState}`);
+        // Candidates found before the call is answered wait here; later ones go out as they appear.
+        state.pendingCandidates = [];
+        pc.onicecandidate = e => {
+            const line = e.candidate ? `a=${e.candidate.candidate}` : "a=end-of-candidates";
+            if (state.toTag) trickle(state, [line]); else state.pendingCandidates.push(line);
+        };
         await pc.setLocalDescription(await pc.createOffer());
-        await waitForIce(pc);
 
         state.ws.onmessage = e => onMessage(state, parse(e.data), report);
         state.ws.onclose = () => { if (!state.ended) finish(state, report, "signaling closed"); };
@@ -146,6 +144,7 @@ async function onMessage(state, msg, report) {
         state.send(build(`ACK ${state.remoteTarget} SIP/2.0`, state.headers("ACK", state.cseq)));
         await state.pc.setRemoteDescription({ type: "answer", sdp: msg.body });
         report("connected", msg.headers["user-agent"] ?? msg.headers.server ?? "");
+        trickle(state, state.pendingCandidates.splice(0));
         return;
     }
 
@@ -156,6 +155,21 @@ async function onMessage(state, msg, report) {
     ]);
     if (msg.method !== "ACK") state.send(reply);
     if (msg.method === "BYE") finish(state, report, "the gateway hung up");
+}
+
+/** Sends ICE candidates in an INFO request with an SDP fragment (RFC 8840). */
+function trickle(state, lines) {
+    if (lines.length === 0 || state.ended) return;
+    const sdp = state.pc.localDescription.sdp;
+    const attribute = name => new RegExp(`a=${name}:(\\S+)`).exec(sdp)?.[1];
+    const body = [
+        `a=ice-ufrag:${attribute("ice-ufrag")}`, `a=ice-pwd:${attribute("ice-pwd")}`,
+        "m=audio 9 UDP/TLS/RTP/SAVPF 0", `a=mid:${attribute("mid") ?? "0"}`, ...lines, "",
+    ].join("\r\n");
+    state.cseq += 1;
+    state.send(build(`INFO ${state.remoteTarget} SIP/2.0`, [
+        ...state.headers("INFO", state.cseq), "Info-Package: trickle-ice", "Content-Type: application/trickle-ice-sdpfrag",
+    ], body));
 }
 
 function finish(state, report, reason, failed = false) {

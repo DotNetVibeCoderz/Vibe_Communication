@@ -31,8 +31,8 @@
 
 **Media session (`media/session.rs`).** Each call has a UDP socket (RTP and RTCP multiplexed) and two threads:
 
-- *receive*: STUN (ICE checks), SRTP unprotect, RTP parse, telephone-events, jitter buffer insert, pass-through payloads to the application;
-- *playout*: every packetization interval it pops the jitter buffer, decodes or conceals, detects in-band DTMF, delivers PCM to .NET, mixes conferences, then sends one paced frame from the outbound queue.
+- *receive*: STUN (to the ICE agent in `media/ice.rs`), DTLS records, SRTP unprotect, RTP parse, telephone-events, jitter buffer insert, pass-through payloads to the application;
+- *playout*: every packetization interval it drives ICE and DTLS timers, pops the jitter buffer, decodes or conceals, detects in-band DTMF, delivers PCM to .NET, mixes conferences, then sends one paced frame from the outbound queue.
 
 Outbound audio is **queued and paced**: `SendAudio` can be called with bursts (for example TTS output) and the engine transmits exactly one frame per ptime. `ClearAudio` drops the queue for barge-in. Input at any sample rate is resampled to the codec rate.
 

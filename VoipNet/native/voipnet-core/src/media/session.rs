@@ -12,6 +12,7 @@ use parking_lot::Mutex;
 
 use super::conference::{Conference, CONFERENCE_RATE};
 use super::dtls::{DtlsEvent, DtlsIdentity, DtlsRole, DtlsTransport};
+use super::ice::{IceAgent, IceOutput, IceRole};
 use super::resample::Resampler;
 use crate::codec::dtmf::{self, DtmfDetector, TelephoneEvent};
 use crate::codec::{create_audio_codec, AudioCodec, Concealer};
@@ -104,6 +105,8 @@ pub struct NegotiatedMedia {
     pub remote_ice_ufrag: Option<String>,
     pub remote_ice_pwd: Option<String>,
     pub remote_candidates: Vec<Candidate>,
+    /// This side is the ICE controlling agent (it sent the offer).
+    pub ice_controlling: bool,
     pub ptime_ms: Option<u32>,
     /// `a=fingerprint` of the peer when DTLS-SRTP keying was negotiated.
     pub remote_fingerprint: Option<String>,
@@ -179,16 +182,6 @@ struct RxState {
     started: bool,
 }
 
-struct IceState {
-    local_ufrag: String,
-    local_pwd: String,
-    remote_ufrag: Option<String>,
-    remote_pwd: Option<String>,
-    candidates: Vec<Candidate>,
-    connected: bool,
-    last_check: Instant,
-}
-
 struct Shared {
     call_id: u64,
     socket: UdpSocket,
@@ -199,8 +192,12 @@ struct Shared {
     muted: AtomicBool,
     tx: Mutex<TxState>,
     rx: Mutex<RxState>,
-    ice: Mutex<IceState>,
+    ice: Mutex<IceAgent>,
+    local_candidates: Vec<Candidate>,
     relay: Mutex<Option<TurnAllocation>>,
+    /// Media goes through the TURN relay (always when allocated without ICE; per the selected pair with ICE).
+    via_relay: AtomicBool,
+    relay_permissions: Mutex<Vec<IpAddr>>,
     conference: Mutex<Option<Arc<Conference>>>,
     sink: Arc<dyn MediaSink>,
     config: MediaConfig,
@@ -322,15 +319,10 @@ impl MediaSession {
                 buf: Vec::with_capacity(1500),
                 started: false,
             }),
-            ice: Mutex::new(IceState {
-                local_ufrag: crate::sip::message::random_token(8),
-                local_pwd: crate::sip::message::random_token(24),
-                remote_ufrag: None,
-                remote_pwd: None,
-                candidates,
-                connected: false,
-                last_check: Instant::now(),
-            }),
+            ice: Mutex::new(IceAgent::new(&candidates, IceRole::Controlled)),
+            local_candidates: candidates,
+            via_relay: AtomicBool::new(relay.is_some()),
+            relay_permissions: Mutex::new(Vec::new()),
             relay: Mutex::new(relay),
             conference: Mutex::new(None),
             sink,
@@ -362,11 +354,35 @@ impl MediaSession {
 
     pub fn ice_credentials(&self) -> (String, String) {
         let ice = self.shared.ice.lock();
-        (ice.local_ufrag.clone(), ice.local_pwd.clone())
+        let (ufrag, pwd) = ice.credentials();
+        (ufrag.to_owned(), pwd.to_owned())
+    }
+
+    /// ICE username fragment the peer last signaled.
+    pub fn remote_ice_ufrag(&self) -> Option<String> {
+        self.shared.ice.lock().remote_ufrag().map(str::to_owned)
+    }
+
+    /// Starts an ICE restart with fresh local credentials; media keeps using the current pair until
+    /// the new checks select one.
+    pub fn restart_ice(&self) {
+        self.shared.ice.lock().restart();
+    }
+
+    /// Adds candidates that arrived after the offer/answer (trickle ICE, RFC 8838).
+    pub fn add_remote_candidates(&self, candidates: &[Candidate]) {
+        {
+            let mut ice = self.shared.ice.lock();
+            for c in candidates {
+                ice.add_remote_candidate(c.clone(), Instant::now());
+            }
+        }
+        let detail = candidates.iter().map(|c| format!("{} {}", c.kind.as_str(), c.address)).collect::<Vec<_>>().join(", ");
+        self.shared.sink.on_media_event(self.shared.call_id, "ice-candidates", &detail);
     }
 
     pub fn local_candidates(&self) -> Vec<Candidate> {
-        self.shared.ice.lock().candidates.clone()
+        self.shared.local_candidates.clone()
     }
 
     /// Creates (once) and returns the local SDES key-params for SRTP.
@@ -461,15 +477,9 @@ impl MediaSession {
             rx.codec = codec;
             rx.detector = sh.config.detect_inband_dtmf.then(|| DtmfDetector::new(rate));
         }
-        {
-            let mut ice = sh.ice.lock();
-            ice.remote_ufrag = n.remote_ice_ufrag.clone();
-            ice.remote_pwd = n.remote_ice_pwd.clone();
-            for c in &n.remote_candidates {
-                if !ice.candidates.iter().any(|x| x.address == c.address) {
-                    ice.candidates.push(c.clone());
-                }
-            }
+        if let (Some(ufrag), Some(pwd)) = (&n.remote_ice_ufrag, &n.remote_ice_pwd) {
+            let role = if n.ice_controlling { IceRole::Controlling } else { IceRole::Controlled };
+            sh.ice.lock().set_remote(ufrag, pwd, &n.remote_candidates, role, Instant::now());
         }
         if let Some(remote) = n.remote {
             if !sh.latched.load(Ordering::Relaxed) {
@@ -492,7 +502,7 @@ impl MediaSession {
                 let role = self.dtls_role().unwrap_or(DtlsRole::Client);
                 let mut transport = DtlsTransport::new(identity, role, fingerprint, Instant::now())?;
                 // A client waits for ICE to find a working path before sending its ClientHello.
-                let wait_for_ice = role == DtlsRole::Client && n.remote_ice_ufrag.is_some() && !sh.ice.lock().connected;
+                let wait_for_ice = role == DtlsRole::Client && n.remote_ice_ufrag.is_some() && !sh.ice.lock().is_connected();
                 let mut events = Vec::new();
                 if wait_for_ice {
                     sh.dtls_start_pending.store(true, Ordering::Relaxed);
@@ -682,7 +692,7 @@ impl MediaSession {
             sample_rate: rate,
             mos: estimate_mos(&js, buffer_ms, pt),
             srtp_active: u8::from(srtp_rx && srtp_tx),
-            ice_connected: u8::from(sh.ice.lock().connected),
+            ice_connected: u8::from(sh.ice.lock().is_connected()),
             outbound_queued_ms: queued_ms,
         }
     }
@@ -737,10 +747,22 @@ fn bind_in_range(ip: IpAddr, min: u16, max: u16) -> std::io::Result<UdpSocket> {
 
 fn send_raw(sh: &Shared, data: &[u8]) {
     let Some(remote) = *sh.remote.lock() else { return };
-    if let Some(relay) = sh.relay.lock().as_ref() {
-        let _ = sh.socket.send_to(&relay.wrap(remote, data), relay.server);
-    } else {
-        let _ = sh.socket.send_to(data, remote);
+    send_to(sh, remote, sh.via_relay.load(Ordering::Relaxed), data);
+}
+
+fn send_to(sh: &Shared, to: SocketAddr, via_relay: bool, data: &[u8]) {
+    match sh.relay.lock().as_ref().filter(|_| via_relay) {
+        Some(relay) => {
+            let mut permitted = sh.relay_permissions.lock();
+            if !permitted.contains(&to.ip()) {
+                permitted.push(to.ip());
+                let _ = sh.socket.send_to(&relay.create_permission(to), relay.server);
+            }
+            let _ = sh.socket.send_to(&relay.wrap(to, data), relay.server);
+        }
+        None => {
+            let _ = sh.socket.send_to(data, to);
+        }
     }
 }
 
@@ -760,18 +782,18 @@ fn receive_loop(sh: &Arc<Shared>) {
         let relay_server = sh.relay.lock().as_ref().map(|r| r.server);
         if Some(from) == relay_server {
             if let Some((peer, inner)) = TurnAllocation::unwrap(&buf[..n]) {
-                handle_datagram(sh, &inner, peer);
+                handle_datagram(sh, &inner, peer, true);
             }
             continue;
         }
         let data = buf[..n].to_vec();
-        handle_datagram(sh, &data, from);
+        handle_datagram(sh, &data, from, false);
     }
 }
 
-fn handle_datagram(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
+fn handle_datagram(sh: &Arc<Shared>, data: &[u8], from: SocketAddr, via_relay: bool) {
     match classify(data) {
-        PacketClass::Stun => handle_stun(sh, data, from),
+        PacketClass::Stun => handle_stun(sh, data, from, via_relay),
         PacketClass::Rtp => handle_rtp(sh, data, from),
         PacketClass::Rtcp => {
             let mut rx = sh.rx.lock();
@@ -791,50 +813,47 @@ fn handle_datagram(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
     }
 }
 
-fn handle_stun(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
+fn handle_stun(sh: &Arc<Shared>, data: &[u8], from: SocketAddr, via_relay: bool) {
     let Some(msg) = StunMessage::decode(data) else { return };
-    match msg.msg_type {
-        stun::BINDING_REQUEST => {
-            let pwd = sh.ice.lock().local_pwd.clone();
-            let has_integrity = msg.get(stun::ATTR_MESSAGE_INTEGRITY).is_some();
-            if has_integrity && !StunMessage::verify_integrity(data, pwd.as_bytes()) {
-                return;
-            }
+    let now = Instant::now();
+    let outputs = match msg.msg_type {
+        stun::BINDING_REQUEST if msg.get(stun::ATTR_MESSAGE_INTEGRITY).is_none() => {
+            // A plain keep-alive or reflexive probe from a peer without ICE.
             let mut resp = msg.reply(stun::BINDING_SUCCESS);
             resp.add_xor_address(stun::ATTR_XOR_MAPPED_ADDRESS, from);
-            let raw = resp.encode(has_integrity.then_some(pwd.as_bytes()), true);
-            let _ = sh.socket.send_to(&raw, from);
-            if has_integrity {
-                mark_ice_connected(sh, from);
-            }
+            send_to(sh, from, via_relay, &resp.encode(None, true));
+            return;
         }
-        stun::BINDING_SUCCESS => {
-            let remote_pwd = sh.ice.lock().remote_pwd.clone();
-            if remote_pwd.is_none_or(|p| StunMessage::verify_integrity(data, p.as_bytes())) {
-                mark_ice_connected(sh, from);
-            }
-        }
-        _ => {}
-    }
+        stun::BINDING_REQUEST => sh.ice.lock().handle_request(data, &msg, from, via_relay, now),
+        stun::BINDING_SUCCESS | stun::BINDING_ERROR => sh.ice.lock().handle_response(data, &msg, from, now).1,
+        _ => return,
+    };
+    process_ice_outputs(sh, outputs);
 }
 
-fn mark_ice_connected(sh: &Arc<Shared>, from: SocketAddr) {
-    let newly = {
-        let mut ice = sh.ice.lock();
-        let newly = !ice.connected;
-        ice.connected = true;
-        newly
-    };
-    *sh.remote.lock() = Some(from);
-    if newly {
-        sh.sink.on_media_event(sh.call_id, "ice-connected", &from.to_string());
-    }
-    if sh.dtls_start_pending.swap(false, Ordering::Relaxed) {
-        let mut events = Vec::new();
-        if let Some(dtls) = sh.dtls.lock().as_mut() {
-            dtls.start(Instant::now(), &mut events);
+/// Acts on ICE agent output. Runs without the ICE lock held.
+fn process_ice_outputs(sh: &Arc<Shared>, outputs: Vec<IceOutput>) {
+    for output in outputs {
+        match output {
+            IceOutput::Send { to, relay, data } => send_to(sh, to, relay, &data),
+            IceOutput::Selected { remote, relay, local_kind, remote_kind } => {
+                *sh.remote.lock() = Some(remote);
+                // The selected pair decides the path; RTP latching must not override it.
+                sh.latched.store(true, Ordering::Relaxed);
+                sh.via_relay.store(relay, Ordering::Relaxed);
+                let detail = format!("{local_kind} → {remote_kind} {remote}");
+                sh.sink.on_media_event(sh.call_id, "ice-connected", &detail);
+                if sh.dtls_start_pending.swap(false, Ordering::Relaxed) {
+                    let mut events = Vec::new();
+                    if let Some(dtls) = sh.dtls.lock().as_mut() {
+                        dtls.start(Instant::now(), &mut events);
+                    }
+                    process_dtls_events(sh, events);
+                }
+            }
+            IceOutput::Disconnected => sh.sink.on_media_event(sh.call_id, "ice-disconnected", "consent expired"),
+            IceOutput::Failed => sh.sink.on_media_event(sh.call_id, "ice-failed", "no candidate pair worked"),
         }
-        process_dtls_events(sh, events);
     }
 }
 
@@ -973,7 +992,8 @@ fn playout_loop(sh: &Arc<Shared>) {
         }
 
         // ---- ICE connectivity checks and DTLS retransmissions ----
-        run_ice_checks(sh);
+        let ice_outputs = sh.ice.lock().poll(Instant::now());
+        process_ice_outputs(sh, ice_outputs);
         let mut dtls_events = Vec::new();
         if let Some(dtls) = sh.dtls.lock().as_mut() {
             dtls.poll_timeout(Instant::now(), &mut dtls_events);
@@ -1018,32 +1038,6 @@ fn playout_loop(sh: &Arc<Shared>) {
         {
             sh.sink.on_media_event(sh.call_id, "rtp-timeout", "no RTP received");
         }
-    }
-}
-
-fn run_ice_checks(sh: &Arc<Shared>) {
-    let (targets, username, pwd) = {
-        let mut ice = sh.ice.lock();
-        let (Some(ru), Some(rp)) = (ice.remote_ufrag.clone(), ice.remote_pwd.clone()) else { return };
-        if ice.connected || ice.last_check.elapsed() < Duration::from_millis(200) {
-            return;
-        }
-        ice.last_check = Instant::now();
-        let targets: Vec<SocketAddr> = ice
-            .candidates
-            .iter()
-            .filter(|c| c.kind != CandidateKind::Relayed || c.component == 1)
-            .map(|c| c.address)
-            .filter(|a| Some(*a) != sh.socket.local_addr().ok())
-            .collect();
-        (targets, format!("{ru}:{}", ice.local_ufrag), rp)
-    };
-    for target in targets {
-        let mut req = StunMessage::new(stun::BINDING_REQUEST);
-        req.add(stun::ATTR_USERNAME, username.as_bytes().to_vec())
-            .add(stun::ATTR_PRIORITY, (110u32 << 24).to_be_bytes().to_vec())
-            .add(stun::ATTR_ICE_CONTROLLED, rand::random::<u64>().to_be_bytes().to_vec());
-        let _ = sh.socket.send_to(&req.encode(Some(pwd.as_bytes()), true), target);
     }
 }
 
@@ -1218,6 +1212,7 @@ mod tests {
             remote_ice_ufrag: None,
             remote_ice_pwd: None,
             remote_candidates: vec![],
+            ice_controlling: false,
             ptime_ms: None,
             remote_fingerprint: None,
             dtls_role: None,
@@ -1235,10 +1230,14 @@ mod tests {
     fn audio_flows_over_loopback_with_srtp_and_g722() {
         let (a, b, _ca, cb) = connect(CodecKind::G722, true);
         a.send_audio(&tone(16000, 600), 16000);
-        std::thread::sleep(Duration::from_millis(1000));
-        let got = cb.inbound.lock().clone();
-        let energy: f64 = got.iter().map(|&s| (s as f64).powi(2)).sum::<f64>() / got.len().max(1) as f64;
-        assert!(energy.sqrt() > 1000.0, "rms too low: {}", energy.sqrt());
+        // Wait for the paced stream rather than a fixed time; CI machines can be slow.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while b.stats().packets_received < 25 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+        let peak = cb.inbound.lock().iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);
+        assert!(peak > 4000, "decoded tone too quiet: peak {peak}");
         let stats = b.stats();
         assert!(stats.packets_received >= 25, "{stats:?}");
         assert_eq!(stats.srtp_active, 1);
@@ -1251,7 +1250,11 @@ mod tests {
     fn rfc4733_dtmf_is_delivered_once_per_digit() {
         let (a, b, _ca, cb) = connect(CodecKind::Pcmu, false);
         a.send_dtmf("12#", 80);
-        std::thread::sleep(Duration::from_millis(1200));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while cb.dtmf.lock().len() < 3 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(300)); // a duplicate report would show up here
         assert_eq!(cb.dtmf.lock().iter().collect::<String>(), "12#");
         a.stop();
         b.stop();

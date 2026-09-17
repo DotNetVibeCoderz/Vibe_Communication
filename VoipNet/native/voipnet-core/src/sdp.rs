@@ -88,6 +88,8 @@ pub struct SessionDescription {
     pub fingerprint: Option<String>,
     /// Session-level `a=group` values (RFC 5888), e.g. `BUNDLE 0`.
     pub groups: Vec<String>,
+    /// Session-level `a=ice-lite` (RFC 8445 §2.5).
+    pub ice_lite: bool,
     pub media: Vec<MediaDescription>,
 }
 
@@ -154,6 +156,7 @@ impl SessionDescription {
                             "ice-pwd" => sdp.ice_pwd = Some(val.to_owned()),
                             "fingerprint" => sdp.fingerprint = Some(val.to_owned()),
                             "group" => sdp.groups.push(val.to_owned()),
+                            "ice-lite" => sdp.ice_lite = true,
                             _ => {}
                         },
                     }

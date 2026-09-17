@@ -129,10 +129,11 @@ Atur provider di `appsettings.json` (`AI:Chat`, `AI:SpeechToText`, `AI:TextToSpe
 
 ### Screenshot dokumentasi
 
-`tools/VoipNet.DocShots` mengendalikan Edge/Chrome headless melalui DevTools protocol untuk menangkap sample Blazor:
+`tools/VoipNet.DocShots` mengendalikan Edge/Chrome headless (DevTools protocol) atau Firefox (WebDriver BiDi, `--firefox [path]`) untuk menangkap sample Blazor. Skenario `webphone` sekaligus menjadi uji interop browser: mencetak statistik WebRTC dari browser dan keluar dengan kode 1 bila panggilan tidak membawa audio terenkripsi dua arah.
 
 ```bash
 dotnet run --project tools/VoipNet.DocShots -- ivrstudio http://127.0.0.1:5209 docs/images
 dotnet run --project tools/VoipNet.DocShots -- callcenter http://127.0.0.1:5184 docs/images
 dotnet run --project tools/VoipNet.DocShots -- webphone http://localhost:5190 docs/images
+dotnet run --project tools/VoipNet.DocShots -- webphone http://localhost:5190 out --firefox "C:\Program Files\Mozilla Firefox\firefox.exe"
 ```

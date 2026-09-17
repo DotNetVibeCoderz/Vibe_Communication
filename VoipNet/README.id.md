@@ -47,8 +47,8 @@ await call.HangupAsync();
 | Codec: G.722, G.711 μ-law/A-law, L16 (native) · G.729, Opus, SILK, Speex, H.264, VP8, VP9 (dinegosiasikan sebagai pass-through) | ✅ / pass-through |
 | DTMF: RFC 4733, SIP INFO, pembangkitan dan deteksi in-band | ✅ |
 | SRTP: AES-CM-128-HMAC-SHA1-80, AEAD-AES-128/256-GCM; kunci lewat SDES atau DTLS-SRTP | ✅ |
-| Browser WebRTC menelepon SIP (SIP over WebSocket, ICE, DTLS-SRTP), diverifikasi dengan Edge | ✅ · data channel direncanakan |
-| ICE (kandidat host, server-reflexive, relay, connectivity check), STUN, alokasi TURN | ✅ · agen ICE penuh direncanakan |
+| Browser WebRTC menelepon SIP (SIP over WebSocket, ICE, DTLS-SRTP), diverifikasi dengan Edge dan Firefox | ✅ · data channel direncanakan |
+| ICE (RFC 8445): pasangan kandidat, nominasi, konflik peran, kandidat peer-reflexive, trickle ICE, ICE restart, consent freshness · STUN, TURN | ✅ |
 | Konferensi dengan mix-minus | ✅ |
 | Rekaman WAV/MP3, stereo atau mono | ✅ |
 | LLM: OpenAI, Azure OpenAI, DeepSeek & server kompatibel, Anthropic, Gemini — streaming dan tool calling | ✅ |

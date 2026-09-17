@@ -238,6 +238,15 @@ pub unsafe extern "C" fn voipnet_set_mute(handle: *mut c_void, call_id: u64, mut
     with_endpoint!(handle, ep => ep.set_mute(call_id, mute != 0))
 }
 
+/// Restarts ICE on an established call (re-INVITE with new credentials).
+///
+/// # Safety
+/// `handle` must be a live endpoint handle.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_restart_ice(handle: *mut c_void, call_id: u64) -> c_int {
+    with_endpoint!(handle, ep => ep.restart_ice(call_id))
+}
+
 /// # Safety
 /// `handle` must be live and `target` a UTF-8 C string.
 #[no_mangle]
