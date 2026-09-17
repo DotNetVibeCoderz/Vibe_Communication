@@ -35,19 +35,35 @@ public sealed class EnterpriseTests
         var runner = new IvrRunner(new ToneTextToSpeech());
         var run = runner.RunAsync(pair.CalleeLeg, flow);
 
-        // Press keys as the prompts finish; the tone TTS makes prompts audible and short.
-        await Task.Delay(1500);
+        // Press keys once each prompt has played: the runner ignores keys pressed before a menu starts,
+        // and fixed delays were too short on slow CI machines.
+        await PromptPlayedAsync(pair.CalleeLeg);
         pair.CallerLeg.SendDtmf("2", 80);
-        await Task.Delay(2500);
+        await PromptPlayedAsync(pair.CalleeLeg);
         pair.CallerLeg.SendDtmf("4321#", 80);
-        await Task.Delay(1800);
-        pair.CallerLeg.SendDtmf("9", 80);
 
-        var result = await run.WaitAsync(TimeSpan.FromSeconds(20));
+        // The last prompt is short; keep pressing 9 until the menu that follows takes it. Digits queued after
+        // "#" never reach the account number, and keys pressed before the menu starts are discarded.
+        var deadline = DateTime.UtcNow.AddSeconds(25);
+        while (!run.IsCompleted && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(700);
+            pair.CallerLeg.SendDtmf("9", 80);
+        }
+
+        var result = await run.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(IvrOutcome.Queued, result.Outcome);
         Assert.Equal("4321", result.Context.Values["account"]);
         Assert.Equal("support", result.Context.RequestedQueue);
         Assert.Equal(["main", "support"], result.Context.Path);
+    }
+
+    /// <summary>Waits until the leg starts sending a prompt and has sent all of it.</summary>
+    private static async Task PromptPlayedAsync(VoipCall leg)
+    {
+        await TestHelpers.WaitUntilAsync(() => leg.QueuedAudioMs > 0, TimeSpan.FromSeconds(15), "prompt audio");
+        await TestHelpers.WaitUntilAsync(() => leg.QueuedAudioMs == 0, TimeSpan.FromSeconds(15), "prompt to finish");
+        await Task.Delay(150);
     }
 
     [Fact]
