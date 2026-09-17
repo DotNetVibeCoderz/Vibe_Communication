@@ -2,7 +2,7 @@
 
 Voip.NET — made by Gravicode Studios, led by Kang Fadhil · dibuat oleh Gravicode Studios, dipimpin oleh Kang Fadhil
 
-Last updated · Terakhir diperbarui: **2026-09-17** · Version · Versi: **1.1.0**
+Last updated · Terakhir diperbarui: **2026-09-17** · Version · Versi: **1.2.0**
 
 Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ planned · direncanakan (see · lihat [PLAN.md](PLAN.md))
 
@@ -128,7 +128,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 
 ## Changelog
 
-### Unreleased · Belum dirilis
+### 1.2.0 — 2026-09-17
 
 - `RealtimeVoiceAgent` speaks the GA realtime protocol and Azure OpenAI (`RealtimeVoiceOptions.ForAzure`, `ErrorReceived`); verified live on a call. · Agen realtime mendukung protokol GA dan Azure OpenAI; diuji langsung.
 - ElevenLabs verified live: Indonesian TTS → STT round trip, and a `VoiceAgent` on a real call (ElevenLabs STT/TTS + Azure OpenAI) answering a spoken question. The default voice is now a premade voice that free plans may use. · ElevenLabs diuji langsung, termasuk voice agent pada panggilan nyata.
