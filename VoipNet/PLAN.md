@@ -15,7 +15,7 @@ SIP over TLS and WebSocket, DTLS-SRTP, the full ICE agent with trickle and resta
 
 ## 1.2 — Codecs and media · Codec dan media
 
-- **Opus** native encode/decode (optional `opus` cargo feature), in-band FEC and DTX. · Opus native.
+- Opus DTX and bitrate adaptation from RTCP loss reports (native Opus with FEC is done). · DTX dan adaptasi bitrate Opus.
 - G.729 (royalty-free since 2017) native implementation. · G.729 native.
 - Acoustic echo cancellation and noise suppression for the softphone path (WebRTC AEC3-style). · Echo cancellation dan noise suppression.
 - Hand-tuned SIMD for G.722 QMF and the conference mixer; benchmarks in CI. · SIMD manual dan benchmark.

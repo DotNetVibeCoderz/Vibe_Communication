@@ -116,8 +116,8 @@ public sealed class VoipClientOptions
     /// <summary>Value of the User-Agent header.</summary>
     public string UserAgent { get; set; } = "Voip.NET/1.0 (Gravicode Studios)";
 
-    /// <summary>Audio codecs to offer, in preference order. Supported natively: G722, PCMU, PCMA, L16.</summary>
-    public IList<string> AudioCodecs { get; set; } = ["G722", "PCMU", "PCMA"];
+    /// <summary>Audio codecs to offer, in preference order. Supported natively: opus (48 kHz, in-band FEC), G722, PCMU, PCMA, L16.</summary>
+    public IList<string> AudioCodecs { get; set; } = ["opus", "G722", "PCMU", "PCMA"];
 
     /// <summary>Media encryption policy.</summary>
     public SrtpMode Srtp { get; set; } = SrtpMode.Disabled;

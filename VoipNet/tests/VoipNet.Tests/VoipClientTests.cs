@@ -43,20 +43,20 @@ public sealed class VoipClientTests
         var aliceCall = await callTask;
 
         Assert.Equal(CallState.Connected, aliceCall.State);
-        Assert.Equal("G722", aliceCall.Codec);
-        Assert.Equal(16000, aliceCall.SampleRate);
+        Assert.Equal("opus", aliceCall.Codec);
+        Assert.Equal(48000, aliceCall.SampleRate);
 
         aliceCall.SendAudio(TestHelpers.Tone(16000, 500), 16000);
         bobCall.SendDtmf("7#", 80);
 
-        await TestHelpers.WaitUntilAsync(() => receivedSamples > 4000, Timeout, "audio frames at Bob");
+        await TestHelpers.WaitUntilAsync(() => receivedSamples > 4000 && bobCall.GetStatistics().PacketsReceived > 10, Timeout, "audio frames at Bob");
         await TestHelpers.WaitUntilAsync(() => digits.Count == 2, Timeout, "DTMF digits at Alice");
         Assert.Equal("7#", string.Concat(digits));
 
         var stats = bobCall.GetStatistics();
         Assert.True(stats.PacketsReceived > 10, $"packets: {stats.PacketsReceived}");
         Assert.True(stats.Mos > 3.5, $"MOS: {stats.Mos}");
-        Assert.Equal(16000, stats.SampleRate);
+        Assert.Equal(48000, stats.SampleRate);
 
         await aliceCall.HangupAsync();
         await TestHelpers.WaitUntilAsync(() => bobCall.State == CallState.Terminated, Timeout, "Bob's call to end");

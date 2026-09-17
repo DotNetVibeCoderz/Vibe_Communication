@@ -530,6 +530,11 @@ mod tests {
             assert_eq!(voipnet_hangup(handle, call), VN_OK);
             assert_eq!(voipnet_endpoint_destroy(handle), VN_OK);
         }
+        // Events arrive on the dispatcher thread, which destroy does not wait for.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while EVENTS.load(Ordering::Relaxed) == 0 && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         assert!(EVENTS.load(Ordering::Relaxed) > 0);
     }
 

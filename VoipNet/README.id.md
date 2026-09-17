@@ -44,7 +44,7 @@ await call.HangupAsync();
 | SIP: REGISTER (digest auth, refresh, NAT keep-alive), INVITE/ACK/BYE/CANCEL, hold via re-INVITE, REFER blind dan attended (Replaces), OPTIONS, INFO, MESSAGE, NOTIFY | ✅ |
 | Transport: UDP, TCP, TLS (certificate pinning), WebSocket `ws`/`wss` (RFC 7118) | ✅ |
 | RTP/RTCP dengan jitter buffer adaptif, packet-loss concealment, symmetric RTP | ✅ |
-| Codec: G.722, G.711 μ-law/A-law, L16 (native) · G.729, Opus, SILK, Speex, H.264, VP8, VP9 (dinegosiasikan sebagai pass-through) | ✅ / pass-through |
+| Codec: Opus (48 kHz, FEC in-band), G.722, G.711 μ-law/A-law, L16 (native) · G.729, SILK, Speex, H.264, VP8, VP9 (dinegosiasikan sebagai pass-through) | ✅ / pass-through |
 | DTMF: RFC 4733, SIP INFO, pembangkitan dan deteksi in-band | ✅ |
 | SRTP: AES-CM-128-HMAC-SHA1-80, AEAD-AES-128/256-GCM; kunci lewat SDES atau DTLS-SRTP | ✅ |
 | Browser WebRTC menelepon SIP (SIP over WebSocket, ICE, DTLS-SRTP), diverifikasi dengan Edge dan Firefox | ✅ · data channel direncanakan |

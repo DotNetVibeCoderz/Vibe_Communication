@@ -44,7 +44,7 @@ await call.HangupAsync();
 | SIP: REGISTER (digest auth, refresh, NAT keep-alive), INVITE/ACK/BYE/CANCEL, re-INVITE hold, REFER blind and attended (Replaces), OPTIONS, INFO, MESSAGE, NOTIFY | ✅ |
 | Transports: UDP, TCP, TLS (certificate pinning), WebSocket `ws`/`wss` (RFC 7118) | ✅ |
 | RTP/RTCP with adaptive jitter buffer, packet-loss concealment, symmetric RTP | ✅ |
-| Codecs: G.722, G.711 μ-law/A-law, L16 (native) · G.729, Opus, SILK, Speex, H.264, VP8, VP9 (negotiated as pass-through) | ✅ / pass-through |
+| Codecs: Opus (48 kHz, in-band FEC), G.722, G.711 μ-law/A-law, L16 (native) · G.729, SILK, Speex, H.264, VP8, VP9 (negotiated as pass-through) | ✅ / pass-through |
 | DTMF: RFC 4733, SIP INFO, in-band generation and detection | ✅ |
 | SRTP: AES-CM-128-HMAC-SHA1-80, AEAD-AES-128/256-GCM; keys via SDES or DTLS-SRTP | ✅ |
 | WebRTC browsers calling SIP (SIP over WebSocket, ICE, DTLS-SRTP), verified with Edge and Firefox | ✅ · data channels planned |

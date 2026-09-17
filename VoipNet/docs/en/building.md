@@ -9,6 +9,7 @@
 | .NET SDK | 10.0 (see `global.json`) | SDK, samples, tests |
 | Rust | 1.80 or newer, with `cargo` | native engine |
 | C toolchain | MSVC build tools (Windows), clang/gcc (Linux), Xcode CLT (macOS) | linking the native library |
+| CMake | 3.x or newer | building the bundled libopus (Opus codec); `cargo build --no-default-features` skips Opus |
 
 ## Repository layout
 

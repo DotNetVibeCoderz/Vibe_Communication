@@ -85,8 +85,9 @@ public sealed class AudioTests
         var (samples, rate, channels) = WavReader.Read(recorder.Path);
         File.Delete(recorder.Path);
         Assert.Equal(2, channels);
-        Assert.Equal(16000, rate);
-        Assert.True(samples.Length / 2 > 16000 * 0.6, $"recorded {samples.Length / 2} frames");
+        // The recording keeps the call's own rate (48 kHz with Opus).
+        Assert.Equal(pair.CalleeLeg.SampleRate, rate);
+        Assert.True(samples.Length / 2 > rate * 0.6, $"recorded {samples.Length / 2} frames");
 
         // Both channels carry signal.
         Assert.Contains(samples.Where((_, i) => i % 2 == 0), s => Math.Abs((int)s) > 2000);

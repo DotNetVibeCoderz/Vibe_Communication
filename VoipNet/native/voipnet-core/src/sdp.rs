@@ -342,9 +342,13 @@ pub fn negotiate(offered: &[RtpMap], supported: &[RtpMap]) -> (Option<RtpMap>, O
         .filter(|o| !o.encoding.eq_ignore_ascii_case("telephone-event"))
         .find(|o| supported.iter().any(|s| matches(o, s)))
         .cloned();
+    // RFC 4733: the event clock must equal the audio clock, so prefer the event format matching the codec.
+    let events = |o: &&RtpMap| o.encoding.eq_ignore_ascii_case("telephone-event") && supported.iter().any(|s| matches(o, s));
     let dtmf = offered
         .iter()
-        .find(|o| o.encoding.eq_ignore_ascii_case("telephone-event") && supported.iter().any(|s| matches(o, s)))
+        .filter(events)
+        .find(|o| codec.as_ref().is_some_and(|c| c.clock_rate == o.clock_rate))
+        .or_else(|| offered.iter().find(events))
         .cloned();
     (codec, dtmf)
 }

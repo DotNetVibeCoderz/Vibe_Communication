@@ -9,6 +9,7 @@
 | .NET SDK | 10.0 (lihat `global.json`) | SDK, sample, test |
 | Rust | 1.80 atau lebih baru, dengan `cargo` | engine native |
 | Toolchain C | MSVC build tools (Windows), clang/gcc (Linux), Xcode CLT (macOS) | linking library native |
+| CMake | 3.x atau lebih baru | membangun libopus bawaan (codec Opus); `cargo build --no-default-features` tanpa Opus |
 
 ## Struktur repositori
 

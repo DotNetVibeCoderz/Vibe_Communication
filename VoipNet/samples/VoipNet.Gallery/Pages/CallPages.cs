@@ -126,21 +126,21 @@ public sealed class CodecsPage : DemoPage
     private readonly Lab _lab = new();
 
     public CodecsPage()
-        : base("CALLS", "Codecs", "Offer one codec at a time and see what gets negotiated and how it sounds on the wire. G.722 is wideband (16 kHz); G.711 μ-law and A-law are the narrowband standard; L16 is uncompressed.")
+        : base("CALLS", "Codecs", "Offer one codec at a time and see what gets negotiated and how it sounds on the wire. Opus is fullband (48 kHz) at about 32 kbit/s with loss recovery; G.722 is wideband (16 kHz); G.711 μ-law and A-law are the narrowband standard; L16 is uncompressed.")
     {
-        foreach (var codec in new[] { "G722", "PCMU", "PCMA", "L16" })
+        foreach (var codec in new[] { "opus", "G722", "PCMU", "PCMA", "L16" })
         {
-            AddAction(codec, () => TryAsync(codec), codec == "G722" ? "primary" : "quiet");
+            AddAction(codec, () => TryAsync(codec), codec == "opus" ? "primary" : "quiet");
         }
     }
 
     public override string Code => """
         var options = new VoipClientOptions
         {
-            // Preference order. Native: G722, PCMU, PCMA, L16.
-            // G729, opus, H264, VP8… negotiate as pass-through:
+            // Preference order. Native: opus, G722, PCMU, PCMA, L16.
+            // G729, H264, VP8… negotiate as pass-through:
             // use call.EncodedReceived / call.SendEncoded.
-            AudioCodecs = ["G722", "PCMU", "PCMA"],
+            AudioCodecs = ["opus", "G722", "PCMU", "PCMA"],
             PtimeMs = 20,
             JitterMinMs = 40,
             JitterMaxMs = 300,

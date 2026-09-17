@@ -967,7 +967,13 @@ fn playout_loop(sh: &Arc<Shared>) {
                         rx.plc.remember(&decoded);
                         rx.jitter.give_back(payload);
                     }
-                    Playout::Lost => rx.plc.conceal(samples, &mut decoded),
+                    Playout::Lost => {
+                        let next = rx.jitter.next_payload();
+                        let concealed = rx.codec.as_mut().is_some_and(|c| c.conceal(samples, next, &mut decoded));
+                        if !concealed {
+                            rx.plc.conceal(samples, &mut decoded);
+                        }
+                    }
                     Playout::Empty => decoded.resize(samples, 0),
                 }
                 if let Some(det) = rx.detector.as_mut() {

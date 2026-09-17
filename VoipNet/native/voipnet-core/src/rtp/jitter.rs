@@ -156,6 +156,12 @@ impl JitterBuffer {
     }
 
     /// Returns a payload buffer obtained from `Playout::Frame` to the internal pool.
+    /// Payload of the packet that will play next, if it is already buffered (used for FEC after a loss).
+    pub fn next_payload(&self) -> Option<&[u8]> {
+        let next = self.next_seq?;
+        self.queue.front().filter(|s| s.ext_seq == next).map(|s| s.payload.as_slice())
+    }
+
     pub fn give_back(&mut self, buf: Vec<u8>) {
         self.recycle(buf);
     }

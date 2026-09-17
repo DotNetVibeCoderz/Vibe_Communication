@@ -10,12 +10,12 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 
 | Suite | Result · Hasil |
 | --- | --- |
-| Rust engine `cargo test --lib` | **70 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
+| Rust engine `cargo test --lib` | **72 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
 | .NET `tests/VoipNet.Tests` | **42 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
 | `dotnet build Voip.Net.slnx -c Release` | 14 projects · proyek, **0 warnings, 0 errors** |
 | CLI end-to-end · ujung ke ujung | `sip listen --echo` ↔ `sip call --dtmf 123 --pcap`: MOS 4.38, all DTMF received · semua DTMF diterima |
 | CLI over TLS and WebSocket · CLI lewat TLS dan WebSocket | `--transport tls --tls-pin …` and `--transport ws --dtls`: MOS 4.38, SRTP on · SRTP aktif |
-| Browser interop · Interop browser | `tools/VoipNet.DocShots webphone` with a fake microphone against `samples/VoipNet.WebPhone`: **Edge** — trickle ICE over INFO, DTLS, `SRTP_AES128_CM_HMAC_SHA1_80`; **Firefox** (WebDriver BiDi) — trickle ICE, DTLS, `SRTP_AEAD_AES_128_GCM`; both ~200 packets each way, 0 lost, desk leg MOS 4.38 · keduanya ~200 paket tiap arah, 0 hilang |
+| Browser interop · Interop browser | `tools/VoipNet.DocShots webphone` with a fake microphone against `samples/VoipNet.WebPhone`: **Edge** — trickle ICE over INFO, DTLS, `SRTP_AES128_CM_HMAC_SHA1_80`; **Firefox** (WebDriver BiDi) — trickle ICE, DTLS, `SRTP_AEAD_AES_128_GCM`; both now negotiate **Opus** end to end (~190 packets each way, 0 lost) · keduanya ~200 paket tiap arah, 0 hilang |
 | Samples · Sample | Softphone, Gallery, Call Centre, IVR Studio run; screenshots rendered from the running apps · berjalan; screenshot diambil dari aplikasi yang berjalan |
 | Realtime Agent demo | Scripted caller ↔ real gpt-5-mini conversation incl. memory restore · percakapan dengan model nyata termasuk pemulihan memori |
 
@@ -39,8 +39,9 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | WebSocket transports `ws`/`wss` (RFC 7118) | ✅ | server and client, `sip` subprotocol, shared TLS stack · server dan client, subprotokol `sip` |
 | TLS transport (SIPS) | ✅ | rustls (TLS 1.2/1.3, ring), Mozilla roots + custom CA, SHA-256 pinning, self-signed or PEM identity · root Mozilla + CA sendiri, pinning SHA-256, identitas self-signed atau PEM |
 | RTP/RTCP, adaptive jitter buffer, PLC | ✅ | |
+| Opus (RFC 6716/7587) | ✅ | libopus (`opus` cargo feature, on by default): 48 kHz mono, 32 kbit/s, in-band FEC, FEC recovery from the next buffered packet, libopus PLC; verified with Edge and Firefox · diverifikasi dengan Edge dan Firefox |
 | G.711, G.722, L16 | ✅ | native |
-| G.729, Opus, SILK, Speex | 🟡 | negotiated, pass-through payloads · dinegosiasikan, payload pass-through |
+| G.729, SILK, Speex | 🟡 | negotiated, pass-through payloads · dinegosiasikan, payload pass-through |
 | H.264, VP8/VP9 | 🟡 | negotiated, pass-through · dinegosiasikan, pass-through |
 | DTMF RFC 4733 / SIP INFO / in-band | ✅ | Goertzel detector · detektor Goertzel |
 | SIMD acceleration | 🟡 | table-driven codecs and auto-vectorised loops; no hand-written intrinsics · codec berbasis tabel dan loop tervektorisasi otomatis |
@@ -133,6 +134,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 - ElevenLabs verified live: Indonesian TTS → STT round trip, and a `VoiceAgent` on a real call (ElevenLabs STT/TTS + Azure OpenAI) answering a spoken question. The default voice is now a premade voice that free plans may use. · ElevenLabs diuji langsung, termasuk voice agent pada panggilan nyata.
 - Speech providers report the provider's error body (for example "paid_plan_required") instead of a bare status code; streamed TTS chunks always end on a sample boundary. · Pesan error provider suara kini jelas; chunk TTS selalu utuh per sampel.
 - Agents no longer fail when the caller hangs up while they speak. · Agen tidak gagal saat penelepon menutup telepon ketika agen berbicara.
+- Native Opus (libopus via the `opus` crate): offered first by default, FEC-based loss recovery, `telephone-event/48000` so DTMF follows the audio clock; browsers now get Opus instead of G.722. Building the engine needs CMake. · Opus native: default pertama, pemulihan FEC, DTMF 48 kHz; browser kini memakai Opus. Build engine memerlukan CMake.
 
 ### 1.1.0 — 2026-09-17
 

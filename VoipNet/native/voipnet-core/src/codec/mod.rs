@@ -4,6 +4,8 @@ pub mod dtmf;
 pub mod g711;
 pub mod g722;
 pub mod l16;
+#[cfg(feature = "opus")]
+pub mod opus;
 
 use crate::sdp::RtpMap;
 
@@ -21,6 +23,11 @@ pub trait AudioCodec: Send {
     }
     fn encode(&mut self, pcm: &[i16], out: &mut Vec<u8>);
     fn decode(&mut self, payload: &[u8], out: &mut Vec<i16>);
+    /// Conceals one lost frame of `samples` samples, optionally using the packet that follows it
+    /// (codecs with in-band FEC). Returns false when the codec has no concealment of its own.
+    fn conceal(&mut self, _samples: usize, _next_payload: Option<&[u8]>, _out: &mut Vec<i16>) -> bool {
+        false
+    }
 }
 
 /// Every media format the engine can put into SDP. Codecs without a native
@@ -68,7 +75,7 @@ impl CodecKind {
 
     /// True when the engine encodes/decodes this format itself.
     pub fn is_native(self) -> bool {
-        matches!(self, Self::Pcmu | Self::Pcma | Self::G722 | Self::L16 | Self::TelephoneEvent)
+        matches!(self, Self::Pcmu | Self::Pcma | Self::G722 | Self::L16 | Self::TelephoneEvent) || (self == Self::Opus && cfg!(feature = "opus"))
     }
 
     pub fn rtpmap(self) -> RtpMap {
@@ -97,6 +104,8 @@ pub fn create_audio_codec(map: &RtpMap) -> Option<Box<dyn AudioCodec>> {
         CodecKind::Pcma => Box::new(g711::Pcma),
         CodecKind::G722 => Box::new(g722::G722::default()),
         CodecKind::L16 => Box::new(l16::L16::new(map.payload_type, map.clock_rate)),
+        #[cfg(feature = "opus")]
+        CodecKind::Opus => Box::new(opus::Opus::new(map.payload_type)?),
         _ => return None,
     };
     Some(codec)

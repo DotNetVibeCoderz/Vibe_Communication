@@ -46,7 +46,7 @@ await call.SendAudioStreamAsync(ttsChunks, 24000, maxQueuedMs: 2000);
 call.ClearAudio();                                     // barge-in
 ```
 
-Codec pass-through (video, G.729, Opus) dipertukarkan sebagai payload ter-encode:
+Codec pass-through (video, G.729) dipertukarkan sebagai payload ter-encode:
 
 ```csharp
 call.EncodedReceived += (c, payloadType, timestamp, marker, payload) => decoder.Feed(payload);
@@ -57,11 +57,12 @@ call.SendEncoded(96, rtpTimestamp, marker: true, h264Nal);
 
 | Codec | Payload | Rate | Implementasi |
 | --- | --- | --- | --- |
+| Opus | 111 | 48 kHz (`opus/48000/2`, suara mono) | native (libopus): 32 kbit/s, FEC in-band, pemulihan paket hilang dari paket berikutnya |
 | G.722 | 9 | audio 16 kHz (clock RTP 8 kHz) | native, SB-ADPCM fixed-point |
 | PCMU / PCMA | 0 / 8 | 8 kHz | native, tabel lookup |
 | L16 | 97 | 16 kHz | native |
-| telephone-event | 101 | — | RFC 4733 |
-| G.729, Opus, SILK, Speex | 18, 111–113 | — | dinegosiasikan, pass-through |
+| telephone-event | 101, 110 | 8 kHz, 48 kHz | RFC 4733, pada clock rate codec audio |
+| G.729, SILK, Speex | 18, 112, 113 | — | dinegosiasikan, pass-through |
 | H.264, VP8, VP9 | 96, 98, 100 | 90 kHz | dinegosiasikan, pass-through |
 
 Urutkan `AudioCodecs` sesuai preferensi. Jawaban mengikuti urutan pihak penawar (RFC 3264).

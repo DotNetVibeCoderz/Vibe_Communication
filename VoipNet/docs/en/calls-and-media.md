@@ -46,7 +46,7 @@ await call.SendAudioStreamAsync(ttsChunks, 24000, maxQueuedMs: 2000);
 call.ClearAudio();                                     // barge-in
 ```
 
-Pass-through codecs (video, G.729, Opus) are exchanged as encoded payloads:
+Pass-through codecs (video, G.729) are exchanged as encoded payloads:
 
 ```csharp
 call.EncodedReceived += (c, payloadType, timestamp, marker, payload) => decoder.Feed(payload);
@@ -57,11 +57,12 @@ call.SendEncoded(96, rtpTimestamp, marker: true, h264Nal);
 
 | Codec | Payload | Rate | Implementation |
 | --- | --- | --- | --- |
+| Opus | 111 | 48 kHz (`opus/48000/2`, mono voice) | native (libopus): 32 kbit/s, in-band FEC, loss recovery from the next packet |
 | G.722 | 9 | 16 kHz audio (8 kHz RTP clock) | native, fixed-point SB-ADPCM |
 | PCMU / PCMA | 0 / 8 | 8 kHz | native, lookup tables |
 | L16 | 97 | 16 kHz | native |
-| telephone-event | 101 | — | RFC 4733 |
-| G.729, Opus, SILK, Speex | 18, 111–113 | — | negotiated, pass-through |
+| telephone-event | 101, 110 | 8 kHz, 48 kHz | RFC 4733, at the audio codec's clock rate |
+| G.729, SILK, Speex | 18, 112, 113 | — | negotiated, pass-through |
 | H.264, VP8, VP9 | 96, 98, 100 | 90 kHz | negotiated, pass-through |
 
 Order `AudioCodecs` by preference. Answers follow the offerer's order (RFC 3264).

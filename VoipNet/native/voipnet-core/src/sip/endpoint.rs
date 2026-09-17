@@ -123,7 +123,7 @@ impl Default for EndpointConfig {
             register_on_start: false,
             register_expires: 600,
             user_agent: format!("Voip.NET/{}", env!("CARGO_PKG_VERSION")),
-            audio_codecs: vec!["G722".into(), "PCMU".into(), "PCMA".into()],
+            audio_codecs: vec!["opus".into(), "G722".into(), "PCMU".into(), "PCMA".into()],
             srtp: SrtpMode::Disabled,
             srtp_keying: SrtpKeying::Sdes,
             dtmf_mode: DtmfModeConfig::Rfc4733,
@@ -474,6 +474,10 @@ impl Endpoint {
             supported_audio = vec![CodecKind::Pcmu.rtpmap(), CodecKind::Pcma.rtpmap()];
         }
         supported_audio.push(CodecKind::TelephoneEvent.rtpmap());
+        // RFC 4733 events use the audio clock, so wideband Opus calls need a 48 kHz telephone-event too.
+        if supported_audio.iter().any(|m| m.clock_rate == 48000 && !m.encoding.eq_ignore_ascii_case("telephone-event")) {
+            supported_audio.push(RtpMap { payload_type: 110, clock_rate: 48000, ..CodecKind::TelephoneEvent.rtpmap() });
+        }
 
         let (tx, rx) = mpsc::channel::<Dispatch>();
         let sink = Arc::new(SinkAdapter { handler: handler.clone(), tx: Mutex::new(tx.clone()) });
@@ -2597,7 +2601,7 @@ mod tests {
     fn call_answer_audio_dtmf_and_hangup() {
         let (a, ra, b, rb) = pair(cfg("alice"), cfg("bob"));
         let (a_call, b_call) = establish(&a, &b, &rb, &ra);
-        assert_eq!(a.call_info(a_call).unwrap().codec.as_deref(), Some("G722"));
+        assert_eq!(a.call_info(a_call).unwrap().codec.as_deref(), Some("opus"));
 
         a.send_audio(a_call, &tone(), 16000).unwrap();
         b.send_dtmf(b_call, "42", 80).unwrap();

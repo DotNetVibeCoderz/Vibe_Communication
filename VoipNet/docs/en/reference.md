@@ -20,7 +20,7 @@
 | `RegisterOnStart` | `false` | Register during `StartAsync` and wait for the result. |
 | `RegisterExpires` | `600` | Requested lifetime; refreshed at 85%. |
 | `UserAgent` | `Voip.NET/1.0 (Gravicode Studios)` | User-Agent / Server header. |
-| `AudioCodecs` | `G722, PCMU, PCMA` | Preference order. |
+| `AudioCodecs` | `opus, G722, PCMU, PCMA` | Preference order. Native: opus, G722, PCMU, PCMA, L16. |
 | `Srtp` | `Disabled` | `Disabled`, `Optional`, `Mandatory`. |
 | `SrtpKeying` | `Sdes` | `Sdes` (`a=crypto`) or `Dtls` (DTLS-SRTP with ICE, as WebRTC uses). Incoming offers may use either. |
 | `DtmfMode` | `Rfc4733` | `Rfc4733`, `InBand`, `SipInfo`. |

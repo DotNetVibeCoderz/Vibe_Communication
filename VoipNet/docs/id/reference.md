@@ -20,7 +20,7 @@
 | `RegisterOnStart` | `false` | Registrasi saat `StartAsync` dan tunggu hasilnya. |
 | `RegisterExpires` | `600` | Masa berlaku yang diminta; di-refresh pada 85%. |
 | `UserAgent` | `Voip.NET/1.0 (Gravicode Studios)` | Header User-Agent / Server. |
-| `AudioCodecs` | `G722, PCMU, PCMA` | Urutan preferensi. |
+| `AudioCodecs` | `opus, G722, PCMU, PCMA` | Urutan preferensi. Native: opus, G722, PCMU, PCMA, L16. |
 | `Srtp` | `Disabled` | `Disabled`, `Optional`, `Mandatory`. |
 | `SrtpKeying` | `Sdes` | `Sdes` (`a=crypto`) atau `Dtls` (DTLS-SRTP dengan ICE, seperti WebRTC). Offer masuk boleh memakai keduanya. |
 | `DtmfMode` | `Rfc4733` | `Rfc4733`, `InBand`, `SipInfo`. |
