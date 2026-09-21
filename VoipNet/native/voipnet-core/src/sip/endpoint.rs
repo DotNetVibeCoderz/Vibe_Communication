@@ -101,6 +101,12 @@ pub struct EndpointConfig {
     pub rtp_timeout_ms: u32,
     /// Let Opus stop sending during silence (saves bandwidth, some PBXs dislike it).
     pub opus_dtx: bool,
+    /// Remove the echo of the played-out audio from what the application sends.
+    pub echo_cancellation: bool,
+    /// Suppress steady background noise in what the application sends.
+    pub noise_suppression: bool,
+    /// Even out the level of what the application sends.
+    pub auto_gain: bool,
     pub tls_verify_server: bool,
     pub tls_ca_file: Option<String>,
     pub tls_pinned_fingerprints: Vec<String>,
@@ -146,6 +152,9 @@ impl Default for EndpointConfig {
             keepalive_secs: 25,
             rtp_timeout_ms: 0,
             opus_dtx: false,
+            echo_cancellation: false,
+            noise_suppression: false,
+            auto_gain: false,
             tls_verify_server: true,
             tls_ca_file: None,
             tls_pinned_fingerprints: Vec::new(),
@@ -464,6 +473,9 @@ impl Endpoint {
             rtp_timeout_ms: cfg.rtp_timeout_ms,
             symmetric_rtp: true,
             opus_dtx: cfg.opus_dtx,
+            echo_cancellation: cfg.echo_cancellation,
+            noise_suppression: cfg.noise_suppression,
+            auto_gain: cfg.auto_gain,
             dtls_identity: Some(DtlsIdentity::generate().map_err(EndpointError::InvalidArgument)?),
         };
 

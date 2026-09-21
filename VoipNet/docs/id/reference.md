@@ -37,6 +37,7 @@
 | `KeepaliveSecs` | `25` | Keep-alive CRLF ke registrar melalui UDP. |
 | `RtpTimeoutMs` | `0` | Picu media event `rtp-timeout` bila tidak ada RTP selama durasi ini. |
 | `OpusDtx` | `false` | Izinkan Opus berhenti mengirim saat hening (discontinuous transmission). |
+| `EchoCancellation`, `NoiseSuppression`, `AutoGain` | `false` | Bersihkan audio yang dikirim sisi ini (AEC3, noise suppressor, AGC2 dari WebRTC). |
 | `TlsVerifyServer` | `true` | Validasi rantai sertifikat server dan nama host (root Mozilla ditambah `TlsCaFile`). |
 | `TlsCaFile` | — | File PEM berisi trust anchor tambahan, misalnya CA PBX privat. |
 | `TlsPinnedFingerprints` | — | Fingerprint SHA-256 yang diterima; hanya sertifikat ini yang lolos, termasuk self-signed. |

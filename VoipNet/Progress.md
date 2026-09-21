@@ -10,7 +10,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 
 | Suite | Result · Hasil |
 | --- | --- |
-| Rust engine `cargo test --lib` | **75 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
+| Rust engine `cargo test --lib` | **79 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
 | .NET `tests/VoipNet.Tests` | **43 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
 | `dotnet build Voip.Net.slnx -c Release` | 14 projects · proyek, **0 warnings, 0 errors** |
 | CLI end-to-end · ujung ke ujung | `sip listen --echo` ↔ `sip call --dtmf 123 --pcap`: MOS 4.38, all DTMF received · semua DTMF diterima |
@@ -41,6 +41,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | RTP/RTCP, adaptive jitter buffer, PLC | ✅ | |
 | RTCP sender/receiver reports (RFC 3550) | ✅ | report blocks, loss and jitter the peer sees, round-trip time; Opus adapts its bitrate and FEC to them · report block, loss dan jitter dari sisi lawan, RTT; Opus menyesuaikan bitrate dan FEC |
 | RTCP XR VoIP metrics (RFC 3611) | ✅ | sent every report and parsed from the peer: loss/discard rate, delays, R factor, MOS-LQ/CQ, jitter buffer · dikirim tiap report dan dibaca dari lawan |
+| Echo cancellation, noise suppression, gain control | ✅ | WebRTC AEC3/NS/AGC2 through the pure-Rust `sonora` port, `audio-processing` cargo feature; off unless `EchoCancellation`/`NoiseSuppression`/`AutoGain` are set · lewat port `sonora`, aktif bila opsi dinyalakan |
 | Opus (RFC 6716/7587) | ✅ | libopus (`opus` cargo feature, on by default): 48 kHz mono, 32 kbit/s, in-band FEC, FEC recovery from the next buffered packet, libopus PLC; verified with Edge and Firefox · diverifikasi dengan Edge dan Firefox |
 | G.711, G.722, L16 | ✅ | native |
 | G.729, SILK, Speex | 🟡 | negotiated, pass-through payloads · dinegosiasikan, payload pass-through |
@@ -135,6 +136,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 - RTCP sender and receiver reports with report blocks: `CallStatistics` gains `RoundTripMs`, `RemoteLossPercent` and `RemoteJitterMs`, and the CLI shows them. · Report RTCP dengan report block; statistik panggilan menampilkan RTT dan laporan dari lawan.
 - Opus adapts to those reports (lower bitrate and more FEC as loss rises) and supports DTX through `OpusDtx`. · Opus menyesuaikan diri dengan laporan itu dan mendukung DTX.
 - RTCP XR VoIP metrics (RFC 3611) in both directions; `CallStatistics.RemoteMos` is what the peer hears. · Metrik VoIP RTCP XR dua arah; `RemoteMos` adalah MOS di sisi lawan.
+- Echo cancellation, noise suppression and gain control on the WebRTC audio processing pipeline (`EchoCancellation`, `NoiseSuppression`, `AutoGain`). · Pembatalan gema, peredam bising, dan kontrol gain.
 
 ### 1.2.0 — 2026-09-17
 

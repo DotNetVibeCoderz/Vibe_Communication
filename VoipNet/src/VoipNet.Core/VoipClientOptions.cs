@@ -182,6 +182,18 @@ public sealed class VoipClientOptions
     /// </summary>
     public bool OpusDtx { get; set; }
 
+    /// <summary>
+    /// Remove the echo of the call's own playback from the audio this client sends. Useful when the
+    /// application plays through a speaker and captures with a microphone; harmless on a headset.
+    /// </summary>
+    public bool EchoCancellation { get; set; }
+
+    /// <summary>Suppress steady background noise (fans, traffic) in the audio this client sends.</summary>
+    public bool NoiseSuppression { get; set; }
+
+    /// <summary>Even out the level of the audio this client sends.</summary>
+    public bool AutoGain { get; set; }
+
     /// <summary>Validate the server certificate chain and host name for <see cref="SipTransport.Tls"/>. Ignored when <see cref="TlsPinnedFingerprints"/> is set.</summary>
     public bool TlsVerifyServer { get; set; } = true;
 

@@ -12,6 +12,8 @@ use parking_lot::Mutex;
 
 use super::conference::{Conference, CONFERENCE_RATE};
 use super::dtls::{DtlsEvent, DtlsIdentity, DtlsRole, DtlsTransport};
+#[cfg(feature = "audio-processing")]
+use super::enhance::AudioEnhancer;
 use super::ice::{IceAgent, IceOutput, IceRole};
 use super::resample::Resampler;
 use crate::codec::dtmf::{self, DtmfDetector, TelephoneEvent};
@@ -75,6 +77,12 @@ pub struct MediaConfig {
     pub dtls_identity: Option<Arc<DtlsIdentity>>,
     /// Let Opus stop sending during silence (RFC 6716 discontinuous transmission).
     pub opus_dtx: bool,
+    /// Remove the echo of the audio this call plays out from the audio the application sends.
+    pub echo_cancellation: bool,
+    /// Suppress steady background noise in the audio the application sends.
+    pub noise_suppression: bool,
+    /// Even out the level of the audio the application sends.
+    pub auto_gain: bool,
 }
 
 impl Default for MediaConfig {
@@ -96,6 +104,9 @@ impl Default for MediaConfig {
             symmetric_rtp: true,
             dtls_identity: None,
             opus_dtx: false,
+            echo_cancellation: false,
+            noise_suppression: false,
+            auto_gain: false,
         }
     }
 }
@@ -239,6 +250,9 @@ struct Shared {
     timeout_reported: AtomicBool,
     /// What the peer reports about the stream we send (RFC 3550 receiver reports).
     remote_quality: Mutex<RemoteQuality>,
+    /// Echo cancellation, noise suppression and gain control, when enabled.
+    #[cfg(feature = "audio-processing")]
+    enhancer: Mutex<Option<AudioEnhancer>>,
     dtls: Mutex<Option<DtlsTransport>>,
     /// A client-role handshake waiting for ICE to find a path.
     dtls_start_pending: AtomicBool,
@@ -370,6 +384,8 @@ impl MediaSession {
             last_rx: Mutex::new(Instant::now()),
             timeout_reported: AtomicBool::new(false),
             remote_quality: Mutex::new(RemoteQuality::default()),
+            #[cfg(feature = "audio-processing")]
+            enhancer: Mutex::new(None),
             dtls: Mutex::new(None),
             dtls_start_pending: AtomicBool::new(false),
             secure_required: AtomicBool::new(false),
@@ -484,6 +500,15 @@ impl MediaSession {
                 c.set_dtx(sh.config.opus_dtx);
             }
             let codec_rate = codec.as_ref().map_or(n.codec.clock_rate, |c| c.sample_rate());
+            #[cfg(feature = "audio-processing")]
+            if tx.codec_rate != codec_rate || sh.enhancer.lock().is_none() {
+                *sh.enhancer.lock() = AudioEnhancer::new(
+                    codec_rate,
+                    sh.config.echo_cancellation,
+                    sh.config.noise_suppression,
+                    sh.config.auto_gain,
+                );
+            }
             tx.payload_type = n.codec.payload_type;
             tx.dtmf_pt = n.dtmf.as_ref().map(|d| d.payload_type);
             tx.ts_per_frame = n.codec.clock_rate * ptime / 1000;
@@ -891,9 +916,11 @@ fn handle_rtcp(sh: &Arc<Shared>, data: &[u8]) {
             let rtt = if block.last_sr == 0 {
                 sh.remote_quality.lock().rtt_ms
             } else {
-                // RFC 3550 6.4.1: now - LSR - DLSR, all in units of 1/65536 s.
-                let delta = ((ntp_now() >> 16) as u32).wrapping_sub(block.last_sr).wrapping_sub(block.delay_since_last_sr);
-                delta as f64 * 1000.0 / 65536.0
+                // RFC 3550 6.4.1: now - LSR - DLSR, all in units of 1/65536 s. The delay is measured on a
+                // monotonic clock while NTP comes from the system clock, whose resolution is coarse on
+                // Windows, so the difference can come out slightly negative: that means "below resolution".
+                let delta = ((ntp_now() >> 16) as u32).wrapping_sub(block.last_sr).wrapping_sub(block.delay_since_last_sr) as i32;
+                f64::from(delta.max(0)) * 1000.0 / 65536.0
             };
             let clock = sh.tx.lock().codec.as_ref().map_or(8000, |c| c.clock_rate()) as f64;
             let mos = sh.remote_quality.lock().mos;
@@ -1091,6 +1118,12 @@ fn playout_loop(sh: &Arc<Shared>) {
                 }
             }
         }
+        #[cfg(feature = "audio-processing")]
+        if !decoded.is_empty() {
+            if let Some(enhancer) = sh.enhancer.lock().as_mut() {
+                enhancer.render(&decoded);
+            }
+        }
         for d in inband_digits.drain(..) {
             sh.sink.on_dtmf(sh.call_id, d, DtmfSource::InBand);
         }
@@ -1232,6 +1265,12 @@ fn transmit_frame(sh: &Arc<Shared>, direction: Direction, tap: &mut Vec<i16>) ->
     }
     if muted {
         tx.frame.iter_mut().for_each(|s| *s = 0);
+    }
+    #[cfg(feature = "audio-processing")]
+    if !muted {
+        if let Some(enhancer) = sh.enhancer.lock().as_mut() {
+            enhancer.capture(&mut tx.frame);
+        }
     }
     tap.extend_from_slice(&tx.frame);
 
@@ -1440,6 +1479,43 @@ mod tests {
         b.stop();
     }
 
+
+    #[cfg(feature = "audio-processing")]
+    #[test]
+    fn audio_processing_keeps_the_call_audible() {
+        let (ca, cb) = (Arc::new(Collect::default()), Arc::new(Collect::default()));
+        let config = MediaConfig { noise_suppression: true, echo_cancellation: true, auto_gain: true, ..loopback_config() };
+        let a = MediaSession::new(1, config.clone(), ca.clone()).unwrap();
+        let b = MediaSession::new(2, config, cb.clone()).unwrap();
+        let neg = |remote: SocketAddr| NegotiatedMedia {
+            remote: Some(remote),
+            codec: CodecKind::G722.rtpmap(),
+            dtmf: None,
+            direction: Direction::SendRecv,
+            remote_srtp_key: None,
+            remote_ice_ufrag: None,
+            remote_ice_pwd: None,
+            remote_candidates: vec![],
+            ice_controlling: false,
+            ptime_ms: None,
+            remote_fingerprint: None,
+            dtls_role: None,
+        };
+        a.apply(&neg(b.local_address())).unwrap();
+        b.apply(&neg(a.local_address())).unwrap();
+
+        a.send_audio(&tone(16000, 800), 16000);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while b.stats().packets_received < 25 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+        let peak = cb.inbound.lock().iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);
+        assert!(peak > 2000, "speech was suppressed as well: peak {peak}");
+        a.stop();
+        b.stop();
+    }
+
     #[test]
     fn rfc4733_dtmf_is_delivered_once_per_digit() {
         let (a, b, _ca, cb) = connect(CodecKind::Pcmu, false);
@@ -1462,11 +1538,12 @@ mod tests {
         b.send_audio(&tone(8000, 9000), 8000);
         // Reports start after a second and repeat every four; two rounds are needed for a round trip.
         let deadline = Instant::now() + Duration::from_secs(12);
-        while a.stats().round_trip_ms == 0.0 && Instant::now() < deadline {
+        while a.stats().remote_mos == 0.0 && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(100));
         }
         let stats = a.stats();
-        assert!(stats.round_trip_ms > 0.0 && stats.round_trip_ms < 500.0, "rtt {} ms", stats.round_trip_ms);
+        // On loopback the round trip is under a millisecond, which the RTCP clock may report as zero.
+        assert!(stats.round_trip_ms < 500.0, "rtt {} ms", stats.round_trip_ms);
         assert!(stats.remote_loss_percent < 5.0, "loss {}%", stats.remote_loss_percent);
         // The peer also reports how the audio sounds on its side (RTCP XR).
         assert!(stats.remote_mos > 3.0, "remote MOS {}", stats.remote_mos);

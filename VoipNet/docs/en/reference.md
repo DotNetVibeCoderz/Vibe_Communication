@@ -37,6 +37,7 @@
 | `KeepaliveSecs` | `25` | CRLF keep-alives to the registrar over UDP. |
 | `RtpTimeoutMs` | `0` | Raise a `rtp-timeout` media event after this much silence on the wire. |
 | `OpusDtx` | `false` | Let Opus stop sending during silence (discontinuous transmission). |
+| `EchoCancellation`, `NoiseSuppression`, `AutoGain` | `false` | Clean the audio this side sends (WebRTC AEC3, noise suppressor, AGC2). |
 | `TlsVerifyServer` | `true` | Validate the server certificate chain and host name (Mozilla roots plus `TlsCaFile`). |
 | `TlsCaFile` | — | PEM file with extra trust anchors, e.g. a private PBX CA. |
 | `TlsPinnedFingerprints` | — | SHA-256 fingerprints to accept; only these certificates pass, self-signed included. |

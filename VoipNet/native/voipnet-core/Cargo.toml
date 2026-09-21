@@ -29,9 +29,12 @@ rustls-pki-types = { version = "1", features = ["std"] }
 rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"] }
 ring = "0.17"
 opus = { version = "0.4", optional = true }
+sonora = { version = "0.2", optional = true }
 dimpl = { version = "0.7", default-features = false, features = ["rust-crypto"] }
 
 [dev-dependencies]
 
 [features]
-default = ["opus"]
+default = ["opus", "audio-processing"]
+# Echo cancellation, noise suppression and gain control (WebRTC APM port).
+audio-processing = ["dep:sonora"]

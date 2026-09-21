@@ -2,6 +2,8 @@
 
 pub mod conference;
 pub mod dtls;
+#[cfg(feature = "audio-processing")]
+pub mod enhance;
 pub mod ice;
 pub mod resample;
 pub mod session;
