@@ -286,6 +286,13 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
 
     internal void SetMute(ulong id, bool mute) => Check(NativeMethods.SetMute(_handle, id, mute ? 1 : 0), "mute");
 
+    /// <summary>
+    /// Re-reads <see cref="VoipClientOptions.TlsCertificateFile"/>, its key and the CA file, and uses them
+    /// for new connections. Calls already up keep the connection they have, so renewing a certificate
+    /// never drops a call.
+    /// </summary>
+    public void ReloadTls() => Check(NativeMethods.ReloadTls(_handle), "reload TLS");
+
     internal void RestartIce(ulong id) => Check(NativeMethods.RestartIce(_handle, id), "restart ICE");
 
     internal void SendDtmf(ulong id, string digits, int durationMs) =>

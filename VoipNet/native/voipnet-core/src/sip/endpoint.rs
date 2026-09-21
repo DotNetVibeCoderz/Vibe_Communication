@@ -436,19 +436,7 @@ impl Endpoint {
     pub fn start(cfg: EndpointConfig, handler: Arc<dyn EndpointHandler>) -> Result<Self> {
         let bind_ip: IpAddr = cfg.bind_address.parse().map_err(|_| EndpointError::InvalidArgument("bindAddress".into()))?;
         let tls = if matches!(cfg.transport, TransportKind::Tls | TransportKind::Wss) {
-            let settings = TlsSettings {
-                verify_server: cfg.tls_verify_server,
-                ca_file: cfg.tls_ca_file.clone(),
-                pinned_sha256: cfg.tls_pinned_fingerprints.clone(),
-                certificate_file: cfg.tls_certificate_file.clone(),
-                private_key_file: cfg.tls_private_key_file.clone(),
-                require_client_certificate: cfg.tls_require_client_certificate,
-            };
-            let mut names = vec!["localhost".to_owned()];
-            if !cfg.domain.is_empty() {
-                names.push(cfg.domain.clone());
-            }
-            Some(Arc::new(TlsContext::new(&settings, names).map_err(EndpointError::InvalidArgument)?))
+            Some(Arc::new(build_tls_context(&cfg)?))
         } else {
             None
         };
@@ -570,7 +558,20 @@ impl Endpoint {
 
     /// SHA-256 fingerprint (`AA:BB:…`) of the certificate presented on the TLS transport.
     pub fn tls_fingerprint(&self) -> Option<String> {
-        self.inner.transport.tls_fingerprint().map(str::to_owned)
+        self.inner.transport.tls_fingerprint()
+    }
+
+    /// Re-reads the certificate, key and CA files and uses them for new connections. Calls already up
+    /// keep the connection they have, so renewing a certificate never drops a call.
+    pub fn reload_tls(&self) -> Result<()> {
+        if !matches!(self.inner.cfg.transport, TransportKind::Tls | TransportKind::Wss) {
+            return Err(EndpointError::InvalidState("this endpoint does not use TLS"));
+        }
+        let context = build_tls_context(&self.inner.cfg)?;
+        let fingerprint = context.fingerprint.clone();
+        self.inner.transport.set_tls_context(Arc::new(context));
+        self.inner.log("info", format!("TLS certificate reloaded, fingerprint {fingerprint}"));
+        Ok(())
     }
 
     pub fn contact_address(&self) -> SocketAddr {
@@ -723,6 +724,24 @@ fn call_info(c: &Call) -> CallInfo {
         muted: c.media.as_ref().is_some_and(|m| m.is_muted()),
         srtp: c.media.as_ref().is_some_and(|m| m.srtp_enabled()),
     }
+}
+
+/// Builds the TLS context from the configuration: the certificate to present, who to trust, and
+/// whether callers must identify themselves.
+fn build_tls_context(cfg: &EndpointConfig) -> Result<TlsContext> {
+    let settings = TlsSettings {
+        verify_server: cfg.tls_verify_server,
+        ca_file: cfg.tls_ca_file.clone(),
+        pinned_sha256: cfg.tls_pinned_fingerprints.clone(),
+        certificate_file: cfg.tls_certificate_file.clone(),
+        private_key_file: cfg.tls_private_key_file.clone(),
+        require_client_certificate: cfg.tls_require_client_certificate,
+    };
+    let mut names = vec!["localhost".to_owned()];
+    if !cfg.domain.is_empty() {
+        names.push(cfg.domain.clone());
+    }
+    TlsContext::new(&settings, names).map_err(EndpointError::InvalidArgument)
 }
 
 fn resolve_hostport(s: &str, default_port: u16) -> Option<SocketAddr> {
@@ -2865,6 +2884,50 @@ mod tests {
         rc.wait_for(8000, |e| matches!(e, Event::CallState { call_id, state: "terminated", .. } if *call_id == refused))
             .expect("untrusted caller is refused");
         assert_eq!(rb.incoming_calls().len(), 1, "only Alice got through");
+    }
+
+
+    /// Writes a fresh self-signed certificate and key to `dir`, returning its fingerprint.
+    fn write_certificate(dir: &std::path::Path) -> String {
+        let key = rcgen::KeyPair::generate().unwrap();
+        let cert = rcgen::CertificateParams::new(vec!["localhost".to_owned()]).unwrap().self_signed(&key).unwrap();
+        std::fs::write(dir.join("cert.pem"), cert.pem()).unwrap();
+        std::fs::write(dir.join("key.pem"), key.serialize_pem()).unwrap();
+        crate::sip::tls::fingerprint_sha256(cert.der())
+    }
+
+    #[test]
+    fn tls_certificates_reload_without_a_restart() {
+        let dir = std::env::temp_dir().join(format!("voipnet-tls-{}", random_token(8)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let first = write_certificate(&dir);
+        let bob_cfg = EndpointConfig {
+            tls_certificate_file: Some(dir.join("cert.pem").to_string_lossy().into_owned()),
+            tls_private_key_file: Some(dir.join("key.pem").to_string_lossy().into_owned()),
+            ..tls_cfg("bob")
+        };
+        let rb = Arc::new(Recorder::default());
+        let b = Endpoint::start(bob_cfg, rb.clone()).unwrap();
+        assert_eq!(b.tls_fingerprint().as_deref(), Some(first.as_str()));
+
+        let target = format!("sip:bob@{}", b.local_address());
+        let ra = Arc::new(Recorder::default());
+        let a = Endpoint::start(EndpointConfig { tls_pinned_fingerprints: vec![first.clone()], ..tls_cfg("alice") }, ra.clone()).unwrap();
+        let call = a.make_call(&target).unwrap();
+        rb.wait_for_incoming(5000, 0).expect("call with the first certificate");
+        a.hangup(call).unwrap();
+
+        // Renew the certificate on disk and pick it up without restarting.
+        let second = write_certificate(&dir);
+        assert_ne!(second, first);
+        b.reload_tls().unwrap();
+        assert_eq!(b.tls_fingerprint().as_deref(), Some(second.as_str()));
+
+        let rc = Arc::new(Recorder::default());
+        let c = Endpoint::start(EndpointConfig { tls_pinned_fingerprints: vec![second], ..tls_cfg("carol") }, rc.clone()).unwrap();
+        c.make_call(&target).unwrap();
+        rb.wait_for_incoming(5000, 1).expect("call with the renewed certificate");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

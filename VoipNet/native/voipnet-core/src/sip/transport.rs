@@ -240,7 +240,7 @@ pub struct Transport {
     udp: Option<UdpSocket>,
     listener: Option<TcpListener>,
     connections: Mutex<HashMap<SocketAddr, Arc<Conn>>>,
-    tls: Option<Arc<TlsContext>>,
+    tls: Mutex<Option<Arc<TlsContext>>>,
     server_names: Mutex<HashMap<SocketAddr, String>>,
     handler: OnceLock<MessageHandler>,
     on_disconnect: OnceLock<DisconnectHandler>,
@@ -273,7 +273,7 @@ impl Transport {
             udp,
             listener,
             connections: Mutex::new(HashMap::new()),
-            tls,
+            tls: Mutex::new(tls),
             server_names: Mutex::new(HashMap::new()),
             handler: OnceLock::new(),
             on_disconnect: OnceLock::new(),
@@ -295,8 +295,14 @@ impl Transport {
     }
 
     /// SHA-256 fingerprint of the certificate this transport presents, for TLS and WSS.
-    pub fn tls_fingerprint(&self) -> Option<&str> {
-        self.tls.as_ref().filter(|_| self.kind.secure()).map(|t| t.fingerprint.as_str())
+    pub fn tls_fingerprint(&self) -> Option<String> {
+        self.tls.lock().as_ref().filter(|_| self.kind.secure()).map(|t| t.fingerprint.clone())
+    }
+
+    /// Replaces the certificate and trust settings. Connections already open keep the old ones;
+    /// every new connection uses the new context.
+    pub fn set_tls_context(&self, context: Arc<TlsContext>) {
+        *self.tls.lock() = Some(context);
     }
 
     pub fn start(self: &Arc<Self>, handler: MessageHandler) {
@@ -353,7 +359,7 @@ impl Transport {
             match listener.accept() {
                 Ok((sock, peer)) => {
                     let _ = sock.set_nonblocking(false);
-                    let wire = match (self.kind.secure(), self.tls.as_ref()) {
+                    let wire = match (self.kind.secure(), self.tls.lock().as_ref()) {
                         (true, Some(ctx)) => match rustls::ServerConnection::new(ctx.server.clone()) {
                             Ok(c) => Wire::Tls(Mutex::new(c.into())),
                             Err(_) => continue,
@@ -545,7 +551,7 @@ impl Transport {
 
     fn connect(self: &Arc<Self>, dest: SocketAddr) -> std::io::Result<Arc<Conn>> {
         let host = self.server_names.lock().get(&dest).cloned();
-        let wire = match (self.kind.secure(), self.tls.as_ref()) {
+        let wire = match (self.kind.secure(), self.tls.lock().as_ref()) {
             (true, Some(ctx)) => {
                 let name = match &host {
                     Some(h) => ServerName::try_from(h.clone()).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?,

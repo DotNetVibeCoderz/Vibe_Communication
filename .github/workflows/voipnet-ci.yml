@@ -132,7 +132,13 @@ jobs:
       - name: Call from Chrome
         run: dotnet run --project tools/VoipNet.DocShots -c Release --no-build -- webphone http://localhost:5190 shots
       - name: Call from Firefox
-        run: dotnet run --project tools/VoipNet.DocShots -c Release --no-build -- webphone http://localhost:5190 shots --firefox "$(command -v firefox)"
+        run: |
+          firefox=$(command -v firefox || true)
+          if [ -z "$firefox" ]; then
+            echo "Firefox is not installed on this runner; skipping."
+            exit 0
+          fi
+          dotnet run --project tools/VoipNet.DocShots -c Release --no-build -- webphone http://localhost:5190 shots --firefox "$firefox"
       - name: Gateway log
         if: always()
         run: cat webphone.log

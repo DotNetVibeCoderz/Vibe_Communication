@@ -10,7 +10,6 @@ SIP over TLS and WebSocket, DTLS-SRTP, the full ICE agent with trickle and resta
 
 - Safari interop (Chrome and Firefox now run on every CI build; no macOS machine here to try Safari). · Interop Safari.
 - **Data channels** (SCTP over DTLS, RFC 8831) for chat and file transfer next to calls. · Data channel untuk chat dan transfer file.
-- Certificate reload without restart (mutual TLS is done). · Muat ulang sertifikat tanpa restart.
 - Sending our own candidates by trickle ICE (useful when STUN/TURN gathering is slow). · Mengirim kandidat sendiri lewat trickle ICE.
 
 ## 1.2 — Codecs and media · Codec dan media

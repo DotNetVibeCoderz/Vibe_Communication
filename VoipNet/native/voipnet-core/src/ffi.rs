@@ -238,6 +238,15 @@ pub unsafe extern "C" fn voipnet_set_mute(handle: *mut c_void, call_id: u64, mut
     with_endpoint!(handle, ep => ep.set_mute(call_id, mute != 0))
 }
 
+/// Re-reads the TLS certificate, key and CA files; new connections use them.
+///
+/// # Safety
+/// `handle` must be a live endpoint handle.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_reload_tls(handle: *mut c_void) -> c_int {
+    with_endpoint!(handle, ep => ep.reload_tls())
+}
+
 /// Restarts ICE on an established call (re-INVITE with new credentials).
 ///
 /// # Safety

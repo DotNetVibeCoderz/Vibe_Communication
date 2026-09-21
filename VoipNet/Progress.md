@@ -10,7 +10,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 
 | Suite | Result · Hasil |
 | --- | --- |
-| Rust engine `cargo test --lib` | **83 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
+| Rust engine `cargo test --lib` | **84 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
 | .NET `tests/VoipNet.Tests` | **43 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
 | `dotnet build Voip.Net.slnx -c Release` | 14 projects · proyek, **0 warnings, 0 errors** |
 | Benchmarks · Benchmark | `cargo bench --bench media` on a laptop (20 ms frame): opus encode 550 µs · decode 127 µs, G.722 encode 16 µs · decode 13 µs, G.711 encode 150 ns, SRTP protect 2.6 µs, conference mix-minus 3.7 µs at 50 participants; run in CI to catch breakage · dijalankan di CI |
@@ -38,6 +38,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | Transfer blind / attended (Replaces), hold, conferencing, recording | ✅ | |
 | UDP, TCP transports | ✅ | |
 | WebSocket transports `ws`/`wss` (RFC 7118) | ✅ | server and client, `sip` subprotocol, shared TLS stack · server dan client, subprotokol `sip` |
+| Certificate reload without restart | ✅ | `ReloadTls()` swaps the certificate for new connections; calls in progress are untouched · panggilan yang sedang berjalan tidak terganggu |
 | Mutual TLS (client certificates) | ✅ | `TlsRequireClientCertificate`; the same pinning and CA rules apply to callers, and a rejected handshake fails the request at once · aturan pinning dan CA yang sama berlaku untuk penelepon |
 | TLS transport (SIPS) | ✅ | rustls (TLS 1.2/1.3, ring), Mozilla roots + custom CA, SHA-256 pinning, self-signed or PEM identity · root Mozilla + CA sendiri, pinning SHA-256, identitas self-signed atau PEM |
 | RTP/RTCP, adaptive jitter buffer, PLC | ✅ | |
@@ -140,6 +141,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 - RTCP XR VoIP metrics (RFC 3611) in both directions; `CallStatistics.RemoteMos` is what the peer hears. · Metrik VoIP RTCP XR dua arah; `RemoteMos` adalah MOS di sisi lawan.
 - Echo cancellation, noise suppression and gain control on the WebRTC audio processing pipeline (`EchoCancellation`, `NoiseSuppression`, `AutoGain`). · Pembatalan gema, peredam bising, dan kontrol gain.
 - Burst and gap metrics in RTCP XR, so clustered loss is visible and not just an average. · Metrik burst dan gap di RTCP XR.
+- Certificates can be renewed at run time with `ReloadTls()`. · Sertifikat bisa diperbarui saat berjalan.
 - Mutual TLS: callers can be asked for a certificate, and a connection that dies mid-request (a rejected handshake, a restart) now fails that request immediately instead of after the 32 second timeout. · TLS dua arah, dan koneksi yang putus langsung menggagalkan request.
 - Browser interop runs in CI: Chrome and Firefox place a real call through the WebRTC gateway sample on every build. · Interop browser dijalankan di CI pada setiap build.
 - Criterion benchmarks for codecs, SRTP and the conference mixer, run in CI; the mixer no longer allocates per frame and the G.722 delay line no longer copies its history on every sample pair. · Benchmark Criterion dijalankan di CI.

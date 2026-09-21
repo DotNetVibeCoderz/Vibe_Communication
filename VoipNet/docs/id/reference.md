@@ -58,6 +58,7 @@
 | `CreateConference()` | `VoipConference` baru. |
 | `Calls`, `FindCall(id)` | Panggilan aktif dan yang baru selesai. |
 | `LocalAddress`, `RegistrationState`, `EngineVersion`, `TlsFingerprint` | State. |
+| `ReloadTls()` | Baca ulang berkas sertifikat, kunci, dan CA untuk koneksi baru. |
 | Event | `IncomingCall`, `CallStateChanged`, `MediaStarted`, `RegistrationChanged`, `DtmfReceived`, `MessageReceived`, `TransferRequested`, `TransferProgress`, `MediaNotification` (`ice-candidates`, `ice-connected`, `ice-disconnected`, `ice-failed`, `dtls-connected`, `dtls-failed`, `rtp-timeout`), `SipTrace`. |
 
 ## `VoipCall`

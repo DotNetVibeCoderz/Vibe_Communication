@@ -117,6 +117,9 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "voipnet_set_mute")]
     internal static partial int SetMute(nint handle, ulong callId, int mute);
 
+    [LibraryImport(Library, EntryPoint = "voipnet_reload_tls")]
+    internal static partial int ReloadTls(nint handle);
+
     [LibraryImport(Library, EntryPoint = "voipnet_restart_ice")]
     internal static partial int RestartIce(nint handle, ulong callId);
 

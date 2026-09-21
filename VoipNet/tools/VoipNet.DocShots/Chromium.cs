@@ -27,12 +27,20 @@ internal sealed class Chromium : Browser
             "/usr/bin/google-chrome",
         }.FirstOrDefault(File.Exists) ?? throw new InvalidOperationException("No Chromium based browser found.");
 
+        // --no-sandbox is needed on CI images that run without user namespaces, and /dev/shm there is
+        // too small for Chrome's default shared memory use.
         var process = Process.Start(new ProcessStartInfo(path,
-            $"--headless=new --disable-gpu --hide-scrollbars --use-fake-device-for-media-stream --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required --no-first-run --remote-debugging-port={Port} --user-data-dir=\"{NewProfileFolder()}\" --window-size={Width},{Height} about:blank")
+            $"--headless=new --disable-gpu --no-sandbox --disable-dev-shm-usage --hide-scrollbars --use-fake-device-for-media-stream --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required --no-first-run --remote-debugging-port={Port} --user-data-dir=\"{NewProfileFolder()}\" --window-size={Width},{Height} about:blank")
         {
             UseShellExecute = false,
+            RedirectStandardOutput = true,
             RedirectStandardError = true,
         })!;
+        // Drain both streams so a chatty browser can never block on a full pipe.
+        process.OutputDataReceived += (_, _) => { };
+        process.ErrorDataReceived += (_, _) => { };
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
 
         using var http = new HttpClient();
         JsonArray? targets = null;
@@ -48,7 +56,13 @@ internal sealed class Chromium : Browser
             }
         }
 
-        var page = targets!.First(t => t!["type"]!.GetValue<string>() == "page")!;
+        if (targets is null)
+        {
+            var exited = process.HasExited ? $"it exited with code {process.ExitCode}" : "it is still running";
+            throw new InvalidOperationException($"{path} did not open its DevTools port ({exited}).");
+        }
+
+        var page = targets.First(t => t!["type"]!.GetValue<string>() == "page")!;
         var browser = new Chromium(await ConnectAsync(new Uri(page["webSocketDebuggerUrl"]!.GetValue<string>())), process);
         await browser.SendAsync("Emulation.setEmulatedMedia", new JsonObject
         {

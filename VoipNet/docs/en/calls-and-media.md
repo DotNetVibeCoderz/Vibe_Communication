@@ -121,7 +121,7 @@ new VoipClientOptions
 call.GetStatistics().SecureRtp;   // true when both directions are protected
 ```
 
-Set `TlsRequireClientCertificate` to make callers prove who they are as well (mutual TLS): the same certificate and pinning rules then apply in both directions. Server certificates are checked against the Mozilla root store plus `TlsCaFile`, including the host name from the target URI, registrar or proxy. Pinning replaces chain validation, which suits PBXs with self-signed certificates. Each endpoint presents `TlsCertificateFile`/`TlsPrivateKeyFile`, or a generated self-signed certificate whose fingerprint is `client.TlsFingerprint`. A failed handshake ends the request at once with `503`.
+Renewed certificates are picked up with `client.ReloadTls()`, which affects new connections only, so a renewal never drops a call. Set `TlsRequireClientCertificate` to make callers prove who they are as well (mutual TLS): the same certificate and pinning rules then apply in both directions. Server certificates are checked against the Mozilla root store plus `TlsCaFile`, including the host name from the target URI, registrar or proxy. Pinning replaces chain validation, which suits PBXs with self-signed certificates. Each endpoint presents `TlsCertificateFile`/`TlsPrivateKeyFile`, or a generated self-signed certificate whose fingerprint is `client.TlsFingerprint`. A failed handshake ends the request at once with `503`.
 
 ## WebRTC browsers
 

@@ -58,6 +58,7 @@
 | `CreateConference()` | New `VoipConference`. |
 | `Calls`, `FindCall(id)` | Current and recently ended calls. |
 | `LocalAddress`, `RegistrationState`, `EngineVersion`, `TlsFingerprint` | State. |
+| `ReloadTls()` | Re-read the certificate, key and CA files for new connections. |
 | Events | `IncomingCall`, `CallStateChanged`, `MediaStarted`, `RegistrationChanged`, `DtmfReceived`, `MessageReceived`, `TransferRequested`, `TransferProgress`, `MediaNotification` (`ice-candidates`, `ice-connected`, `ice-disconnected`, `ice-failed`, `dtls-connected`, `dtls-failed`, `rtp-timeout`), `SipTrace`. |
 
 ## `VoipCall`
