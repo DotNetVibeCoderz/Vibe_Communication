@@ -17,8 +17,7 @@ SIP over TLS and WebSocket, DTLS-SRTP, the full ICE agent with trickle and resta
 
 - G.729 (royalty-free since 2017) native implementation. · G.729 native.
 - Tune echo cancellation for device delays (the pipeline is in place; `set_stream_delay_ms` is not wired to the audio devices yet). · Penyetelan AEC untuk delay perangkat.
-- Hand-tuned SIMD for G.722 QMF and the conference mixer; benchmarks in CI. · SIMD manual dan benchmark.
-- Burst and gap metrics in RTCP XR (the block is sent, but those fields are still reported as unavailable). · Metrik burst dan gap di RTCP XR.
+- Track benchmark results over time (the numbers are printed in CI, but nothing compares them between runs yet). · Lacak hasil benchmark antar-run.
 
 ## 1.3 — 🎥 Video · Fitur video
 

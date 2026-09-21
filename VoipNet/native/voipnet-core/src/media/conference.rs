@@ -14,6 +14,8 @@ struct Participant {
 #[derive(Default)]
 pub struct Conference {
     participants: Mutex<HashMap<u64, Participant>>,
+    /// Mixing accumulator, kept between frames so the hot path allocates nothing.
+    accumulator: Mutex<Vec<i32>>,
 }
 
 impl Conference {
@@ -51,17 +53,19 @@ impl Conference {
         let parts = self.participants.lock();
         let start = out.len();
         out.resize(start + samples, 0);
-        let mut acc = vec![0i32; samples];
+        let mut acc = self.accumulator.lock();
+        acc.clear();
+        acc.resize(samples, 0);
         for (pid, p) in parts.iter() {
             if *pid == id || p.generation == 0 {
                 continue;
             }
             for (a, s) in acc.iter_mut().zip(p.frame.iter()) {
-                *a += *s as i32;
+                *a += i32::from(*s);
             }
         }
-        for (o, a) in out[start..].iter_mut().zip(acc) {
-            *o = a.clamp(-32768, 32767) as i16;
+        for (o, a) in out[start..].iter_mut().zip(acc.iter()) {
+            *o = (*a).clamp(-32768, 32767) as i16;
         }
     }
 }

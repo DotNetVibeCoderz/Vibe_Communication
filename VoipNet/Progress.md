@@ -10,9 +10,10 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 
 | Suite | Result · Hasil |
 | --- | --- |
-| Rust engine `cargo test --lib` | **79 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
+| Rust engine `cargo test --lib` | **82 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
 | .NET `tests/VoipNet.Tests` | **43 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
 | `dotnet build Voip.Net.slnx -c Release` | 14 projects · proyek, **0 warnings, 0 errors** |
+| Benchmarks · Benchmark | `cargo bench --bench media` on a laptop (20 ms frame): opus encode 550 µs · decode 127 µs, G.722 encode 16 µs · decode 13 µs, G.711 encode 150 ns, SRTP protect 2.6 µs, conference mix-minus 3.7 µs at 50 participants; run in CI to catch breakage · dijalankan di CI |
 | CLI end-to-end · ujung ke ujung | `sip listen --echo` ↔ `sip call --dtmf 123 --pcap`: MOS 4.38, all DTMF received · semua DTMF diterima |
 | CLI over TLS and WebSocket · CLI lewat TLS dan WebSocket | `--transport tls --tls-pin …` and `--transport ws --dtls`: MOS 4.38, SRTP on · SRTP aktif |
 | Browser interop · Interop browser | `tools/VoipNet.DocShots webphone` with a fake microphone against `samples/VoipNet.WebPhone`: **Edge** — trickle ICE over INFO, DTLS, `SRTP_AES128_CM_HMAC_SHA1_80`; **Firefox** (WebDriver BiDi) — trickle ICE, DTLS, `SRTP_AEAD_AES_128_GCM`; both now negotiate **Opus** end to end (~190 packets each way, 0 lost) · keduanya ~200 paket tiap arah, 0 hilang |
@@ -47,7 +48,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | G.729, SILK, Speex | 🟡 | negotiated, pass-through payloads · dinegosiasikan, payload pass-through |
 | H.264, VP8/VP9 | 🟡 | negotiated, pass-through · dinegosiasikan, pass-through |
 | DTMF RFC 4733 / SIP INFO / in-band | ✅ | Goertzel detector · detektor Goertzel |
-| SIMD acceleration | 🟡 | table-driven codecs and auto-vectorised loops; no hand-written intrinsics · codec berbasis tabel dan loop tervektorisasi otomatis |
+| SIMD acceleration | 🟡 | table-driven codecs and auto-vectorised loops; hand-written intrinsics were measured and did not pay off — G.722 is dominated by its serial ADPCM state machine, not by the QMF · intrinsik manual sudah diukur dan tidak memberi keuntungan |
 | GPU acceleration | ⏳ | not needed for audio codecs; planned with video (PLAN 1.3) · belum diperlukan untuk audio; direncanakan bersama video (PLAN 1.3) |
 
 ## WebRTC
@@ -137,6 +138,8 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 - Opus adapts to those reports (lower bitrate and more FEC as loss rises) and supports DTX through `OpusDtx`. · Opus menyesuaikan diri dengan laporan itu dan mendukung DTX.
 - RTCP XR VoIP metrics (RFC 3611) in both directions; `CallStatistics.RemoteMos` is what the peer hears. · Metrik VoIP RTCP XR dua arah; `RemoteMos` adalah MOS di sisi lawan.
 - Echo cancellation, noise suppression and gain control on the WebRTC audio processing pipeline (`EchoCancellation`, `NoiseSuppression`, `AutoGain`). · Pembatalan gema, peredam bising, dan kontrol gain.
+- Burst and gap metrics in RTCP XR, so clustered loss is visible and not just an average. · Metrik burst dan gap di RTCP XR.
+- Criterion benchmarks for codecs, SRTP and the conference mixer, run in CI; the mixer no longer allocates per frame and the G.722 delay line no longer copies its history on every sample pair. · Benchmark Criterion dijalankan di CI.
 
 ### 1.2.0 — 2026-09-17
 

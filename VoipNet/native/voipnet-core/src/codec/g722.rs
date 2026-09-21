@@ -37,6 +37,35 @@ const IHP: [i32; 3] = [0, 3, 2];
 const WH: [i32; 3] = [0, -214, 798];
 const RH2: [i32; 4] = [2, 1, 2, 1];
 
+/// The QMF delay line: 24 samples, stored twice so the window is always one contiguous slice and no
+/// samples have to be moved when a new pair arrives.
+#[derive(Clone)]
+struct QmfDelay {
+    samples: [i32; 48],
+    write: usize,
+}
+
+impl Default for QmfDelay {
+    fn default() -> Self {
+        Self { samples: [0; 48], write: 0 }
+    }
+}
+
+impl QmfDelay {
+    #[inline(always)]
+    fn push(&mut self, sample: i32) {
+        self.samples[self.write] = sample;
+        self.samples[self.write + 24] = sample;
+        self.write = if self.write == 23 { 0 } else { self.write + 1 };
+    }
+
+    /// The 24 most recent samples, oldest first.
+    #[inline(always)]
+    fn window(&self) -> &[i32] {
+        &self.samples[self.write..self.write + 24]
+    }
+}
+
 #[inline(always)]
 fn saturate(v: i32) -> i32 {
     v.clamp(-32768, 32767)
@@ -132,13 +161,13 @@ fn new_bands() -> [Band; 2] {
 }
 
 pub struct G722Encoder {
-    x: [i32; 24],
+    x: QmfDelay,
     band: [Band; 2],
 }
 
 impl Default for G722Encoder {
     fn default() -> Self {
-        Self { x: [0; 24], band: new_bands() }
+        Self { x: QmfDelay::default(), band: new_bands() }
     }
 }
 
@@ -147,14 +176,13 @@ impl G722Encoder {
     pub fn encode(&mut self, pcm: &[i16], out: &mut Vec<u8>) {
         out.reserve(pcm.len() / 2);
         for pair in pcm.chunks_exact(2) {
-            self.x.copy_within(2..24, 0);
-            self.x[22] = pair[0] as i32;
-            self.x[23] = pair[1] as i32;
+            self.x.push(pair[0] as i32);
+            self.x.push(pair[1] as i32);
 
             let (mut sumeven, mut sumodd) = (0i32, 0i32);
-            for i in 0..12 {
-                sumodd += self.x[2 * i] * QMF_COEFFS[i];
-                sumeven += self.x[2 * i + 1] * QMF_COEFFS[11 - i];
+            for (i, tap) in self.x.window().chunks_exact(2).enumerate() {
+                sumodd += tap[0] * QMF_COEFFS[i];
+                sumeven += tap[1] * QMF_COEFFS[11 - i];
             }
             let xlow = (sumeven + sumodd) >> 14;
             let xhigh = (sumeven - sumodd) >> 14;
@@ -196,13 +224,13 @@ impl G722Encoder {
 }
 
 pub struct G722Decoder {
-    x: [i32; 24],
+    x: QmfDelay,
     band: [Band; 2],
 }
 
 impl Default for G722Decoder {
     fn default() -> Self {
-        Self { x: [0; 24], band: new_bands() }
+        Self { x: QmfDelay::default(), band: new_bands() }
     }
 }
 
@@ -230,13 +258,12 @@ impl G722Decoder {
             hb.scale(10);
             hb.block4(dhigh);
 
-            self.x.copy_within(2..24, 0);
-            self.x[22] = rlow + rhigh;
-            self.x[23] = rlow - rhigh;
+            self.x.push(rlow + rhigh);
+            self.x.push(rlow - rhigh);
             let (mut xout1, mut xout2) = (0i32, 0i32);
-            for i in 0..12 {
-                xout2 += self.x[2 * i] * QMF_COEFFS[i];
-                xout1 += self.x[2 * i + 1] * QMF_COEFFS[11 - i];
+            for (i, tap) in self.x.window().chunks_exact(2).enumerate() {
+                xout2 += tap[0] * QMF_COEFFS[i];
+                xout1 += tap[1] * QMF_COEFFS[11 - i];
             }
             out.push(saturate(xout1 >> 11) as i16);
             out.push(saturate(xout2 >> 11) as i16);

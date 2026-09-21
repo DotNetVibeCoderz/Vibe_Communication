@@ -149,6 +149,12 @@ pub struct VoipMetrics {
     pub loss_rate: u8,
     /// Packets discarded by the jitter buffer, as a fraction of 256.
     pub discard_rate: u8,
+    /// Loss density inside bursts and gaps, as fractions of 256 (RFC 3611 §4.7.2).
+    pub burst_density: u8,
+    pub gap_density: u8,
+    /// Mean burst and gap length in milliseconds.
+    pub burst_duration_ms: u16,
+    pub gap_duration_ms: u16,
     /// Round-trip delay in milliseconds.
     pub round_trip_ms: u16,
     /// Playout delay added by this end (jitter buffer plus packetization), in milliseconds.
@@ -173,10 +179,10 @@ pub fn build_xr_voip_metrics(ssrc: u32, metrics: VoipMetrics) -> Vec<u8> {
     out.extend_from_slice(&metrics.ssrc.to_be_bytes());
     out.push(metrics.loss_rate);
     out.push(metrics.discard_rate);
-    out.push(0); // burst density: unavailable
-    out.push(0); // gap density: unavailable
-    out.extend_from_slice(&0u16.to_be_bytes()); // burst duration
-    out.extend_from_slice(&0u16.to_be_bytes()); // gap duration
+    out.push(metrics.burst_density);
+    out.push(metrics.gap_density);
+    out.extend_from_slice(&metrics.burst_duration_ms.to_be_bytes());
+    out.extend_from_slice(&metrics.gap_duration_ms.to_be_bytes());
     out.extend_from_slice(&metrics.round_trip_ms.to_be_bytes());
     out.extend_from_slice(&metrics.end_system_delay_ms.to_be_bytes());
     out.push(127); // signal level: unavailable
@@ -204,6 +210,10 @@ fn parse_voip_metrics(b: &[u8]) -> Option<VoipMetrics> {
         ssrc: u32::from_be_bytes([b[4], b[5], b[6], b[7]]),
         loss_rate: b[8],
         discard_rate: b[9],
+        burst_density: b[10],
+        gap_density: b[11],
+        burst_duration_ms: word(12),
+        gap_duration_ms: word(14),
         round_trip_ms: word(16),
         end_system_delay_ms: word(18),
         r_factor: b[24],
@@ -370,6 +380,10 @@ mod tests {
             ssrc: 0x1234_5678,
             loss_rate: 5,
             discard_rate: 2,
+            burst_density: 120,
+            gap_density: 1,
+            burst_duration_ms: 80,
+            gap_duration_ms: 4000,
             round_trip_ms: 42,
             end_system_delay_ms: 60,
             r_factor: 88,

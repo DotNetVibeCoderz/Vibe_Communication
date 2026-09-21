@@ -58,6 +58,21 @@ jobs:
           name: native-${{ matrix.rid }}
           path: VoipNet/native/target/${{ matrix.triple }}/release/${{ matrix.file }}
 
+  bench:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: VoipNet/native
+      # Short runs: shared runners are too noisy for regression thresholds, but this keeps the
+      # benchmarks compiling and prints the numbers in the log for comparison over time.
+      - name: cargo bench
+        working-directory: VoipNet/native
+        run: cargo bench --bench media -- --warm-up-time 1 --measurement-time 3
+
   dotnet:
     name: .NET tests (${{ matrix.os }})
     needs: native

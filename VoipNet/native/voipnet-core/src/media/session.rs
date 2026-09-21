@@ -19,6 +19,7 @@ use super::resample::Resampler;
 use crate::codec::dtmf::{self, DtmfDetector, TelephoneEvent};
 use crate::codec::{create_audio_codec, AudioCodec, Concealer};
 use crate::rtp::jitter::{JitterBuffer, JitterStats, Playout};
+use crate::rtp::quality::BurstGapTracker;
 use crate::rtp::packet::{
     build_bye, build_receiver_report, build_sender_report, build_xr_voip_metrics, classify, parse_rtcp, PacketClass, ReportBlock, RtcpPacket,
     RtpHeader, RtpPacketRef, VoipMetrics,
@@ -221,6 +222,8 @@ struct RxState {
     reported_received: u64,
     /// Middle 32 bits of the last sender report's NTP time, and when it arrived.
     last_sr: Option<(u32, Instant)>,
+    /// How losses cluster, for the RTCP XR burst and gap metrics.
+    burst_gap: BurstGapTracker,
 }
 
 struct Shared {
@@ -368,6 +371,7 @@ impl MediaSession {
                 reported_expected: 0,
                 reported_received: 0,
                 last_sr: None,
+                burst_gap: BurstGapTracker::default(),
             }),
             ice: Mutex::new(IceAgent::new(&candidates, IceRole::Controlled)),
             local_candidates: candidates,
@@ -1103,8 +1107,10 @@ fn playout_loop(sh: &Arc<Shared>) {
                         }
                         rx.plc.remember(&decoded);
                         rx.jitter.give_back(payload);
+                        rx.burst_gap.packet(false);
                     }
                     Playout::Lost => {
+                        rx.burst_gap.packet(true);
                         let next = rx.jitter.next_payload();
                         let concealed = rx.codec.as_mut().is_some_and(|c| c.conceal(samples, next, &mut decoded));
                         if !concealed {
@@ -1332,9 +1338,9 @@ fn send_extended_report(sh: &Arc<Shared>) {
     let stats = {
         let rx = sh.rx.lock();
         let Some(ssrc) = rx.remote_ssrc else { return };
-        (ssrc, rx.jitter.stats())
+        (ssrc, rx.jitter.stats(), rx.burst_gap.metrics())
     };
-    let (remote_ssrc, js) = stats;
+    let (remote_ssrc, js, burst_gap) = stats;
     let total = js.received + js.lost;
     if total == 0 {
         return;
@@ -1348,6 +1354,10 @@ fn send_extended_report(sh: &Arc<Shared>) {
         ssrc: remote_ssrc,
         loss_rate: (js.lost * 256 / total).min(255) as u8,
         discard_rate: (discarded * 256 / total.max(discarded)).min(255) as u8,
+        burst_density: burst_gap.burst_density,
+        gap_density: burst_gap.gap_density,
+        burst_duration_ms: (burst_gap.burst_packets * sh.config.ptime_ms).min(65_535) as u16,
+        gap_duration_ms: (burst_gap.gap_packets * sh.config.ptime_ms).min(65_535) as u16,
         round_trip_ms: rtt.min(65_535.0) as u16,
         end_system_delay_ms: (buffer_ms + sh.config.ptime_ms).min(65_535) as u16,
         // The MOS estimate comes from the same E-model as the R factor.
