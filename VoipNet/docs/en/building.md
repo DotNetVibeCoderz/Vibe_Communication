@@ -11,6 +11,8 @@
 | C toolchain | MSVC build tools (Windows), clang/gcc (Linux), Xcode CLT (macOS) | linking the native library |
 | CMake | 3.x or newer | building the bundled libopus (Opus codec); `cargo build --no-default-features` skips Opus |
 
+The CI workflow also runs the benchmarks and a browser interop test: Chrome and Firefox place a real call through `samples/VoipNet.WebPhone`, and the build fails unless encrypted audio flows both ways.
+
 ## Repository layout
 
 ```

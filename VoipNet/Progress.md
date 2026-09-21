@@ -61,7 +61,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | SRTP AES_CM_128_HMAC_SHA1_80 and AEAD_AES_128/256_GCM (RFC 7714) | ✅ | SDES or DTLS keys · kunci SDES atau DTLS |
 | DTLS-SRTP (RFC 5763/5764) | ✅ | dimpl DTLS 1.2 (pure Rust), fingerprint check, `a=setup` roles, no plain RTP before keys · tanpa RTP polos sebelum kunci siap |
 | Data channels (SCTP) | ⏳ | |
-| Browser interop | ✅ | Edge and Firefox verified; Safari not tested (no macOS test machine) · Edge dan Firefox terverifikasi; Safari belum diuji |
+| Browser interop | ✅ | Chrome/Edge and Firefox call the gateway on every CI build (`tools/VoipNet.DocShots webphone`), and the build fails unless encrypted audio flows both ways; Safari not tested (no macOS test machine) · diuji di setiap build CI; Safari belum diuji |
 
 ## 🎥 Video · Fitur video
 
@@ -139,6 +139,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 - RTCP XR VoIP metrics (RFC 3611) in both directions; `CallStatistics.RemoteMos` is what the peer hears. · Metrik VoIP RTCP XR dua arah; `RemoteMos` adalah MOS di sisi lawan.
 - Echo cancellation, noise suppression and gain control on the WebRTC audio processing pipeline (`EchoCancellation`, `NoiseSuppression`, `AutoGain`). · Pembatalan gema, peredam bising, dan kontrol gain.
 - Burst and gap metrics in RTCP XR, so clustered loss is visible and not just an average. · Metrik burst dan gap di RTCP XR.
+- Browser interop runs in CI: Chrome and Firefox place a real call through the WebRTC gateway sample on every build. · Interop browser dijalankan di CI pada setiap build.
 - Criterion benchmarks for codecs, SRTP and the conference mixer, run in CI; the mixer no longer allocates per frame and the G.722 delay line no longer copies its history on every sample pair. · Benchmark Criterion dijalankan di CI.
 
 ### 1.2.0 — 2026-09-17

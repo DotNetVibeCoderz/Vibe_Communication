@@ -102,6 +102,47 @@ jobs:
         shell: bash
         run: dotnet run --project tools/VoipNet.Cli -c Release --no-build -- version
 
+  browser:
+    name: Browser interop
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-linux-x64
+          path: VoipNet/src/VoipNet.Core/runtimes/linux-x64/native
+      - name: Build sample and tool
+        run: |
+          dotnet build samples/VoipNet.WebPhone -c Release
+          dotnet build tools/VoipNet.DocShots -c Release
+      - name: Start the WebRTC gateway sample
+        run: |
+          dotnet run --project samples/VoipNet.WebPhone -c Release --no-build --urls http://localhost:5190 > webphone.log 2>&1 &
+          for _ in $(seq 1 60); do
+            grep -q "Now listening" webphone.log && break
+            sleep 1
+          done
+          grep -q "Now listening" webphone.log
+      # A real browser calls the gateway over SIP/WebSocket with ICE and DTLS-SRTP, and the run fails
+      # unless encrypted audio flows both ways.
+      - name: Call from Chrome
+        run: dotnet run --project tools/VoipNet.DocShots -c Release --no-build -- webphone http://localhost:5190 shots
+      - name: Call from Firefox
+        run: dotnet run --project tools/VoipNet.DocShots -c Release --no-build -- webphone http://localhost:5190 shots --firefox "$(command -v firefox)"
+      - name: Gateway log
+        if: always()
+        run: cat webphone.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-interop-screenshots
+          path: VoipNet/shots
+          if-no-files-found: ignore
+
   pack:
     name: Pack NuGet
     needs: dotnet

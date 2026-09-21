@@ -11,6 +11,8 @@
 | Toolchain C | MSVC build tools (Windows), clang/gcc (Linux), Xcode CLT (macOS) | linking library native |
 | CMake | 3.x atau lebih baru | membangun libopus bawaan (codec Opus); `cargo build --no-default-features` tanpa Opus |
 
+Workflow CI juga menjalankan benchmark dan uji interop browser: Chrome dan Firefox melakukan panggilan sungguhan lewat `samples/VoipNet.WebPhone`, dan build gagal bila audio terenkripsi tidak mengalir dua arah.
+
 ## Struktur repositori
 
 ```
