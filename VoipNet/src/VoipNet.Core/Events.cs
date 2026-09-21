@@ -164,6 +164,7 @@ public sealed record SipTraceEventArgs(bool Outgoing, string RemoteEndPoint, str
 /// <param name="RemoteLossPercent">Loss the peer reports on the stream this side sends (RTCP).</param>
 /// <param name="RemoteJitterMs">Jitter the peer reports, in milliseconds.</param>
 /// <param name="RoundTripMs">Round-trip time from RTCP reports; zero until the peer reports.</param>
+/// <param name="RemoteMos">MOS the peer reports for the audio it hears (RTCP XR); zero when it sends no extended reports.</param>
 public sealed record CallStatistics(
     long PacketsSent,
     long PacketsReceived,
@@ -181,7 +182,8 @@ public sealed record CallStatistics(
     int OutboundQueuedMs,
     double RemoteLossPercent = 0,
     double RemoteJitterMs = 0,
-    double RoundTripMs = 0)
+    double RoundTripMs = 0,
+    double RemoteMos = 0)
 {
     /// <summary>Packet loss as a percentage of expected packets.</summary>
     public double LossPercent => PacketsReceived + PacketsLost == 0 ? 0 : PacketsLost * 100.0 / (PacketsReceived + PacketsLost);

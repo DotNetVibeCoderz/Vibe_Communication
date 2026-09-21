@@ -344,5 +344,7 @@ public sealed class VoipClientTests
         Assert.InRange(stats.RoundTripMs, 0.001, 500);
         Assert.InRange(stats.RemoteLossPercent, 0, 5);
         Assert.InRange(stats.RemoteJitterMs, 0, 200);
+        // RTCP XR carries the MOS the peer measures for what it hears.
+        Assert.InRange(stats.RemoteMos, 3.0, 4.5);
     }
 }

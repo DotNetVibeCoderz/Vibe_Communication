@@ -139,11 +139,87 @@ impl ReportBlock {
     }
 }
 
+/// VoIP metrics of an RTCP extended report (RFC 3611 §4.7). Only the fields the engine fills or
+/// reads are modelled; the rest are sent as "unavailable" per the RFC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct VoipMetrics {
+    /// Source the metrics describe.
+    pub ssrc: u32,
+    /// Lost packets as a fraction of 256.
+    pub loss_rate: u8,
+    /// Packets discarded by the jitter buffer, as a fraction of 256.
+    pub discard_rate: u8,
+    /// Round-trip delay in milliseconds.
+    pub round_trip_ms: u16,
+    /// Playout delay added by this end (jitter buffer plus packetization), in milliseconds.
+    pub end_system_delay_ms: u16,
+    /// ITU-T G.107 R factor, 0–100.
+    pub r_factor: u8,
+    /// Listening quality MOS, ×10 (so 43 means 4.3).
+    pub mos_lq: u8,
+    /// Conversational quality MOS, ×10.
+    pub mos_cq: u8,
+    /// Nominal and maximum jitter buffer delay in milliseconds.
+    pub jb_nominal_ms: u16,
+    pub jb_maximum_ms: u16,
+}
+
+/// Builds an extended report (RFC 3611) carrying one VoIP metrics block.
+pub fn build_xr_voip_metrics(ssrc: u32, metrics: VoipMetrics) -> Vec<u8> {
+    let mut out = vec![0x80, 207, 0, 10];
+    out.extend_from_slice(&ssrc.to_be_bytes());
+    // Block type 7, reserved byte, block length 8 words.
+    out.extend_from_slice(&[7, 0, 0, 8]);
+    out.extend_from_slice(&metrics.ssrc.to_be_bytes());
+    out.push(metrics.loss_rate);
+    out.push(metrics.discard_rate);
+    out.push(0); // burst density: unavailable
+    out.push(0); // gap density: unavailable
+    out.extend_from_slice(&0u16.to_be_bytes()); // burst duration
+    out.extend_from_slice(&0u16.to_be_bytes()); // gap duration
+    out.extend_from_slice(&metrics.round_trip_ms.to_be_bytes());
+    out.extend_from_slice(&metrics.end_system_delay_ms.to_be_bytes());
+    out.push(127); // signal level: unavailable
+    out.push(127); // noise level: unavailable
+    out.push(127); // residual echo return loss: unavailable
+    out.push(16); // Gmin, the RFC 3611 default
+    out.push(metrics.r_factor);
+    out.push(127); // external R factor: unavailable
+    out.push(metrics.mos_lq);
+    out.push(metrics.mos_cq);
+    out.push(0); // RX config: adaptive jitter buffer flags left unset
+    out.push(0); // reserved
+    out.extend_from_slice(&metrics.jb_nominal_ms.to_be_bytes());
+    out.extend_from_slice(&metrics.jb_maximum_ms.to_be_bytes());
+    out.extend_from_slice(&metrics.jb_maximum_ms.to_be_bytes()); // absolute maximum
+    out
+}
+
+fn parse_voip_metrics(b: &[u8]) -> Option<VoipMetrics> {
+    if b.len() < 36 || b[0] != 7 {
+        return None;
+    }
+    let word = |i: usize| u16::from_be_bytes([b[i], b[i + 1]]);
+    Some(VoipMetrics {
+        ssrc: u32::from_be_bytes([b[4], b[5], b[6], b[7]]),
+        loss_rate: b[8],
+        discard_rate: b[9],
+        round_trip_ms: word(16),
+        end_system_delay_ms: word(18),
+        r_factor: b[24],
+        mos_lq: b[26],
+        mos_cq: b[27],
+        jb_nominal_ms: word(30),
+        jb_maximum_ms: word(32),
+    })
+}
+
 /// An RTCP packet the engine cares about.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RtcpPacket {
     SenderReport { ssrc: u32, ntp: u64, reports: Vec<ReportBlock> },
     ReceiverReport { ssrc: u32, reports: Vec<ReportBlock> },
+    ExtendedReport { ssrc: u32, metrics: VoipMetrics },
     Bye { ssrc: u32 },
 }
 
@@ -173,6 +249,17 @@ pub fn parse_rtcp(data: &[u8]) -> Vec<RtcpPacket> {
                 reports: blocks(28),
             }),
             201 => out.push(RtcpPacket::ReceiverReport { ssrc, reports: blocks(8) }),
+            207 => {
+                // Extended report: walk its blocks and keep the VoIP metrics one.
+                let mut at = 8;
+                while at + 4 <= packet.len() {
+                    let block_len = 4 + 4 * u16::from_be_bytes([packet[at + 2], packet[at + 3]]) as usize;
+                    if let Some(metrics) = packet.get(at..at + block_len).and_then(parse_voip_metrics) {
+                        out.push(RtcpPacket::ExtendedReport { ssrc, metrics });
+                    }
+                    at += block_len.max(4);
+                }
+            }
             203 => out.push(RtcpPacket::Bye { ssrc }),
             _ => {}
         }
@@ -274,6 +361,26 @@ mod tests {
         assert_eq!(parse_rtcp(&rr), vec![RtcpPacket::ReceiverReport { ssrc: 9, reports: vec![block] }]);
         assert_eq!(parse_rtcp(&build_bye(3)), vec![RtcpPacket::Bye { ssrc: 3 }]);
         assert!(parse_rtcp(&[0u8; 4]).is_empty());
+    }
+
+
+    #[test]
+    fn voip_metrics_survive_a_roundtrip() {
+        let metrics = VoipMetrics {
+            ssrc: 0x1234_5678,
+            loss_rate: 5,
+            discard_rate: 2,
+            round_trip_ms: 42,
+            end_system_delay_ms: 60,
+            r_factor: 88,
+            mos_lq: 42,
+            mos_cq: 41,
+            jb_nominal_ms: 40,
+            jb_maximum_ms: 300,
+        };
+        let xr = build_xr_voip_metrics(9, metrics);
+        assert_eq!(classify(&xr), PacketClass::Rtcp);
+        assert_eq!(parse_rtcp(&xr), vec![RtcpPacket::ExtendedReport { ssrc: 9, metrics }]);
     }
 
     #[test]

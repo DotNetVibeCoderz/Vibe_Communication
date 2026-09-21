@@ -170,3 +170,5 @@ call.RestartIce();   // setelah jaringan berubah: re-INVITE dengan kredensial ba
 `GetStatistics()` mengembalikan jumlah paket, byte, paket hilang, paket terlambat, jitter, kedalaman jitter buffer, sample rate, estimasi MOS model-E, status SRTP dan ICE, serta antrean keluar. Setelah panggilan berakhir, `FinalStatistics` menyimpan nilai terakhir.
 
 Engine juga bertukar sender dan receiver report RTCP (RFC 3550), sehingga statistik yang sama memberi tahu apa yang diterima **lawan bicara**: `RemoteLossPercent`, `RemoteJitterMs`, dan `RoundTripMs`. Report pertama dikirim satu detik setelah panggilan tersambung lalu berulang tiap beberapa detik, jadi nilainya masih nol di awal. Opus memakainya langsung: saat loss yang dilaporkan naik, bitrate diturunkan dan porsi koreksi kesalahan ditambah.
+
+Bersama setiap report, engine juga mengirim metrik VoIP RTCP XR (RFC 3611) — loss dan discard rate, delay, R factor, MOS — dan membaca milik lawan, yang muncul sebagai `RemoteMos`: kualitas yang benar-benar didengar sisi sana.

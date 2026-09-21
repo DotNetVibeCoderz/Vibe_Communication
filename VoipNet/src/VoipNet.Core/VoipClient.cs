@@ -347,7 +347,8 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
             (int)s.OutboundQueuedMs,
             s.RemoteLossPercent,
             s.RemoteJitterMs,
-            s.RoundTripMs);
+            s.RoundTripMs,
+            s.RemoteMos);
     }
 
     // ---- Native event plumbing ----------------------------------------------------------------

@@ -375,6 +375,7 @@ internal static class SipCommands
         // RTCP reports arrive a second into the call and then every few seconds.
         table.AddRow("Round trip (RTCP)", s.RoundTripMs > 0 ? $"{s.RoundTripMs:F1} ms" : "[grey]waiting[/]");
         table.AddRow("Peer reports", s.RoundTripMs > 0 ? $"{s.RemoteLossPercent:F1}% lost, {s.RemoteJitterMs:F1} ms jitter" : "[grey]waiting[/]");
+        table.AddRow("MOS at the peer", s.RemoteMos > 0 ? $"{s.RemoteMos:F1}" : "[grey]waiting[/]");
         table.AddRow("Codec", $"PT {s.PayloadType} @ {s.SampleRate} Hz");
         table.AddRow("SRTP", s.SecureRtp ? "[green]on[/]" : "off");
         return table;

@@ -18,7 +18,7 @@ SIP over TLS and WebSocket, DTLS-SRTP, the full ICE agent with trickle and resta
 - G.729 (royalty-free since 2017) native implementation. · G.729 native.
 - Acoustic echo cancellation and noise suppression for the softphone path (WebRTC AEC3-style). · Echo cancellation dan noise suppression.
 - Hand-tuned SIMD for G.722 QMF and the conference mixer; benchmarks in CI. · SIMD manual dan benchmark.
-- RTCP XR VoIP metrics (RFC 3611); sender/receiver reports with round-trip time are done. · Metrik XR RTCP; SR/RR dengan RTT sudah selesai.
+- Burst and gap metrics in RTCP XR (the block is sent, but those fields are still reported as unavailable). · Metrik burst dan gap di RTCP XR.
 
 ## 1.3 — 🎥 Video · Fitur video
 

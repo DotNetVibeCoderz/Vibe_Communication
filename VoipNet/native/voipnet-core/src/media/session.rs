@@ -18,7 +18,8 @@ use crate::codec::dtmf::{self, DtmfDetector, TelephoneEvent};
 use crate::codec::{create_audio_codec, AudioCodec, Concealer};
 use crate::rtp::jitter::{JitterBuffer, JitterStats, Playout};
 use crate::rtp::packet::{
-    build_bye, build_receiver_report, build_sender_report, classify, parse_rtcp, PacketClass, ReportBlock, RtcpPacket, RtpHeader, RtpPacketRef,
+    build_bye, build_receiver_report, build_sender_report, build_xr_voip_metrics, classify, parse_rtcp, PacketClass, ReportBlock, RtcpPacket,
+    RtpHeader, RtpPacketRef, VoipMetrics,
 };
 use crate::sdp::{Direction, RtpMap};
 use crate::srtp::SrtpContext;
@@ -125,6 +126,8 @@ struct RemoteQuality {
     loss_percent: f64,
     jitter_ms: f64,
     rtt_ms: f64,
+    /// MOS the peer reports for what it hears (RFC 3611 VoIP metrics), or zero.
+    mos: f64,
 }
 
 #[repr(C)]
@@ -150,6 +153,8 @@ pub struct MediaStats {
     pub remote_jitter_ms: f64,
     /// Round-trip time from RTCP, in milliseconds; zero until the peer reports.
     pub round_trip_ms: f64,
+    /// MOS the peer reports for the audio it receives (RTCP XR); zero when it sends no extended reports.
+    pub remote_mos: f64,
 }
 
 struct TxState {
@@ -733,6 +738,7 @@ impl MediaSession {
             remote_loss_percent: remote.loss_percent,
             remote_jitter_ms: remote.jitter_ms,
             round_trip_ms: remote.rtt_ms,
+            remote_mos: remote.mos,
         }
     }
 
@@ -873,6 +879,12 @@ fn handle_rtcp(sh: &Arc<Shared>, data: &[u8]) {
                 reports
             }
             RtcpPacket::ReceiverReport { reports, .. } => reports,
+            RtcpPacket::ExtendedReport { metrics, .. } => {
+                if metrics.mos_lq > 0 && metrics.mos_lq != 127 {
+                    sh.remote_quality.lock().mos = metrics.mos_lq as f64 / 10.0;
+                }
+                continue;
+            }
             RtcpPacket::Bye { .. } => continue,
         };
         for block in reports.into_iter().filter(|b| b.ssrc == our_ssrc) {
@@ -884,10 +896,12 @@ fn handle_rtcp(sh: &Arc<Shared>, data: &[u8]) {
                 delta as f64 * 1000.0 / 65536.0
             };
             let clock = sh.tx.lock().codec.as_ref().map_or(8000, |c| c.clock_rate()) as f64;
+            let mos = sh.remote_quality.lock().mos;
             quality = Some(RemoteQuality {
                 loss_percent: block.fraction_lost as f64 * 100.0 / 256.0,
                 jitter_ms: block.jitter as f64 * 1000.0 / clock,
                 rtt_ms: rtt.clamp(0.0, 10_000.0),
+                mos,
             });
         }
     }
@@ -1271,6 +1285,50 @@ fn send_sender_report(sh: &Arc<Shared>) {
     if secured {
         send_raw(sh, &packet);
     }
+    send_extended_report(sh);
+}
+
+/// Tells the peer how the audio sounds on this end (RFC 3611 VoIP metrics).
+fn send_extended_report(sh: &Arc<Shared>) {
+    let stats = {
+        let rx = sh.rx.lock();
+        let Some(ssrc) = rx.remote_ssrc else { return };
+        (ssrc, rx.jitter.stats())
+    };
+    let (remote_ssrc, js) = stats;
+    let total = js.received + js.lost;
+    if total == 0 {
+        return;
+    }
+    let buffer_ms = js.target_depth as u32 * sh.config.ptime_ms;
+    let payload_type = sh.rx.lock().payload_type;
+    let mos = estimate_mos(&js, buffer_ms, payload_type);
+    let rtt = sh.remote_quality.lock().rtt_ms;
+    let discarded = js.late + js.dropped_for_latency;
+    let metrics = VoipMetrics {
+        ssrc: remote_ssrc,
+        loss_rate: (js.lost * 256 / total).min(255) as u8,
+        discard_rate: (discarded * 256 / total.max(discarded)).min(255) as u8,
+        round_trip_ms: rtt.min(65_535.0) as u16,
+        end_system_delay_ms: (buffer_ms + sh.config.ptime_ms).min(65_535) as u16,
+        // The MOS estimate comes from the same E-model as the R factor.
+        r_factor: (((mos - 1.0) / 3.5 * 93.0).clamp(0.0, 100.0)) as u8,
+        mos_lq: (mos * 10.0).round().clamp(10.0, 50.0) as u8,
+        mos_cq: (mos * 10.0).round().clamp(10.0, 50.0) as u8,
+        jb_nominal_ms: buffer_ms.min(65_535) as u16,
+        jb_maximum_ms: sh.config.jitter_max_ms.min(65_535) as u16,
+    };
+
+    let mut packet = build_xr_voip_metrics(sh.tx.lock().ssrc, metrics);
+    let mut tx = sh.tx.lock();
+    let secured = match tx.srtp.as_mut() {
+        Some(ctx) => ctx.protect_rtcp(&mut packet).is_ok(),
+        None => !sh.secure_required.load(Ordering::Relaxed),
+    };
+    drop(tx);
+    if secured {
+        send_raw(sh, &packet);
+    }
 }
 
 /// Describes what we received from the peer since the previous report (RFC 3550 6.4.1).
@@ -1410,6 +1468,8 @@ mod tests {
         let stats = a.stats();
         assert!(stats.round_trip_ms > 0.0 && stats.round_trip_ms < 500.0, "rtt {} ms", stats.round_trip_ms);
         assert!(stats.remote_loss_percent < 5.0, "loss {}%", stats.remote_loss_percent);
+        // The peer also reports how the audio sounds on its side (RTCP XR).
+        assert!(stats.remote_mos > 3.0, "remote MOS {}", stats.remote_mos);
         a.stop();
         b.stop();
     }

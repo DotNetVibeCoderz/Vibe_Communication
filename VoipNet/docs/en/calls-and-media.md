@@ -170,3 +170,5 @@ call.RestartIce();   // after a network change: re-INVITE with new credentials; 
 `GetStatistics()` returns packets, bytes, loss, late packets, jitter, jitter-buffer depth, sample rate, an E-model MOS estimate, SRTP and ICE state, and the outbound queue. After the call ends, `FinalStatistics` keeps the last values.
 
 The engine also exchanges RTCP sender and receiver reports (RFC 3550), so the same statistics say what the **peer** receives: `RemoteLossPercent`, `RemoteJitterMs` and `RoundTripMs`. The first report goes out a second into the call and repeats every few seconds, so these stay zero at the very start. Opus uses them directly: as the reported loss rises it lowers its bitrate and asks for more forward error correction.
+
+Alongside each report the engine sends RTCP XR VoIP metrics (RFC 3611) — loss and discard rate, delays, R factor, MOS — and reads the peer's, which appears as `RemoteMos`: the quality the other side actually hears.
