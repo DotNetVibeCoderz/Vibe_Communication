@@ -10,7 +10,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 
 | Suite | Result · Hasil |
 | --- | --- |
-| Rust engine `cargo test --lib` | **84 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
+| Rust engine `cargo test --lib` | **89 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
 | .NET `tests/VoipNet.Tests` | **43 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
 | `dotnet build Voip.Net.slnx -c Release` | 14 projects · proyek, **0 warnings, 0 errors** |
 | Benchmarks · Benchmark | `cargo bench --bench media` on a laptop (20 ms frame): opus encode 550 µs · decode 127 µs, G.722 encode 16 µs · decode 13 µs, G.711 encode 150 ns, SRTP protect 2.6 µs, conference mix-minus 3.7 µs at 50 participants; run in CI to catch breakage · dijalankan di CI |
@@ -71,7 +71,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 
 | Item | Status | Notes · Catatan |
 | --- | --- | --- |
-| Video call support — voice + video in one SIP session · panggilan suara + video dalam satu sesi SIP | 🟡 | `m=video` lines are negotiated and H.264/VP8/VP9 payloads can be exchanged with `SendEncoded`/`EncodedReceived`; no camera capture, codec, packetiser or frame jitter buffer yet · baris `m=video` dinegosiasikan dan payload bisa dipertukarkan secara pass-through; belum ada kamera, codec, paketisasi, atau jitter buffer frame |
+| Video call support — voice + video in one SIP session · panggilan suara + video dalam satu sesi SIP | 🟡 | RTP packetisation and reassembly for H.264 (FU-A, STAP-A) and VP8 are implemented and tested in `rtp/video.rs`, including keyframe detection and dropping frames that lost packets; still missing: a second media stream per call, camera capture and the codecs themselves · paketisasi dan perakitan frame RTP sudah ada; belum ada stream media kedua, kamera, dan codec |
 | Video conferencing with layout control · konferensi video multipihak dengan kontrol layout | ⏳ | audio conferencing exists; video compositor/SFU planned · konferensi audio sudah ada; compositor/SFU video direncanakan |
 | Screen sharing (desktop & web) · berbagi layar (desktop & web) | ⏳ | the browser media path (ICE, DTLS-SRTP) exists for audio; video streams are still needed · jalur media browser sudah ada untuk audio; stream video belum |
 | Video recording to MP4/AVI · perekaman audio + video ke MP4/AVI | ⏳ | audio recording (WAV/MP3) exists · perekaman audio (WAV/MP3) sudah ada |
@@ -142,6 +142,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 - Echo cancellation, noise suppression and gain control on the WebRTC audio processing pipeline (`EchoCancellation`, `NoiseSuppression`, `AutoGain`). · Pembatalan gema, peredam bising, dan kontrol gain.
 - Burst and gap metrics in RTCP XR, so clustered loss is visible and not just an average. · Metrik burst dan gap di RTCP XR.
 - Certificates can be renewed at run time with `ReloadTls()`. · Sertifikat bisa diperbarui saat berjalan.
+- Video RTP payload formats (H.264 FU-A/STAP-A, VP8) with frame reassembly and keyframe detection, the first piece of the video milestone. · Format payload RTP video dengan perakitan frame, langkah pertama milestone video.
 - Mutual TLS: callers can be asked for a certificate, and a connection that dies mid-request (a rejected handshake, a restart) now fails that request immediately instead of after the 32 second timeout. · TLS dua arah, dan koneksi yang putus langsung menggagalkan request.
 - Browser interop runs in CI: Chrome and Firefox place a real call through the WebRTC gateway sample on every build. · Interop browser dijalankan di CI pada setiap build.
 - Criterion benchmarks for codecs, SRTP and the conference mixer, run in CI; the mixer no longer allocates per frame and the G.722 delay line no longer copies its history on every sample pair. · Benchmark Criterion dijalankan di CI.
