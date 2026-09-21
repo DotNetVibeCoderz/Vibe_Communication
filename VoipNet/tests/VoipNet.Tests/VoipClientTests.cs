@@ -330,4 +330,19 @@ public sealed class VoipClientTests
             return options;
         }
     }
+
+    [Fact]
+    public async Task RtcpReportsRoundTripAndRemoteQuality()
+    {
+        await using var pair = await LoopbackPair.ConnectAsync();
+        pair.CallerLeg.SendAudio(TestHelpers.Tone(48000, 12000), 48000);
+        pair.CalleeLeg.SendAudio(TestHelpers.Tone(48000, 12000, 660), 48000);
+
+        // Reports start a second into the call; a round trip needs the second exchange.
+        await TestHelpers.WaitUntilAsync(() => pair.CallerLeg.GetStatistics().RoundTripMs > 0, TimeSpan.FromSeconds(20), "an RTCP round-trip estimate");
+        var stats = pair.CallerLeg.GetStatistics();
+        Assert.InRange(stats.RoundTripMs, 0.001, 500);
+        Assert.InRange(stats.RemoteLossPercent, 0, 5);
+        Assert.InRange(stats.RemoteJitterMs, 0, 200);
+    }
 }

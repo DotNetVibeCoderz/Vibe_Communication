@@ -36,6 +36,7 @@
 | `TraceSip` | `false` | Picu `SipTrace` untuk setiap pesan. |
 | `KeepaliveSecs` | `25` | Keep-alive CRLF ke registrar melalui UDP. |
 | `RtpTimeoutMs` | `0` | Picu media event `rtp-timeout` bila tidak ada RTP selama durasi ini. |
+| `OpusDtx` | `false` | Izinkan Opus berhenti mengirim saat hening (discontinuous transmission). |
 | `TlsVerifyServer` | `true` | Validasi rantai sertifikat server dan nama host (root Mozilla ditambah `TlsCaFile`). |
 | `TlsCaFile` | — | File PEM berisi trust anchor tambahan, misalnya CA PBX privat. |
 | `TlsPinnedFingerprints` | — | Fingerprint SHA-256 yang diterima; hanya sertifikat ini yang lolos, termasuk self-signed. |
@@ -67,7 +68,7 @@
 | `SendAudio(samples, rate)`, `SendAudio(bytes, rate)`, `SendAudioStreamAsync(...)`, `ClearAudio()`, `QueuedAudioMs` | Audio keluar. |
 | `AudioReceived`, `ReadAudioAsync(direction)` | Audio dari panggilan. |
 | `SendEncoded(...)`, `EncodedReceived` | Payload pass-through. |
-| `GetStatistics()`, `FinalStatistics` | Kualitas. |
+| `GetStatistics()`, `FinalStatistics` | Kualitas, termasuk laporan lawan lewat RTCP (`RoundTripMs`, `RemoteLossPercent`, `RemoteJitterMs`). |
 | `JoinConference(c)`, `LeaveConference()` | Konferensi. |
 | `Connected`, `Completion` | Task untuk kode async yang linear. |
 | `Id`, `IsOutgoing`, `RemoteUri`, `RemoteDisplayName`, `State`, `Codec`, `SampleRate`, `Duration`, `Items` | Informasi. |

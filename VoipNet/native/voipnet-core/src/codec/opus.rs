@@ -19,6 +19,7 @@ pub struct Opus {
     decoder: Decoder,
     packet: Box<[u8; MAX_PACKET]>,
     pcm: Vec<i16>,
+    bitrate: i32,
 }
 
 impl Opus {
@@ -30,7 +31,14 @@ impl Opus {
         let _ = encoder.set_packet_loss_perc(10);
         let _ = encoder.set_complexity(5);
         let decoder = Decoder::new(OPUS_RATE, Channels::Mono).ok()?;
-        Some(Self { payload_type, encoder, decoder, packet: Box::new([0; MAX_PACKET]), pcm: vec![0; OPUS_RATE as usize * 120 / 1000] })
+        Some(Self {
+            payload_type,
+            encoder,
+            decoder,
+            packet: Box::new([0; MAX_PACKET]),
+            pcm: vec![0; OPUS_RATE as usize * 120 / 1000],
+            bitrate: 32_000,
+        })
     }
 
     fn decode_into(&mut self, payload: &[u8], fec: bool, samples: usize, out: &mut Vec<i16>) -> bool {
@@ -78,6 +86,26 @@ impl AudioCodec for Opus {
             Some(next) if self.decode_into(next, true, samples, out) => true,
             _ => self.decode_into(&[], false, samples, out),
         }
+    }
+
+    /// Trades bitrate for redundancy as the peer reports loss: FEC needs headroom, and a congested
+    /// path recovers faster at a lower rate.
+    fn set_network_quality(&mut self, loss_percent: f64, _round_trip_ms: f64) {
+        let loss = loss_percent.clamp(0.0, 40.0);
+        let bitrate = match loss {
+            l if l >= 15.0 => 20_000,
+            l if l >= 5.0 => 24_000,
+            _ => 32_000,
+        };
+        if bitrate != self.bitrate {
+            self.bitrate = bitrate;
+            let _ = self.encoder.set_bitrate(Bitrate::Bits(bitrate));
+        }
+        let _ = self.encoder.set_packet_loss_perc(loss.round() as i32);
+    }
+
+    fn set_dtx(&mut self, enabled: bool) {
+        let _ = self.encoder.set_dtx(enabled);
     }
 }
 

@@ -372,6 +372,9 @@ internal static class SipCommands
         table.AddRow("Lost / late", $"{s.PacketsLost} / {s.PacketsLate} ({s.LossPercent:F1}%)");
         table.AddRow("Jitter", $"{s.JitterMs:F1} ms");
         table.AddRow("Jitter buffer", $"{s.JitterBufferMs} ms");
+        // RTCP reports arrive a second into the call and then every few seconds.
+        table.AddRow("Round trip (RTCP)", s.RoundTripMs > 0 ? $"{s.RoundTripMs:F1} ms" : "[grey]waiting[/]");
+        table.AddRow("Peer reports", s.RoundTripMs > 0 ? $"{s.RemoteLossPercent:F1}% lost, {s.RemoteJitterMs:F1} ms jitter" : "[grey]waiting[/]");
         table.AddRow("Codec", $"PT {s.PayloadType} @ {s.SampleRate} Hz");
         table.AddRow("SRTP", s.SecureRtp ? "[green]on[/]" : "off");
         return table;

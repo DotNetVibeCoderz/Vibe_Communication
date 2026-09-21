@@ -531,7 +531,7 @@ mod tests {
     #[test]
     fn rtcp_roundtrip() {
         for (mut tx, mut rx) in pairs() {
-            let plain = crate::rtp::packet::build_sender_report(7, 1, 2, 3, 4, "x@y");
+            let plain = crate::rtp::packet::build_sender_report(7, 1, 2, 3, 4, "x@y", None);
             let mut p = plain.clone();
             tx.protect_rtcp(&mut p).unwrap();
             rx.unprotect_rtcp(&mut p).unwrap();

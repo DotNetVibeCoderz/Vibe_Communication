@@ -99,6 +99,8 @@ pub struct EndpointConfig {
     pub trace_sip: bool,
     pub keepalive_secs: u32,
     pub rtp_timeout_ms: u32,
+    /// Let Opus stop sending during silence (saves bandwidth, some PBXs dislike it).
+    pub opus_dtx: bool,
     pub tls_verify_server: bool,
     pub tls_ca_file: Option<String>,
     pub tls_pinned_fingerprints: Vec<String>,
@@ -143,6 +145,7 @@ impl Default for EndpointConfig {
             trace_sip: false,
             keepalive_secs: 25,
             rtp_timeout_ms: 0,
+            opus_dtx: false,
             tls_verify_server: true,
             tls_ca_file: None,
             tls_pinned_fingerprints: Vec::new(),
@@ -460,6 +463,7 @@ impl Endpoint {
             detect_inband_dtmf: cfg.detect_inband_dtmf,
             rtp_timeout_ms: cfg.rtp_timeout_ms,
             symmetric_rtp: true,
+            opus_dtx: cfg.opus_dtx,
             dtls_identity: Some(DtlsIdentity::generate().map_err(EndpointError::InvalidArgument)?),
         };
 

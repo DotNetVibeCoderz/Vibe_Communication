@@ -15,11 +15,10 @@ SIP over TLS and WebSocket, DTLS-SRTP, the full ICE agent with trickle and resta
 
 ## 1.2 — Codecs and media · Codec dan media
 
-- Opus DTX and bitrate adaptation from RTCP loss reports (native Opus with FEC is done). · DTX dan adaptasi bitrate Opus.
 - G.729 (royalty-free since 2017) native implementation. · G.729 native.
 - Acoustic echo cancellation and noise suppression for the softphone path (WebRTC AEC3-style). · Echo cancellation dan noise suppression.
 - Hand-tuned SIMD for G.722 QMF and the conference mixer; benchmarks in CI. · SIMD manual dan benchmark.
-- RTCP receiver reports with round-trip time; XR VoIP metrics (RFC 3611). · RTCP RR dan XR.
+- RTCP XR VoIP metrics (RFC 3611); sender/receiver reports with round-trip time are done. · Metrik XR RTCP; SR/RR dengan RTT sudah selesai.
 
 ## 1.3 — 🎥 Video · Fitur video
 

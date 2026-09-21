@@ -10,8 +10,8 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 
 | Suite | Result · Hasil |
 | --- | --- |
-| Rust engine `cargo test --lib` | **72 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
-| .NET `tests/VoipNet.Tests` | **42 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
+| Rust engine `cargo test --lib` | **74 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
+| .NET `tests/VoipNet.Tests` | **43 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
 | `dotnet build Voip.Net.slnx -c Release` | 14 projects · proyek, **0 warnings, 0 errors** |
 | CLI end-to-end · ujung ke ujung | `sip listen --echo` ↔ `sip call --dtmf 123 --pcap`: MOS 4.38, all DTMF received · semua DTMF diterima |
 | CLI over TLS and WebSocket · CLI lewat TLS dan WebSocket | `--transport tls --tls-pin …` and `--transport ws --dtls`: MOS 4.38, SRTP on · SRTP aktif |
@@ -39,6 +39,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | WebSocket transports `ws`/`wss` (RFC 7118) | ✅ | server and client, `sip` subprotocol, shared TLS stack · server dan client, subprotokol `sip` |
 | TLS transport (SIPS) | ✅ | rustls (TLS 1.2/1.3, ring), Mozilla roots + custom CA, SHA-256 pinning, self-signed or PEM identity · root Mozilla + CA sendiri, pinning SHA-256, identitas self-signed atau PEM |
 | RTP/RTCP, adaptive jitter buffer, PLC | ✅ | |
+| RTCP sender/receiver reports (RFC 3550) | ✅ | report blocks, loss and jitter the peer sees, round-trip time; Opus adapts its bitrate and FEC to them · report block, loss dan jitter dari sisi lawan, RTT; Opus menyesuaikan bitrate dan FEC |
 | Opus (RFC 6716/7587) | ✅ | libopus (`opus` cargo feature, on by default): 48 kHz mono, 32 kbit/s, in-band FEC, FEC recovery from the next buffered packet, libopus PLC; verified with Edge and Firefox · diverifikasi dengan Edge dan Firefox |
 | G.711, G.722, L16 | ✅ | native |
 | G.729, SILK, Speex | 🟡 | negotiated, pass-through payloads · dinegosiasikan, payload pass-through |
@@ -127,6 +128,11 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 | Gravicode Studios / Kang Fadhil credit in apps & docs · kredit di aplikasi & dokumen | ✅ |
 
 ## Changelog
+
+### Unreleased · Belum dirilis
+
+- RTCP sender and receiver reports with report blocks: `CallStatistics` gains `RoundTripMs`, `RemoteLossPercent` and `RemoteJitterMs`, and the CLI shows them. · Report RTCP dengan report block; statistik panggilan menampilkan RTT dan laporan dari lawan.
+- Opus adapts to those reports (lower bitrate and more FEC as loss rises) and supports DTX through `OpusDtx`. · Opus menyesuaikan diri dengan laporan itu dan mendukung DTX.
 
 ### 1.2.0 — 2026-09-17
 

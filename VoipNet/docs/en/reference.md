@@ -36,6 +36,7 @@
 | `TraceSip` | `false` | Raise `SipTrace` for every message. |
 | `KeepaliveSecs` | `25` | CRLF keep-alives to the registrar over UDP. |
 | `RtpTimeoutMs` | `0` | Raise a `rtp-timeout` media event after this much silence on the wire. |
+| `OpusDtx` | `false` | Let Opus stop sending during silence (discontinuous transmission). |
 | `TlsVerifyServer` | `true` | Validate the server certificate chain and host name (Mozilla roots plus `TlsCaFile`). |
 | `TlsCaFile` | — | PEM file with extra trust anchors, e.g. a private PBX CA. |
 | `TlsPinnedFingerprints` | — | SHA-256 fingerprints to accept; only these certificates pass, self-signed included. |
@@ -67,7 +68,7 @@
 | `SendAudio(samples, rate)`, `SendAudio(bytes, rate)`, `SendAudioStreamAsync(...)`, `ClearAudio()`, `QueuedAudioMs` | Outbound audio. |
 | `AudioReceived`, `ReadAudioAsync(direction)` | Audio from the call. |
 | `SendEncoded(...)`, `EncodedReceived` | Pass-through payloads. |
-| `GetStatistics()`, `FinalStatistics` | Quality. |
+| `GetStatistics()`, `FinalStatistics` | Quality, including what the peer reports over RTCP (`RoundTripMs`, `RemoteLossPercent`, `RemoteJitterMs`). |
 | `JoinConference(c)`, `LeaveConference()` | Conferencing. |
 | `Connected`, `Completion` | Tasks for linear async code. |
 | `Id`, `IsOutgoing`, `RemoteUri`, `RemoteDisplayName`, `State`, `Codec`, `SampleRate`, `Duration`, `Items` | Information. |

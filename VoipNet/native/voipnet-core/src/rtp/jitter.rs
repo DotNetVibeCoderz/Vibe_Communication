@@ -19,6 +19,16 @@ pub enum Playout {
     Empty,
 }
 
+/// What an RTCP reception report needs about this stream (RFC 3550 §6.4.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReceptionReport {
+    pub highest_ext: i64,
+    pub expected: u64,
+    pub received: u64,
+    /// Interarrival jitter in RTP timestamp units.
+    pub jitter_clock: u32,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct JitterStats {
     pub received: u64,
@@ -48,6 +58,7 @@ pub struct JitterBuffer {
     target: usize,
     next_seq: Option<i64>,
     highest_ext: Option<i64>,
+    first_ext: Option<i64>,
     playing: bool,
     excess_frames: u32,
     jitter: f64,
@@ -70,6 +81,7 @@ impl JitterBuffer {
             target: min_depth,
             next_seq: None,
             highest_ext: None,
+            first_ext: None,
             playing: false,
             excess_frames: 0,
             jitter: 0.0,
@@ -109,6 +121,7 @@ impl JitterBuffer {
         }
         self.last_transit = Some(transit);
         self.highest_ext = Some(self.highest_ext.map_or(ext, |h| h.max(ext)));
+        self.first_ext.get_or_insert(ext);
 
         if let Some(next) = self.next_seq {
             if ext < next {
@@ -226,8 +239,20 @@ impl JitterBuffer {
         }
         self.next_seq = None;
         self.highest_ext = None;
+        self.first_ext = None;
         self.playing = false;
         self.last_transit = None;
+    }
+
+    /// Reception statistics for an RTCP report block; none until a packet has arrived.
+    pub fn reception(&self) -> Option<ReceptionReport> {
+        let (first, highest) = (self.first_ext?, self.highest_ext?);
+        Some(ReceptionReport {
+            highest_ext: highest,
+            expected: (highest - first + 1).max(0) as u64,
+            received: self.stats.received,
+            jitter_clock: (self.jitter * self.clock_rate as f64) as u32,
+        })
     }
 
     pub fn stats(&self) -> JitterStats {

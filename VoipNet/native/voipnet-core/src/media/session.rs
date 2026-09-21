@@ -17,7 +17,9 @@ use super::resample::Resampler;
 use crate::codec::dtmf::{self, DtmfDetector, TelephoneEvent};
 use crate::codec::{create_audio_codec, AudioCodec, Concealer};
 use crate::rtp::jitter::{JitterBuffer, JitterStats, Playout};
-use crate::rtp::packet::{build_bye, build_sender_report, classify, PacketClass, RtpHeader, RtpPacketRef};
+use crate::rtp::packet::{
+    build_bye, build_receiver_report, build_sender_report, classify, parse_rtcp, PacketClass, ReportBlock, RtcpPacket, RtpHeader, RtpPacketRef,
+};
 use crate::sdp::{Direction, RtpMap};
 use crate::srtp::SrtpContext;
 use crate::stun::{self, Candidate, CandidateKind, StunMessage, TurnAllocation};
@@ -70,6 +72,8 @@ pub struct MediaConfig {
     pub symmetric_rtp: bool,
     /// Certificate for DTLS-SRTP; required to offer or accept DTLS keying.
     pub dtls_identity: Option<Arc<DtlsIdentity>>,
+    /// Let Opus stop sending during silence (RFC 6716 discontinuous transmission).
+    pub opus_dtx: bool,
 }
 
 impl Default for MediaConfig {
@@ -90,6 +94,7 @@ impl Default for MediaConfig {
             rtp_timeout_ms: 30_000,
             symmetric_rtp: true,
             dtls_identity: None,
+            opus_dtx: false,
         }
     }
 }
@@ -114,6 +119,14 @@ pub struct NegotiatedMedia {
     pub dtls_role: Option<DtlsRole>,
 }
 
+/// The peer's view of the stream we send, taken from its RTCP reports.
+#[derive(Debug, Clone, Copy, Default)]
+struct RemoteQuality {
+    loss_percent: f64,
+    jitter_ms: f64,
+    rtt_ms: f64,
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MediaStats {
@@ -131,6 +144,12 @@ pub struct MediaStats {
     pub srtp_active: u8,
     pub ice_connected: u8,
     pub outbound_queued_ms: u32,
+    /// Loss the peer reports on the stream we send, in percent (RTCP report blocks).
+    pub remote_loss_percent: f64,
+    /// Jitter the peer reports, in milliseconds.
+    pub remote_jitter_ms: f64,
+    /// Round-trip time from RTCP, in milliseconds; zero until the peer reports.
+    pub round_trip_ms: f64,
 }
 
 struct TxState {
@@ -180,6 +199,12 @@ struct RxState {
     srtp: Option<SrtpContext>,
     buf: Vec<u8>,
     started: bool,
+    /// SSRC of the stream we receive, and what the previous report about it covered.
+    remote_ssrc: Option<u32>,
+    reported_expected: u64,
+    reported_received: u64,
+    /// Middle 32 bits of the last sender report's NTP time, and when it arrived.
+    last_sr: Option<(u32, Instant)>,
 }
 
 struct Shared {
@@ -207,6 +232,8 @@ struct Shared {
     bytes_received: AtomicU64,
     last_rx: Mutex<Instant>,
     timeout_reported: AtomicBool,
+    /// What the peer reports about the stream we send (RFC 3550 receiver reports).
+    remote_quality: Mutex<RemoteQuality>,
     dtls: Mutex<Option<DtlsTransport>>,
     /// A client-role handshake waiting for ICE to find a path.
     dtls_start_pending: AtomicBool,
@@ -318,6 +345,10 @@ impl MediaSession {
                 srtp: None,
                 buf: Vec::with_capacity(1500),
                 started: false,
+                remote_ssrc: None,
+                reported_expected: 0,
+                reported_received: 0,
+                last_sr: None,
             }),
             ice: Mutex::new(IceAgent::new(&candidates, IceRole::Controlled)),
             local_candidates: candidates,
@@ -333,6 +364,7 @@ impl MediaSession {
             bytes_received: AtomicU64::new(0),
             last_rx: Mutex::new(Instant::now()),
             timeout_reported: AtomicBool::new(false),
+            remote_quality: Mutex::new(RemoteQuality::default()),
             dtls: Mutex::new(None),
             dtls_start_pending: AtomicBool::new(false),
             secure_required: AtomicBool::new(false),
@@ -442,7 +474,10 @@ impl MediaSession {
         }
         {
             let mut tx = sh.tx.lock();
-            let codec = create_audio_codec(&n.codec);
+            let mut codec = create_audio_codec(&n.codec);
+            if let Some(c) = codec.as_mut() {
+                c.set_dtx(sh.config.opus_dtx);
+            }
             let codec_rate = codec.as_ref().map_or(n.codec.clock_rate, |c| c.sample_rate());
             tx.payload_type = n.codec.payload_type;
             tx.dtmf_pt = n.dtmf.as_ref().map(|d| d.payload_type);
@@ -678,6 +713,7 @@ impl MediaSession {
             let tx = sh.tx.lock();
             ((tx.pending.len() as u64 * 1000 / tx.codec_rate.max(1) as u64) as u32, tx.srtp.is_some())
         };
+        let remote = *sh.remote_quality.lock();
         let buffer_ms = js.target_depth as u32 * sh.config.ptime_ms;
         MediaStats {
             packets_sent: sh.packets_sent.load(Ordering::Relaxed),
@@ -694,6 +730,9 @@ impl MediaSession {
             srtp_active: u8::from(srtp_rx && srtp_tx),
             ice_connected: u8::from(sh.ice.lock().is_connected()),
             outbound_queued_ms: queued_ms,
+            remote_loss_percent: remote.loss_percent,
+            remote_jitter_ms: remote.jitter_ms,
+            round_trip_ms: remote.rtt_ms,
         }
     }
 
@@ -795,13 +834,7 @@ fn handle_datagram(sh: &Arc<Shared>, data: &[u8], from: SocketAddr, via_relay: b
     match classify(data) {
         PacketClass::Stun => handle_stun(sh, data, from, via_relay),
         PacketClass::Rtp => handle_rtp(sh, data, from),
-        PacketClass::Rtcp => {
-            let mut rx = sh.rx.lock();
-            if let Some(ctx) = rx.srtp.as_mut() {
-                let mut copy = data.to_vec();
-                let _ = ctx.unprotect_rtcp(&mut copy);
-            }
-        }
+        PacketClass::Rtcp => handle_rtcp(sh, data),
         PacketClass::Dtls => {
             let mut events = Vec::new();
             if let Some(dtls) = sh.dtls.lock().as_mut() {
@@ -811,6 +844,67 @@ fn handle_datagram(sh: &Arc<Shared>, data: &[u8], from: SocketAddr, via_relay: b
         }
         PacketClass::Unknown => {}
     }
+}
+
+/// Reads the peer's RTCP: sender reports feed the round-trip estimate, and report blocks about our
+/// own stream say what the network does on the way out.
+fn handle_rtcp(sh: &Arc<Shared>, data: &[u8]) {
+    let mut plain = data.to_vec();
+    {
+        let mut rx = sh.rx.lock();
+        let secured = match rx.srtp.as_mut() {
+            Some(ctx) => ctx.unprotect_rtcp(&mut plain).is_ok(),
+            None => !sh.secure_required.load(Ordering::Relaxed),
+        };
+        if !secured {
+            return;
+        }
+    }
+
+    let now = Instant::now();
+    let our_ssrc = sh.tx.lock().ssrc;
+    let mut quality = None;
+    for packet in parse_rtcp(&plain) {
+        let reports = match packet {
+            RtcpPacket::SenderReport { ssrc, ntp, reports } => {
+                let mut rx = sh.rx.lock();
+                rx.remote_ssrc.get_or_insert(ssrc);
+                rx.last_sr = Some(((ntp >> 16) as u32, now));
+                reports
+            }
+            RtcpPacket::ReceiverReport { reports, .. } => reports,
+            RtcpPacket::Bye { .. } => continue,
+        };
+        for block in reports.into_iter().filter(|b| b.ssrc == our_ssrc) {
+            let rtt = if block.last_sr == 0 {
+                sh.remote_quality.lock().rtt_ms
+            } else {
+                // RFC 3550 6.4.1: now - LSR - DLSR, all in units of 1/65536 s.
+                let delta = ((ntp_now() >> 16) as u32).wrapping_sub(block.last_sr).wrapping_sub(block.delay_since_last_sr);
+                delta as f64 * 1000.0 / 65536.0
+            };
+            let clock = sh.tx.lock().codec.as_ref().map_or(8000, |c| c.clock_rate()) as f64;
+            quality = Some(RemoteQuality {
+                loss_percent: block.fraction_lost as f64 * 100.0 / 256.0,
+                jitter_ms: block.jitter as f64 * 1000.0 / clock,
+                rtt_ms: rtt.clamp(0.0, 10_000.0),
+            });
+        }
+    }
+
+    if let Some(q) = quality {
+        *sh.remote_quality.lock() = q;
+        // Codecs with loss recovery (Opus) adapt their bitrate and FEC to what the peer sees.
+        if let Some(codec) = sh.tx.lock().codec.as_mut() {
+            codec.set_network_quality(q.loss_percent, q.rtt_ms);
+        }
+        sh.sink.on_media_event(sh.call_id, "remote-quality", &format!("{:.1}% loss, rtt {:.0} ms", q.loss_percent, q.rtt_ms));
+    }
+}
+
+fn ntp_now() -> u64 {
+    let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    ((since_epoch.as_secs() + 2_208_988_800) << 32) | (((since_epoch.subsec_nanos() as u64) << 32) / 1_000_000_000)
 }
 
 fn handle_stun(sh: &Arc<Shared>, data: &[u8], from: SocketAddr, via_relay: bool) {
@@ -889,6 +983,7 @@ fn handle_rtp(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
             return;
         }
         let Some(pkt) = RtpPacketRef::parse(&rx.buf) else { return };
+        rx.remote_ssrc.get_or_insert(pkt.header.ssrc);
 
         if sh.config.symmetric_rtp {
             let mut remote = sh.remote.lock();
@@ -931,7 +1026,8 @@ fn handle_rtp(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
 fn playout_loop(sh: &Arc<Shared>) {
     let ptime = Duration::from_millis(sh.config.ptime_ms as u64);
     let mut next = Instant::now() + ptime;
-    let mut last_sr = Instant::now();
+    // The first report goes out after a second so both sides learn about each other quickly.
+    let mut last_sr = Instant::now() - Duration::from_secs(3);
     let mut last_refresh = Instant::now();
     let mut decoded: Vec<i16> = Vec::with_capacity(960);
     let mut conf_buf: Vec<i16> = Vec::with_capacity(960);
@@ -1027,7 +1123,7 @@ fn playout_loop(sh: &Arc<Shared>) {
         }
 
         // ---- RTCP / TURN / timeouts ----
-        if last_sr.elapsed() >= Duration::from_secs(5) {
+        if last_sr.elapsed() >= Duration::from_secs(4) {
             last_sr = Instant::now();
             send_sender_report(sh);
         }
@@ -1155,22 +1251,56 @@ fn write_and_send(sh: &Shared, tx: &mut TxState, pt: u8, timestamp: u32, marker:
     sh.bytes_sent.fetch_add(payload.len() as u64, Ordering::Relaxed);
 }
 
+/// Sends a sender report (or a receiver report when this side has not transmitted), carrying what we
+/// received from the peer.
 fn send_sender_report(sh: &Arc<Shared>) {
+    let report = reception_report(sh);
     let mut tx = sh.tx.lock();
-    let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-    let ntp_secs = since_epoch.as_secs() + 2_208_988_800;
-    let ntp_frac = ((since_epoch.subsec_nanos() as u64) << 32) / 1_000_000_000;
-    let ntp = (ntp_secs << 32) | ntp_frac;
-    let mut sr = build_sender_report(tx.ssrc, ntp, tx.timestamp, tx.packets, tx.octets, "voipnet");
+    let mut packet = if tx.packets > 0 {
+        build_sender_report(tx.ssrc, ntp_now(), tx.timestamp, tx.packets, tx.octets, "voipnet", report)
+    } else if let Some(block) = report {
+        build_receiver_report(tx.ssrc, block)
+    } else {
+        return;
+    };
     let secured = match tx.srtp.as_mut() {
-        Some(ctx) => ctx.protect_rtcp(&mut sr).is_ok(),
+        Some(ctx) => ctx.protect_rtcp(&mut packet).is_ok(),
         None => !sh.secure_required.load(Ordering::Relaxed),
     };
-    if !secured {
-        return;
-    }
     drop(tx);
-    send_raw(sh, &sr);
+    if secured {
+        send_raw(sh, &packet);
+    }
+}
+
+/// Describes what we received from the peer since the previous report (RFC 3550 6.4.1).
+fn reception_report(sh: &Arc<Shared>) -> Option<ReportBlock> {
+    let mut rx = sh.rx.lock();
+    let ssrc = rx.remote_ssrc?;
+    let reception = rx.jitter.reception()?;
+    let (expected, received) = (reception.expected, reception.received);
+    let interval_expected = expected.saturating_sub(rx.reported_expected);
+    let interval_received = received.saturating_sub(rx.reported_received);
+    rx.reported_expected = expected;
+    rx.reported_received = received;
+    let fraction_lost = if interval_expected > interval_received {
+        ((interval_expected - interval_received) * 256 / interval_expected).min(255) as u8
+    } else {
+        0
+    };
+    let (last_sr, delay_since_last_sr) = match rx.last_sr {
+        Some((ntp, at)) => (ntp, (at.elapsed().as_secs_f64() * 65536.0) as u32),
+        None => (0, 0),
+    };
+    Some(ReportBlock {
+        ssrc,
+        fraction_lost,
+        cumulative_lost: expected.saturating_sub(received) as i32,
+        highest_seq: reception.highest_ext as u32,
+        jitter: reception.jitter_clock,
+        last_sr,
+        delay_since_last_sr,
+    })
 }
 
 #[cfg(test)]
@@ -1262,6 +1392,24 @@ mod tests {
         }
         std::thread::sleep(Duration::from_millis(300)); // a duplicate report would show up here
         assert_eq!(cb.dtmf.lock().iter().collect::<String>(), "12#");
+        a.stop();
+        b.stop();
+    }
+
+
+    #[test]
+    fn rtcp_reports_carry_loss_and_round_trip() {
+        let (a, b, _ca, _cb) = connect(CodecKind::Pcmu, false);
+        a.send_audio(&tone(8000, 9000), 8000);
+        b.send_audio(&tone(8000, 9000), 8000);
+        // Reports start after a second and repeat every four; two rounds are needed for a round trip.
+        let deadline = Instant::now() + Duration::from_secs(12);
+        while a.stats().round_trip_ms == 0.0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let stats = a.stats();
+        assert!(stats.round_trip_ms > 0.0 && stats.round_trip_ms < 500.0, "rtt {} ms", stats.round_trip_ms);
+        assert!(stats.remote_loss_percent < 5.0, "loss {}%", stats.remote_loss_percent);
         a.stop();
         b.stop();
     }

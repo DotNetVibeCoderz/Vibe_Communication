@@ -176,6 +176,12 @@ public sealed class VoipClientOptions
     /// <summary>Report a media event when no RTP arrives for this long. 0 disables the check.</summary>
     public int RtpTimeoutMs { get; set; }
 
+    /// <summary>
+    /// Let Opus stop sending while the caller is silent (discontinuous transmission). It saves bandwidth,
+    /// but some gateways treat the gap as a dead stream.
+    /// </summary>
+    public bool OpusDtx { get; set; }
+
     /// <summary>Validate the server certificate chain and host name for <see cref="SipTransport.Tls"/>. Ignored when <see cref="TlsPinnedFingerprints"/> is set.</summary>
     public bool TlsVerifyServer { get; set; } = true;
 

@@ -81,6 +81,9 @@ internal static unsafe partial class NativeMethods
         public byte SrtpActive;
         public byte IceConnected;
         public uint OutboundQueuedMs;
+        public double RemoteLossPercent;
+        public double RemoteJitterMs;
+        public double RoundTripMs;
     }
 
     [LibraryImport(Library, EntryPoint = "voipnet_endpoint_create", StringMarshalling = StringMarshalling.Utf8)]

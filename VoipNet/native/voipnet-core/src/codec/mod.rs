@@ -28,6 +28,10 @@ pub trait AudioCodec: Send {
     fn conceal(&mut self, _samples: usize, _next_payload: Option<&[u8]>, _out: &mut Vec<i16>) -> bool {
         false
     }
+    /// Reports what the peer sees (RTCP), so adaptive codecs can change bitrate or redundancy.
+    fn set_network_quality(&mut self, _loss_percent: f64, _round_trip_ms: f64) {}
+    /// Enables discontinuous transmission, for codecs that support it.
+    fn set_dtx(&mut self, _enabled: bool) {}
 }
 
 /// Every media format the engine can put into SDP. Codecs without a native
