@@ -63,7 +63,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | SRTP AES_CM_128_HMAC_SHA1_80 and AEAD_AES_128/256_GCM (RFC 7714) | ✅ | SDES or DTLS keys · kunci SDES atau DTLS |
 | DTLS-SRTP (RFC 5763/5764) | ✅ | dimpl DTLS 1.2 (pure Rust), fingerprint check, `a=setup` roles, no plain RTP before keys · tanpa RTP polos sebelum kunci siap |
 | Data channels (SCTP) | ⏳ | |
-| Browser interop | ✅ | Chrome/Edge and Firefox call the gateway on every CI build (`tools/VoipNet.DocShots webphone`), and the build fails unless encrypted audio flows both ways; Safari not tested (no macOS test machine) · diuji di setiap build CI; Safari belum diuji |
+| Browser interop | ✅ | Chrome/Edge and Firefox verified on a desktop; Chrome gates every CI build (`tools/VoipNet.DocShots webphone`) and the build fails unless encrypted audio flows both ways. Firefox on hosted runners signals the call but never finishes ICE there, so that step reports without failing. Safari not tested (no macOS machine) · diuji di setiap build CI; Safari belum diuji |
 
 ## 🎥 Video · Fitur video
 

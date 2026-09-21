@@ -8,7 +8,8 @@ Current state · Kondisi saat ini: see · lihat [Progress.md](Progress.md).
 
 SIP over TLS and WebSocket, DTLS-SRTP, the full ICE agent with trickle and restart, and browser interop with Edge and Firefox are done (see Progress.md). What remains: · Sudah selesai: SIP melalui TLS dan WebSocket, DTLS-SRTP, agen ICE penuh dengan trickle dan restart, serta interop dengan Edge dan Firefox. Sisanya:
 
-- Safari interop (Chrome and Firefox now run on every CI build; no macOS machine here to try Safari). · Interop Safari.
+- Firefox on hosted CI runners: the call is signalled but ICE never completes there, while the same build works on a desktop; Chrome gates every CI build today. · Firefox di runner CI.
+- Safari interop (no macOS machine here to try it). · Interop Safari.
 - **Data channels** (SCTP over DTLS, RFC 8831) for chat and file transfer next to calls. · Data channel untuk chat dan transfer file.
 - Sending our own candidates by trickle ICE (useful when STUN/TURN gathering is slow). · Mengirim kandidat sendiri lewat trickle ICE.
 
