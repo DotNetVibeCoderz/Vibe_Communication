@@ -209,6 +209,12 @@ public sealed class VoipClientOptions
     /// <summary>PEM private key for <see cref="TlsCertificateFile"/>.</summary>
     public string? TlsPrivateKeyFile { get; set; }
 
+    /// <summary>
+    /// Ask TLS and WSS callers for a certificate and refuse the connection unless it is trusted or
+    /// pinned (mutual TLS). This client always presents its own certificate when a server asks.
+    /// </summary>
+    public bool TlsRequireClientCertificate { get; set; }
+
     /// <summary>Raise events on this context, so UI applications can update controls directly.</summary>
     [JsonIgnore]
     public SynchronizationContext? EventSynchronizationContext { get; set; }

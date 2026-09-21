@@ -6,6 +6,8 @@ use std::sync::Arc;
 use ring::digest;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::client::WebPkiServerVerifier;
+use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
+use rustls::DistinguishedName;
 use rustls::crypto::{verify_tls12_signature, verify_tls13_signature, CryptoProvider};
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
@@ -25,6 +27,9 @@ pub struct TlsSettings {
     /// generated when omitted.
     pub certificate_file: Option<String>,
     pub private_key_file: Option<String>,
+    /// Ask callers for a certificate and refuse the connection unless it is trusted or pinned
+    /// (mutual TLS). Without it, only the caller checks who it is talking to.
+    pub require_client_certificate: bool,
 }
 
 /// Client and server configurations plus the fingerprint of the local certificate.
@@ -109,28 +114,80 @@ impl TlsContext {
         let webpki = WebPkiServerVerifier::builder_with_provider(Arc::new(roots), provider.clone())
             .build()
             .map_err(|e| e.to_string())?;
-        let verifier = Arc::new(SipServerVerifier {
+        let verifier: Arc<SipServerVerifier> = Arc::new(SipServerVerifier {
             webpki,
             provider: provider.clone(),
             verify: settings.verify_server,
             pins: settings.pinned_sha256.iter().map(|p| normalize_fingerprint(p)).filter(|p| !p.is_empty()).collect(),
         });
 
+        // The same identity answers a server's certificate request, so mutual TLS needs no extra key.
         let client = ClientConfig::builder_with_provider(provider.clone())
             .with_safe_default_protocol_versions()
             .map_err(|e| e.to_string())?
             .dangerous()
-            .with_custom_certificate_verifier(verifier)
-            .with_no_client_auth();
+            .with_custom_certificate_verifier(verifier.clone())
+            .with_client_auth_cert(identity.chain.clone(), identity.key.clone_key())
+            .map_err(|e| format!("TLS client certificate: {e}"))?;
 
-        let server = ServerConfig::builder_with_provider(provider)
+        let server_builder = ServerConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
-            .map_err(|e| e.to_string())?
-            .with_no_client_auth()
-            .with_single_cert(identity.chain, identity.key)
-            .map_err(|e| format!("TLS certificate: {e}"))?;
+            .map_err(|e| e.to_string())?;
+        let server = if settings.require_client_certificate {
+            server_builder.with_client_cert_verifier(Arc::new(SipClientVerifier { peers: verifier }))
+        } else {
+            server_builder.with_no_client_auth()
+        }
+        .with_single_cert(identity.chain, identity.key)
+        .map_err(|e| format!("TLS certificate: {e}"))?;
 
         Ok(Self { client: Arc::new(client), server: Arc::new(server), fingerprint })
+    }
+}
+
+
+/// Checks caller certificates with the same policy as server certificates: pinned fingerprints when
+/// they are configured, otherwise the trust roots — but never a host name, since callers have none.
+#[derive(Debug)]
+struct SipClientVerifier {
+    peers: Arc<SipServerVerifier>,
+}
+
+impl ClientCertVerifier for SipClientVerifier {
+    fn root_hint_subjects(&self) -> &[DistinguishedName] {
+        &[]
+    }
+
+    fn verify_client_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        now: UnixTime,
+    ) -> Result<ClientCertVerified, rustls::Error> {
+        self.peers.verify_peer(end_entity, intermediates, None, now)?;
+        Ok(ClientCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        ServerCertVerifier::verify_tls12_signature(self.peers.as_ref(), message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        ServerCertVerifier::verify_tls13_signature(self.peers.as_ref(), message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        ServerCertVerifier::supported_verify_schemes(self.peers.as_ref())
     }
 }
 
@@ -142,27 +199,53 @@ struct SipServerVerifier {
     pins: Vec<String>,
 }
 
+impl SipServerVerifier {
+    /// Pinned fingerprints win; otherwise the chain is checked against the trust roots, including the
+    /// host name when there is one (callers present no name of their own).
+    fn verify_peer(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: Option<&ServerName<'_>>,
+        now: UnixTime,
+    ) -> Result<(), rustls::Error> {
+        if !self.pins.is_empty() {
+            let actual = normalize_fingerprint(&fingerprint_sha256(end_entity));
+            return if self.pins.iter().any(|p| *p == actual) {
+                Ok(())
+            } else {
+                Err(rustls::Error::General(format!("certificate fingerprint {actual} is not pinned")))
+            };
+        }
+        if !self.verify {
+            return Ok(());
+        }
+        match server_name {
+            Some(name) => self.webpki.verify_server_cert(end_entity, intermediates, name, &[], now).map(|_| ()),
+            None => {
+                let anchors = self.webpki.clone();
+                let placeholder = ServerName::try_from("client.invalid").expect("static name");
+                // Client certificates carry no host name: check the chain only.
+                match anchors.verify_server_cert(end_entity, intermediates, &placeholder, &[], now) {
+                    Err(rustls::Error::InvalidCertificate(rustls::CertificateError::NotValidForName)) => Ok(()),
+                    other => other.map(|_| ()),
+                }
+            }
+        }
+    }
+}
+
 impl ServerCertVerifier for SipServerVerifier {
     fn verify_server_cert(
         &self,
         end_entity: &CertificateDer<'_>,
         intermediates: &[CertificateDer<'_>],
         server_name: &ServerName<'_>,
-        ocsp_response: &[u8],
+        _ocsp_response: &[u8],
         now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        if !self.pins.is_empty() {
-            let actual = normalize_fingerprint(&fingerprint_sha256(end_entity));
-            return if self.pins.iter().any(|p| *p == actual) {
-                Ok(ServerCertVerified::assertion())
-            } else {
-                Err(rustls::Error::General(format!("certificate fingerprint {actual} is not pinned")))
-            };
-        }
-        if !self.verify {
-            return Ok(ServerCertVerified::assertion());
-        }
-        self.webpki.verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)
+        self.verify_peer(end_entity, intermediates, Some(server_name), now)?;
+        Ok(ServerCertVerified::assertion())
     }
 
     // Handshake signatures are always checked, so a pinned or unverified certificate still proves

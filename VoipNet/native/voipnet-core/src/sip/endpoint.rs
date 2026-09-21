@@ -112,6 +112,8 @@ pub struct EndpointConfig {
     pub tls_pinned_fingerprints: Vec<String>,
     pub tls_certificate_file: Option<String>,
     pub tls_private_key_file: Option<String>,
+    /// Ask TLS and WSS callers for a certificate and refuse untrusted ones (mutual TLS).
+    pub tls_require_client_certificate: bool,
 }
 
 impl Default for EndpointConfig {
@@ -160,6 +162,7 @@ impl Default for EndpointConfig {
             tls_pinned_fingerprints: Vec::new(),
             tls_certificate_file: None,
             tls_private_key_file: None,
+            tls_require_client_certificate: false,
         }
     }
 }
@@ -439,6 +442,7 @@ impl Endpoint {
                 pinned_sha256: cfg.tls_pinned_fingerprints.clone(),
                 certificate_file: cfg.tls_certificate_file.clone(),
                 private_key_file: cfg.tls_private_key_file.clone(),
+                require_client_certificate: cfg.tls_require_client_certificate,
             };
             let mut names = vec!["localhost".to_owned()];
             if !cfg.domain.is_empty() {
@@ -529,6 +533,12 @@ impl Endpoint {
         transport.start(Arc::new(move |msg, from| {
             if let Some(inner) = weak.upgrade() {
                 inner.on_message(msg, from);
+            }
+        }));
+        let disconnect_weak = Arc::downgrade(&inner);
+        transport.on_disconnect(Arc::new(move |peer| {
+            if let Some(inner) = disconnect_weak.upgrade() {
+                inner.connection_lost(peer);
             }
         }));
 
@@ -859,6 +869,17 @@ impl Inner {
             return self.resolve_uri(&first.uri);
         }
         self.resolve_uri(uri)
+    }
+
+    /// A stream connection died (TLS rejection, restart, network loss): requests waiting on it have
+    /// nowhere to go, so they fail now instead of after the 32 second transaction timeout.
+    fn connection_lost(&self, peer: SocketAddr) {
+        let mut st = self.state.lock();
+        for tx in st.client_txs.values_mut() {
+            if tx.dest == peer && tx.completed_at.is_none() {
+                tx.transport_failed = true;
+            }
+        }
     }
 
     fn send_bytes(&self, dest: SocketAddr, msg: &SipMessage) -> Vec<u8> {
@@ -2812,6 +2833,38 @@ mod tests {
         assert_eq!(a.call_stats(a_call).unwrap().srtp_active, 1);
         assert_eq!(b.call_stats(b_call).unwrap().srtp_active, 1);
         a.hangup(a_call).unwrap();
+    }
+
+
+    #[test]
+    fn mutual_tls_requires_a_trusted_caller() {
+        // Alice accepts Bob's self-signed certificate; Bob asks callers for one and pins Alice's.
+        let ra = Arc::new(Recorder::default());
+        let a = Endpoint::start(EndpointConfig { tls_verify_server: false, ..tls_cfg("alice") }, ra.clone()).unwrap();
+        let rb = Arc::new(Recorder::default());
+        let b = Endpoint::start(
+            EndpointConfig {
+                tls_require_client_certificate: true,
+                tls_pinned_fingerprints: vec![a.tls_fingerprint().expect("alice certificate")],
+                ..tls_cfg("bob")
+            },
+            rb.clone(),
+        )
+        .unwrap();
+        let target = format!("sip:bob@{}", b.local_address());
+
+        let (a_call, b_call) = establish(&a, &b, &rb, &ra);
+        a.send_audio(a_call, &tone(), 16000).unwrap();
+        assert!(rb.wait_frames(20, 5000) >= 20);
+        b.hangup(b_call).unwrap();
+
+        // A caller Bob has not pinned is refused during the handshake.
+        let rc = Arc::new(Recorder::default());
+        let c = Endpoint::start(EndpointConfig { tls_verify_server: false, ..tls_cfg("mallory") }, rc.clone()).unwrap();
+        let refused = c.make_call(&target).unwrap();
+        rc.wait_for(8000, |e| matches!(e, Event::CallState { call_id, state: "terminated", .. } if *call_id == refused))
+            .expect("untrusted caller is refused");
+        assert_eq!(rb.incoming_calls().len(), 1, "only Alice got through");
     }
 
     #[test]

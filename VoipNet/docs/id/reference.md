@@ -41,7 +41,8 @@
 | `TlsVerifyServer` | `true` | Validasi rantai sertifikat server dan nama host (root Mozilla ditambah `TlsCaFile`). |
 | `TlsCaFile` | — | File PEM berisi trust anchor tambahan, misalnya CA PBX privat. |
 | `TlsPinnedFingerprints` | — | Fingerprint SHA-256 yang diterima; hanya sertifikat ini yang lolos, termasuk self-signed. |
-| `TlsCertificateFile`, `TlsPrivateKeyFile` | — | Rantai sertifikat dan kunci PEM yang disajikan ke peer; bila kosong dibuat sertifikat self-signed. |
+| `TlsCertificateFile`, `TlsPrivateKeyFile` | — | Rantai sertifikat dan kunci PEM yang disajikan ke peer (juga dipakai menjawab permintaan sertifikat dari server); bila kosong dibuat sertifikat self-signed. |
+| `TlsRequireClientCertificate` | `false` | Minta sertifikat dari penelepon dan tolak yang tidak tepercaya (TLS dua arah). |
 | `EventSynchronizationContext` | — | Kirim event ke thread UI. |
 
 ## `VoipClient`

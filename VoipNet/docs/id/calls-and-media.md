@@ -121,7 +121,7 @@ new VoipClientOptions
 call.GetStatistics().SecureRtp;   // true bila kedua arah terlindungi
 ```
 
-Sertifikat server diperiksa terhadap root store Mozilla ditambah `TlsCaFile`, termasuk nama host dari URI tujuan, registrar, atau proxy. Pinning menggantikan validasi rantai, cocok untuk PBX dengan sertifikat self-signed. Setiap endpoint menyajikan `TlsCertificateFile`/`TlsPrivateKeyFile`, atau sertifikat self-signed yang dibuat otomatis dengan fingerprint `client.TlsFingerprint`. Handshake yang gagal langsung mengakhiri request dengan `503`.
+Setel `TlsRequireClientCertificate` agar penelepon juga membuktikan identitasnya (TLS dua arah): aturan sertifikat dan pinning yang sama berlaku untuk kedua arah. Sertifikat server diperiksa terhadap root store Mozilla ditambah `TlsCaFile`, termasuk nama host dari URI tujuan, registrar, atau proxy. Pinning menggantikan validasi rantai, cocok untuk PBX dengan sertifikat self-signed. Setiap endpoint menyajikan `TlsCertificateFile`/`TlsPrivateKeyFile`, atau sertifikat self-signed yang dibuat otomatis dengan fingerprint `client.TlsFingerprint`. Handshake yang gagal langsung mengakhiri request dengan `503`.
 
 ## Browser WebRTC
 

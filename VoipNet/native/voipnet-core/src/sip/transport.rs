@@ -70,6 +70,8 @@ impl TransportKind {
 }
 
 pub type MessageHandler = Arc<dyn Fn(SipMessage, SocketAddr) + Send + Sync>;
+/// Called when a stream connection to a peer is gone, so pending requests can fail fast.
+pub type DisconnectHandler = Arc<dyn Fn(SocketAddr) + Send + Sync>;
 
 const WS_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const WS_CONNECTING: u8 = 0;
@@ -241,6 +243,7 @@ pub struct Transport {
     tls: Option<Arc<TlsContext>>,
     server_names: Mutex<HashMap<SocketAddr, String>>,
     handler: OnceLock<MessageHandler>,
+    on_disconnect: OnceLock<DisconnectHandler>,
     running: AtomicBool,
     threads: Mutex<Vec<std::thread::JoinHandle<()>>>,
 }
@@ -273,6 +276,7 @@ impl Transport {
             tls,
             server_names: Mutex::new(HashMap::new()),
             handler: OnceLock::new(),
+            on_disconnect: OnceLock::new(),
             running: AtomicBool::new(true),
             threads: Mutex::new(Vec::new()),
         }))
@@ -306,6 +310,11 @@ impl Transport {
             })
             .expect("spawn sip transport thread");
         self.threads.lock().push(t);
+    }
+
+    /// Registers the callback used when a connection drops (TLS rejection, peer restart, network loss).
+    pub fn on_disconnect(&self, handler: DisconnectHandler) {
+        let _ = self.on_disconnect.set(handler);
     }
 
     fn dispatch(&self, msg: SipMessage, from: SocketAddr) {
@@ -417,9 +426,16 @@ impl Transport {
         }
         conn.failed.store(true, Ordering::Relaxed);
         conn.close();
-        let mut conns = self.connections.lock();
-        if conns.get(&peer).is_some_and(|c| Arc::ptr_eq(c, &conn)) {
-            conns.remove(&peer);
+        {
+            let mut conns = self.connections.lock();
+            if conns.get(&peer).is_some_and(|c| Arc::ptr_eq(c, &conn)) {
+                conns.remove(&peer);
+            }
+        }
+        if self.running.load(Ordering::Relaxed) {
+            if let Some(handler) = self.on_disconnect.get() {
+                handler(peer);
+            }
         }
     }
 

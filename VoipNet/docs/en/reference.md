@@ -41,7 +41,8 @@
 | `TlsVerifyServer` | `true` | Validate the server certificate chain and host name (Mozilla roots plus `TlsCaFile`). |
 | `TlsCaFile` | — | PEM file with extra trust anchors, e.g. a private PBX CA. |
 | `TlsPinnedFingerprints` | — | SHA-256 fingerprints to accept; only these certificates pass, self-signed included. |
-| `TlsCertificateFile`, `TlsPrivateKeyFile` | — | PEM certificate chain and key presented to peers; a self-signed certificate is generated otherwise. |
+| `TlsCertificateFile`, `TlsPrivateKeyFile` | — | PEM certificate chain and key presented to peers (also used to answer a server's certificate request); a self-signed certificate is generated otherwise. |
+| `TlsRequireClientCertificate` | `false` | Ask callers for a certificate and refuse untrusted ones (mutual TLS). |
 | `EventSynchronizationContext` | — | Marshal events to a UI thread. |
 
 ## `VoipClient`
