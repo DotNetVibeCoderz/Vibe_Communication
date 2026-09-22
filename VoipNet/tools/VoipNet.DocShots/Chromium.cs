@@ -36,15 +36,36 @@ internal sealed class Chromium : Browser
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         })!;
-        // Drain both streams so a chatty browser can never block on a full pipe.
-        process.OutputDataReceived += (_, _) => { };
-        process.ErrorDataReceived += (_, _) => { };
+        // Drain both streams so a chatty browser can never block on a full pipe, keeping the last lines
+        // for the error message when the browser never comes up.
+        var complaints = new Queue<string>();
+        void Remember(object _, DataReceivedEventArgs e)
+        {
+            if (e.Data is null)
+            {
+                return;
+            }
+
+            lock (complaints)
+            {
+                complaints.Enqueue(e.Data);
+                while (complaints.Count > 5)
+                {
+                    complaints.Dequeue();
+                }
+            }
+        }
+
+        process.OutputDataReceived += Remember;
+        process.ErrorDataReceived += Remember;
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
         using var http = new HttpClient();
         JsonArray? targets = null;
-        for (var i = 0; i < 50 && targets is null; i++)
+        // Busy CI runners can take a while to start a browser.
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        while (targets is null && DateTime.UtcNow < deadline)
         {
             try
             {
@@ -52,14 +73,20 @@ internal sealed class Chromium : Browser
             }
             catch (HttpRequestException)
             {
-                await Task.Delay(200);
+                await Task.Delay(250);
             }
         }
 
         if (targets is null)
         {
-            var exited = process.HasExited ? $"it exited with code {process.ExitCode}" : "it is still running";
-            throw new InvalidOperationException($"{path} did not open its DevTools port ({exited}).");
+            var state = process.HasExited ? $"exited with code {process.ExitCode}" : "is still running";
+            string tail;
+            lock (complaints)
+            {
+                tail = string.Join(" | ", complaints);
+            }
+
+            throw new InvalidOperationException($"{path} did not open its DevTools port; it {state}. Last output: {tail}");
         }
 
         var page = targets.First(t => t!["type"]!.GetValue<string>() == "page")!;

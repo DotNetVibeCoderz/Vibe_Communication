@@ -66,7 +66,8 @@ internal sealed class Firefox : Browser
     private static async Task<Firefox> AttachAsync(Process process)
     {
         ClientWebSocket? socket = null;
-        for (var i = 0; i < 100 && socket is null; i++)
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        while (socket is null && DateTime.UtcNow < deadline)
         {
             try
             {
@@ -74,7 +75,7 @@ internal sealed class Firefox : Browser
             }
             catch (WebSocketException)
             {
-                await Task.Delay(200);
+                await Task.Delay(250);
             }
         }
 
