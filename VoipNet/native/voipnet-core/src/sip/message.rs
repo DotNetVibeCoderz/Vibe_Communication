@@ -18,6 +18,8 @@ pub enum Method {
     Message,
     Update,
     Subscribe,
+    /// Acknowledges a reliable provisional response (RFC 3262).
+    Prack,
     Other(String),
 }
 
@@ -36,6 +38,7 @@ impl Method {
             "MESSAGE" => Self::Message,
             "UPDATE" => Self::Update,
             "SUBSCRIBE" => Self::Subscribe,
+            "PRACK" => Self::Prack,
             other => Self::Other(other.to_owned()),
         }
     }
@@ -54,6 +57,7 @@ impl Method {
             Self::Message => "MESSAGE",
             Self::Update => "UPDATE",
             Self::Subscribe => "SUBSCRIBE",
+            Self::Prack => "PRACK",
             Self::Other(s) => s,
         }
     }

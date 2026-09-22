@@ -86,6 +86,19 @@ client.MediaNotification += (_, e) =>
 Estimasi bandwidth dan penangkapan kamera belum ada — lihat
 [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
 
+## Session timer dan provisional reliable
+
+Panggilan memakai session timer (RFC 4028) secara bawaan: `Session-Expires: 1800`, diperbarui lewat
+re-INVITE di tengah interval. Panggilan yang tidak diperbarui dalam satu interval akan ditutup,
+sehingga dialog tidak hidup lebih lama daripada lawan yang sudah mati di balik proxy. Setel
+`SessionExpires = 0` bila header itu tidak diinginkan; `MinSessionExpires` adalah interval terpendek
+yang diterima, dan tawaran yang lebih pendek dijawab 422 beserta nilai minimumnya.
+
+Respons provisional dikirim reliable (RFC 3262) ke pemanggil yang mengiklankan `100rel`: respons 180
+membawa `RSeq` dan dikirim ulang sampai pemanggil mengirim PRACK. Pemanggil yang menaruh `100rel` di
+`Require` selalu dilayani reliable; setel `ReliableProvisional = false` untuk melayani sisanya secara
+biasa.
+
 ## Codec
 
 | Codec | Payload | Rate | Implementasi |

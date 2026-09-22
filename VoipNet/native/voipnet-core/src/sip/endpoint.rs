@@ -79,6 +79,15 @@ pub struct EndpointConfig {
     pub register_on_start: bool,
     pub register_expires: u32,
     pub user_agent: String,
+    /// Send provisional responses reliably (RFC 3262) to callers that support it. Callers that
+    /// require it are always answered reliably.
+    pub reliable_provisional: bool,
+    /// Session timer interval in seconds (RFC 4028), or 0 to leave it out. The refresher re-INVITEs
+    /// halfway through, and a call with no refresh by the end of the interval is hung up. The standard
+    /// minimum is 90; shorter intervals are only useful in tests.
+    pub session_expires: u32,
+    /// Shortest interval this endpoint accepts (`Min-SE`); shorter offers are answered with 422.
+    pub min_session_expires: u32,
     pub audio_codecs: Vec<String>,
     /// Offer and accept a video stream alongside the audio one.
     pub video: bool,
@@ -136,6 +145,9 @@ impl Default for EndpointConfig {
             register_on_start: false,
             register_expires: 600,
             user_agent: format!("Voip.NET/{}", env!("CARGO_PKG_VERSION")),
+            reliable_provisional: true,
+            session_expires: 1800,
+            min_session_expires: 90,
             audio_codecs: vec!["opus".into(), "G722".into(), "PCMU".into(), "PCMA".into()],
             video: false,
             video_codecs: vec!["H264".into(), "VP8".into()],
@@ -287,6 +299,7 @@ pub struct CallInfo {
 
 #[derive(Clone)]
 enum Purpose {
+    Prack(u64),
     Register,
     Invite(u64),
     ReInvite(u64),
@@ -356,6 +369,17 @@ struct Call {
     refer_origin: Option<u64>,
     replaces: Option<u64>,
     codec_name: Option<String>,
+    /// A reliable provisional response waiting for its PRACK (RFC 3262): the bytes to resend, when to
+    /// resend them, the current interval, when we started and the RSeq the PRACK must name.
+    pending_1xx: Option<(Vec<u8>, Instant, Duration, Instant, u32)>,
+    /// The RSeq we last acknowledged, so a retransmitted response is not PRACKed twice.
+    pracked: Option<u32>,
+    /// Session timer (RFC 4028): the agreed interval, who refreshes it, and the two deadlines.
+    session_expires: Option<u32>,
+    session_refresh_at: Option<Instant>,
+    session_expires_at: Option<Instant>,
+    /// A 422 was already answered with a longer interval; one retry is enough.
+    session_retried: bool,
     final_stats: Option<MediaStats>,
     redirects: u8,
 }
@@ -803,6 +827,19 @@ fn build_tls_context(cfg: &EndpointConfig) -> Result<TlsContext> {
     TlsContext::new(&settings, names).map_err(EndpointError::InvalidArgument)
 }
 
+/// Parses `Session-Expires: 1800;refresher=uac` into the interval and, when stated, whether the
+/// request's sender refreshes it.
+fn parse_session_expires(value: &str) -> Option<(u32, Option<bool>)> {
+    let mut parts = value.split(';');
+    let expires: u32 = parts.next()?.trim().parse().ok()?;
+    let refresher = value
+        .split(';')
+        .filter_map(|p| p.trim().strip_prefix("refresher="))
+        .next()
+        .map(|r| r.trim().eq_ignore_ascii_case("uac"));
+    (expires > 0).then_some((expires, refresher))
+}
+
 fn resolve_hostport(s: &str, default_port: u16) -> Option<SocketAddr> {
     let s = s.trim().trim_start_matches("sip:").trim_start_matches("stun:").trim_start_matches("turn:");
     let (host, port) = super::uri::split_host_port(s)?;
@@ -996,7 +1033,11 @@ impl Inner {
         }
         if matches!(method, Method::Invite | Method::Options) {
             m.add_header("Allow", "INVITE, ACK, CANCEL, BYE, OPTIONS, REFER, NOTIFY, INFO, MESSAGE, UPDATE");
-            m.add_header("Supported", "replaces, trickle-ice");
+            let mut supported = String::from("replaces, trickle-ice, 100rel");
+            if self.cfg.session_expires > 0 {
+                supported.push_str(", timer");
+            }
+            m.add_header("Supported", supported);
         }
         m.add_header("User-Agent", self.cfg.user_agent.clone());
         m
@@ -1178,6 +1219,12 @@ impl Inner {
             refer_origin,
             replaces: None,
             codec_name: None,
+            pending_1xx: None,
+            pracked: None,
+            session_expires: None,
+            session_refresh_at: None,
+            session_expires_at: None,
+            session_retried: false,
             final_stats: None,
             redirects: 0,
         };
@@ -1189,6 +1236,9 @@ impl Inner {
         }
         if let Some(origin) = refer_origin.and_then(|o| st.calls.get(&o)) {
             req.add_header("Referred-By", format!("<{}>", NameAddr::parse(&origin.remote_uri).map(|n| n.uri.aor()).unwrap_or_default()));
+        }
+        if self.cfg.session_expires > 0 {
+            self.add_session_timer(&mut req, self.cfg.session_expires.max(self.cfg.min_session_expires));
         }
         req.set_body("application/sdp", sdp.into_bytes());
         call.invite_branch = req.via_branch().unwrap_or_default();
@@ -1612,10 +1662,25 @@ impl Inner {
             let mut resp = self.response_for(&invite, 200, Some(&call.local_tag));
             resp.add_header("Contact", self.contact_uri());
             resp.add_header("Allow", "INVITE, ACK, CANCEL, BYE, OPTIONS, REFER, NOTIFY, INFO, MESSAGE, UPDATE");
-            resp.add_header("Supported", "replaces, trickle-ice");
+            resp.add_header("Supported", "replaces, trickle-ice, timer");
+            // RFC 4028 9: accept the offered interval and keep the offered refresher, or take the job
+            // ourselves when the caller only said it supports timers.
+            if self.cfg.session_expires > 0 {
+                let offered = invite.header("Session-Expires").and_then(parse_session_expires);
+                let peer_supports = invite.headers_named("Supported").any(|v| split_list(v).any(|t| t.trim() == "timer"));
+                if let Some((expires, refresher)) = offered.or_else(|| {
+                    peer_supports.then_some((self.cfg.session_expires.max(self.cfg.min_session_expires), Some(false)))
+                }) {
+                    let refresher_local = refresher != Some(true);
+                    resp.add_header("Session-Expires", format!("{expires};refresher={}", if refresher_local { "uas" } else { "uac" }));
+                    resp.add_header("Require", "timer");
+                    self.arm_session_timer(call, expires, refresher_local);
+                }
+            }
             resp.set_body("application/sdp", body.into_bytes());
             let bytes = self.send_bytes(call.peer, &resp);
             let now = Instant::now();
+            call.pending_1xx = None;
             call.pending_2xx = Some((bytes, now + T1, T1, now));
             call.state = CallState::Connected;
             call.connected_at = Some(now);
@@ -1717,6 +1782,35 @@ impl Inner {
         }
         c.add_header("User-Agent", self.cfg.user_agent.clone());
         c
+    }
+
+    /// Puts `Session-Expires` and `Min-SE` on a request we send, naming ourselves the refresher.
+    fn add_session_timer(&self, req: &mut SipMessage, expires: u32) {
+        req.add_header("Session-Expires", format!("{expires};refresher=uac"));
+        req.add_header("Min-SE", self.cfg.min_session_expires.to_string());
+    }
+
+    /// Arms the session timer (RFC 4028 10): the refresher re-INVITEs halfway through the interval,
+    /// and both sides hang up when the interval passes without a refresh.
+    fn arm_session_timer(&self, call: &mut Call, expires: u32, refresher_local: bool) {
+        let now = Instant::now();
+        call.session_expires = Some(expires);
+        call.session_refresh_at = refresher_local.then(|| now + Duration::from_secs((expires as u64 / 2).max(1)));
+        call.session_expires_at = Some(now + Duration::from_secs(expires as u64));
+    }
+
+    /// Reads the session timer out of a 2xx to a request of ours and arms it, or clears the timer when
+    /// the peer left it out (meaning it does not use session timers).
+    fn session_timer_from_answer(&self, call: &mut Call, resp: &SipMessage) {
+        match resp.header("Session-Expires").and_then(parse_session_expires) {
+            // "uac" is us: we sent the request the answer belongs to.
+            Some((expires, refresher)) => self.arm_session_timer(call, expires, refresher != Some(false)),
+            None => {
+                call.session_expires = None;
+                call.session_refresh_at = None;
+                call.session_expires_at = None;
+            }
+        }
     }
 
     fn dialog_request(&self, call: &Call, method: Method) -> SipMessage {
@@ -1876,6 +1970,7 @@ impl Inner {
                 return;
             }
             call.state = CallState::Terminated;
+            call.pending_1xx = None;
             call.pending_2xx = None;
             if let Some(m) = call.take_media() {
                 stop.push(m);
@@ -2076,6 +2171,19 @@ impl Inner {
                     });
                 }
                 Method::Update => self.on_reinvite(st, &req, from, call_id, &mut events),
+                Method::Prack => {
+                    // The provisional response arrived; stop resending it (RFC 3262 3).
+                    let known = call_id.and_then(|id| st.calls.get_mut(&id)).map(|call| {
+                        let rseq = req.header("RAck").and_then(|v| v.split_whitespace().next()?.parse::<u32>().ok());
+                        let matches = call.pending_1xx.as_ref().is_some_and(|(.., expected)| Some(*expected) == rseq);
+                        if matches {
+                            call.pending_1xx = None;
+                        }
+                        matches || call.pending_1xx.is_none()
+                    });
+                    let resp = self.response_for(&req, if known == Some(true) { 200 } else { 481 }, None);
+                    self.respond(st, &req, from, resp);
+                }
                 Method::Subscribe => {
                     let resp = self.response_for(&req, 489, None);
                     self.respond(st, &req, from, resp);
@@ -2100,6 +2208,17 @@ impl Inner {
     fn on_new_invite(&self, req: SipMessage, from: SocketAddr) {
         let trying = self.response_for(&req, 100, None);
         self.send_bytes(from, &trying);
+
+        // RFC 4028 5: an interval below our minimum is refused with 422 and the minimum we accept.
+        if let Some((expires, _)) = req.header("Session-Expires").and_then(parse_session_expires) {
+            if expires < self.cfg.min_session_expires {
+                let mut resp = self.response_for(&req, 422, Some(&random_token(8)));
+                resp.add_header("Min-SE", self.cfg.min_session_expires.to_string());
+                let mut st = self.state.lock();
+                self.respond(&mut st, &req, from, resp);
+                return;
+            }
+        }
 
         let offer = if req.body.is_empty() { None } else { SessionDescription::parse(req.body_str()) };
         let id = self.ids.fetch_add(1, Ordering::Relaxed);
@@ -2165,6 +2284,12 @@ impl Inner {
             refer_origin: None,
             replaces: replaces_call,
             codec_name: None,
+            pending_1xx: None,
+            pracked: None,
+            session_expires: None,
+            session_refresh_at: None,
+            session_expires_at: None,
+            session_retried: false,
             final_stats: None,
             redirects: 0,
         };
@@ -2173,7 +2298,22 @@ impl Inner {
         if self.cfg.auto_ringing && replaces_call.is_none() {
             let mut ringing = self.response_for(&req, 180, Some(&local_tag));
             ringing.add_header("Contact", self.contact_uri());
-            self.respond(&mut st, &req, from, ringing);
+            // RFC 3262: a caller that requires 100rel must get its provisionals reliably, and one that
+            // only supports it gets them reliably too unless that was turned off.
+            let requires = req.headers_named("Require").any(|v| split_list(v).any(|t| t.trim().eq_ignore_ascii_case("100rel")));
+            let supports = req.headers_named("Supported").any(|v| split_list(v).any(|t| t.trim().eq_ignore_ascii_case("100rel")));
+            if requires || (supports && self.cfg.reliable_provisional) {
+                let rseq = rand::random::<u16>() as u32 + 1;
+                ringing.add_header("Require", "100rel");
+                ringing.add_header("RSeq", rseq.to_string());
+                let bytes = self.send_bytes(from, &ringing);
+                let now = Instant::now();
+                if let Some(call) = st.calls.get_mut(&id) {
+                    call.pending_1xx = Some((bytes, now + T1, T1, now, rseq));
+                }
+            } else {
+                self.respond(&mut st, &req, from, ringing);
+            }
         }
         drop(st);
 
@@ -2206,6 +2346,13 @@ impl Inner {
         let media = call.media.clone();
         let mut resp = self.response_for(req, 200, Some(&call.local_tag.clone()));
         resp.add_header("Contact", self.contact_uri());
+        // A re-INVITE or UPDATE carrying Session-Expires is a refresh (RFC 4028 10).
+        if let Some((expires, refresher)) = req.header("Session-Expires").and_then(parse_session_expires) {
+            let refresher_local = refresher != Some(true);
+            resp.add_header("Session-Expires", format!("{expires};refresher={}", if refresher_local { "uas" } else { "uac" }));
+            resp.add_header("Require", "timer");
+            self.arm_session_timer(call, expires, refresher_local);
+        }
 
         if let (Some(media), Some(offer)) = (media, SessionDescription::parse(req.body_str())) {
             match self.negotiate_offer(&offer, &media) {
@@ -2351,6 +2498,7 @@ impl Inner {
                                 let d = self.dialog_dest(call);
                                 let bytes = self.send_bytes(d, &ack);
                                 call.last_ack = Some((bytes, d));
+                                self.session_timer_from_answer(call, &resp);
                                 if let Some(sdp) = SessionDescription::parse(resp.body_str()) {
                                     if let Some(n) = self.negotiate_answer(&sdp) {
                                         events.extend(self.apply_media(call, &n));
@@ -2373,6 +2521,11 @@ impl Inner {
                                 }
                             }
                         }
+                    }
+                }
+                Purpose::Prack(id) => {
+                    if !(200..300).contains(&code) {
+                        events.push(Event::Log { level: "warn", message: format!("call {id}: PRACK rejected with {code}") });
                     }
                 }
                 Purpose::Bye(_) | Purpose::Cancel | Purpose::Info(_) | Purpose::Notify(_) => {}
@@ -2471,7 +2624,7 @@ impl Inner {
         stop: &mut Vec<Arc<MediaSession>>,
         followups: &mut Vec<Box<dyn FnOnce(&Inner)>>,
     ) {
-        let Some(call) = st.calls.get_mut(&id) else { return };
+        let Some(mut call) = st.calls.get_mut(&id) else { return };
         if let Some(tag) = resp.to().and_then(|t| t.tag().map(str::to_owned)) {
             if code > 100 {
                 call.remote_tag = Some(tag);
@@ -2487,6 +2640,23 @@ impl Inner {
                     self.send_request(st, cancel, d, Purpose::Cancel);
                     return;
                 }
+                // RFC 3262 4: acknowledge a reliable provisional response, once per RSeq.
+                let rseq = resp
+                    .header("RSeq")
+                    .and_then(|v| v.trim().parse::<u32>().ok())
+                    .filter(|_| resp.headers_named("Require").any(|v| split_list(v).any(|t| t.trim().eq_ignore_ascii_case("100rel"))));
+                if let Some(rseq) = rseq.filter(|r| call.pracked != Some(*r)) {
+                    call.pracked = Some(rseq);
+                    call.local_cseq += 1;
+                    let invite_cseq = request.cseq().map_or(1, |(n, _)| n);
+                    let mut prack = self.dialog_request(call, Method::Prack);
+                    prack.add_header("RAck", format!("{rseq} {invite_cseq} INVITE"));
+                    let d = self.dialog_dest(call);
+                    self.send_request(st, prack, d, Purpose::Prack(id));
+                    let Some(again) = st.calls.get_mut(&id) else { return };
+                    call = again;
+                }
+
                 let early_sdp = (!resp.body.is_empty()).then(|| SessionDescription::parse(resp.body_str())).flatten();
                 let new_state = if early_sdp.is_some() { CallState::EarlyMedia } else { CallState::Ringing };
                 if let Some(n) = early_sdp.and_then(|s| self.negotiate_answer(&s)) {
@@ -2530,6 +2700,7 @@ impl Inner {
                     let video = self.apply_video_answer(call, answer);
                     events.extend(video);
                 }
+                self.session_timer_from_answer(call, resp);
                 call.state = CallState::Connected;
                 call.connected_at = Some(Instant::now());
                 events.push(Event::CallState { call_id: id, state: "connected", code, reason: resp.reason().unwrap_or("OK").into() });
@@ -2539,6 +2710,33 @@ impl Inner {
                         let _ = inner.hangup(origin);
                     }));
                 }
+            }
+            // RFC 4028 6: the peer wants a longer interval, so ask again with the one it named.
+            422 if !call.session_retried && resp.header("Min-SE").is_some() => {
+                let ack = self.non2xx_ack(request, resp);
+                self.send_bytes(dest, &ack);
+                let min_se = resp
+                    .header("Min-SE")
+                    .and_then(|v| v.split(';').next()?.trim().parse::<u32>().ok())
+                    .unwrap_or(self.cfg.min_session_expires);
+                call.session_retried = true;
+                call.local_cseq += 1;
+                let mut req = self.base_request(
+                    Method::Invite,
+                    &call.remote_target,
+                    &call.local_uri,
+                    &call.remote_uri,
+                    &call.sip_call_id,
+                    call.local_cseq,
+                    &call.route_set,
+                );
+                self.add_session_timer(&mut req, min_se);
+                req.set_body("application/sdp", call.invite.as_ref().map(|i| i.body.clone()).unwrap_or_default());
+                call.invite_branch = req.via_branch().unwrap_or_default();
+                call.invite = Some(req.clone());
+                let peer = call.peer;
+                events.push(Event::Log { level: "info", message: format!("call {id}: peer wants a {min_se} s session timer") });
+                self.send_request(st, req, peer, Purpose::Invite(id));
             }
             300..=399 if call.redirects < 3 => {
                 let ack = self.non2xx_ack(request, resp);
@@ -2669,6 +2867,19 @@ impl Inner {
                 now.duration_since(tx.created) < TX_TIMEOUT
             });
 
+            // Reliable provisionals are resent until the PRACK arrives (RFC 3262 3), then given up on.
+            for call in st.calls.values_mut() {
+                if let Some((bytes, next, interval, started, _)) = call.pending_1xx.as_mut() {
+                    if now.duration_since(*started) >= TX_TIMEOUT {
+                        call.pending_1xx = None;
+                    } else if !reliable && now >= *next {
+                        let _ = self.transport.send(call.peer, bytes);
+                        *interval = (*interval * 2).min(T2);
+                        *next = now + *interval;
+                    }
+                }
+            }
+
             let mut ack_timeouts = Vec::new();
             for call in st.calls.values_mut() {
                 if let Some((bytes, next, interval, started)) = call.pending_2xx.as_mut() {
@@ -2690,6 +2901,50 @@ impl Inner {
                     self.send_request(st, bye, d, Purpose::Bye(id));
                 }
                 self.terminate(st, id, 408, "ACK timeout", &mut events, &mut stop);
+            }
+
+            // Session timers (RFC 4028): refresh what we own, hang up what the peer stopped refreshing.
+            let mut refresh = Vec::new();
+            let mut session_expired = Vec::new();
+            for call in st.calls.values() {
+                if !call.state.is_established() {
+                    continue;
+                }
+                if call.session_refresh_at.is_some_and(|t| now >= t) {
+                    refresh.push(call.id);
+                } else if call.session_expires_at.is_some_and(|t| now >= t) {
+                    session_expired.push(call.id);
+                }
+            }
+            for id in refresh {
+                if let Some(call) = st.calls.get_mut(&id) {
+                    let expires = call.session_expires.unwrap_or(self.cfg.session_expires).max(1);
+                    call.session_refresh_at = Some(now + Duration::from_secs((expires as u64 / 2).max(1)));
+                    call.session_expires_at = Some(now + Duration::from_secs(expires as u64));
+                    call.session_version += 1;
+                    call.local_cseq += 1;
+                    let direction = match (call.local_hold, call.remote_hold) {
+                        (true, true) => Direction::Inactive,
+                        (true, false) => Direction::SendOnly,
+                        (false, true) => Direction::RecvOnly,
+                        (false, false) => Direction::SendRecv,
+                    };
+                    let sdp = self.local_offer(call, direction);
+                    let mut req = self.dialog_request(call, Method::Invite);
+                    self.add_session_timer(&mut req, expires);
+                    req.set_body("application/sdp", sdp.into_bytes());
+                    let dest = self.dialog_dest(call);
+                    self.send_request(st, req, dest, Purpose::ReInvite(id));
+                }
+            }
+            for id in session_expired {
+                if let Some(call) = st.calls.get_mut(&id) {
+                    call.local_cseq += 1;
+                    let bye = self.dialog_request(call, Method::Bye);
+                    let dest = self.dialog_dest(call);
+                    self.send_request(st, bye, dest, Purpose::Bye(id));
+                }
+                self.terminate(st, id, 408, "session timer expired", &mut events, &mut stop);
             }
 
             // Purge terminated calls after a grace period.
@@ -2946,6 +3201,121 @@ mod tests {
         let (_, keyframe, data) = received.first().expect("callee received a video frame").clone();
         assert!(keyframe, "the frame carries an IDR slice");
         assert_eq!(data, frame);
+        a.hangup(a_call).unwrap();
+        ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("terminated");
+    }
+
+    #[test]
+    fn session_timers_refresh_an_established_call() {
+        // A 4 second session means a refresh every 2 seconds; the standard minimum of 90 would make
+        // this test unbearably slow, so both ends agree on a shorter one.
+        let (mut ca, mut cb) = (cfg("alice"), cfg("bob"));
+        ca.session_expires = 4;
+        ca.min_session_expires = 2;
+        ca.trace_sip = true;
+        cb.session_expires = 4;
+        cb.min_session_expires = 2;
+        let (a, ra, b, rb) = pair(ca, cb);
+        let (a_call, b_call) = establish(&a, &b, &rb, &ra);
+
+        // The caller named itself the refresher, so it re-INVITEs before the session expires.
+        let refreshed = ra.wait_for(6000, |e| {
+            matches!(e, Event::SipTrace { direction: "out", message, .. } if message.starts_with("INVITE") && message.contains("Session-Expires"))
+        });
+        assert!(refreshed.is_some(), "no refreshing re-INVITE was sent");
+        // Both legs survive past the interval: each refresh re-arms the other side's timer.
+        std::thread::sleep(Duration::from_millis(5500));
+        assert_eq!(a.call_info(a_call).unwrap().state, CallState::Connected);
+        assert_eq!(b.call_info(b_call).unwrap().state, CallState::Connected);
+        assert!(ra.wait_for(10, |e| matches!(e, Event::CallState { state: "terminated", .. })).is_none());
+        a.hangup(a_call).unwrap();
+        ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("terminated");
+    }
+
+    #[test]
+    fn a_session_nobody_refreshes_is_hung_up() {
+        // A peer that asks to be the refresher and then goes quiet: the call must not stay up forever.
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        peer.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+        let peer_addr = peer.local_addr().unwrap();
+        let rec = Arc::new(Recorder::default());
+        let ep = Endpoint::start(EndpointConfig { session_expires: 4, min_session_expires: 2, ..cfg("bob") }, rec.clone()).unwrap();
+
+        let sdp = format!(
+            "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\n\
+m=audio {} RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n",
+            peer_addr.port() + 1
+        );
+        let mut invite = SipMessage::request(Method::Invite, &format!("sip:bob@{}", ep.local_address()));
+        invite
+            .add_header("Via", format!("SIP/2.0/UDP {peer_addr};branch=z9hG4bK-timer-1"))
+            .add_header("Max-Forwards", "70")
+            .add_header("From", format!("<sip:mallory@{peer_addr}>;tag=peer-1"))
+            .add_header("To", format!("<sip:bob@{}>", ep.local_address()))
+            .add_header("Call-ID", "session-timer-test")
+            .add_header("CSeq", "1 INVITE")
+            .add_header("Contact", format!("<sip:mallory@{peer_addr}>"))
+            .add_header("Supported", "timer")
+            .add_header("Session-Expires", "2;refresher=uac");
+        invite.set_body("application/sdp", sdp.into_bytes());
+        peer.send_to(&invite.to_bytes(), ep.local_address()).unwrap();
+
+        let call = rec.wait_for_incoming(3000, 0).expect("the INVITE arrives");
+        ep.answer(call).unwrap();
+
+        // Read what comes back: the 200 must require the timer, and a BYE must follow because the
+        // refresher (this peer) never refreshes.
+        let mut buf = [0u8; 4096];
+        let mut required_timer = false;
+        let mut got_bye = false;
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while Instant::now() < deadline && !got_bye {
+            let Ok((n, from)) = peer.recv_from(&mut buf) else { continue };
+            let Ok((msg, _)) = SipMessage::parse(&buf[..n]) else { continue };
+            if msg.method() == Some(&Method::Bye) {
+                got_bye = true;
+                let mut ok = SipMessage::response(200, None);
+                for h in ["Via", "From", "To", "Call-ID", "CSeq"] {
+                    if let Some(v) = msg.header(h) {
+                        ok.add_header(h, v);
+                    }
+                }
+                peer.send_to(&ok.to_bytes(), from).unwrap();
+            } else if msg.status() == Some(200) {
+                required_timer = msg.headers_named("Require").any(|v| v.contains("timer"));
+                assert!(msg.header("Session-Expires").is_some(), "the answer states the session interval");
+                let mut ack = SipMessage::request(Method::Ack, &format!("sip:bob@{}", ep.local_address()));
+                ack.add_header("Via", format!("SIP/2.0/UDP {peer_addr};branch=z9hG4bK-timer-2"))
+                    .add_header("Max-Forwards", "70")
+                    .add_header("From", format!("<sip:mallory@{peer_addr}>;tag=peer-1"))
+                    .add_header("To", msg.header("To").unwrap_or_default())
+                    .add_header("Call-ID", "session-timer-test")
+                    .add_header("CSeq", "1 ACK");
+                peer.send_to(&ack.to_bytes(), from).unwrap();
+            }
+        }
+        assert!(required_timer, "the 200 OK asked for the session timer");
+        assert!(got_bye, "the call was not hung up when nobody refreshed it");
+        let ev = rec.wait_for(2000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("terminated");
+        assert!(matches!(ev, Event::CallState { code: 408, .. }), "{ev:?}");
+    }
+
+    #[test]
+    fn reliable_provisionals_are_acknowledged_with_prack() {
+        let (ca, mut cb) = (cfg("alice"), cfg("bob"));
+        cb.trace_sip = true;
+        let (a, ra, b, rb) = pair(ca, cb);
+        let (a_call, _) = establish(&a, &b, &rb, &ra);
+        let reliable_180 = rb.wait_for(3000, |e| {
+            matches!(e, Event::SipTrace { direction: "out", message, .. } if message.starts_with("SIP/2.0 180") && message.contains("RSeq:"))
+        });
+        assert!(reliable_180.is_some(), "the 180 was not sent reliably");
+        let prack = rb.wait_for(3000, |e| matches!(e, Event::SipTrace { direction: "in", message, .. } if message.starts_with("PRACK")));
+        assert!(prack.is_some(), "no PRACK arrived");
+        assert!(
+            ra.wait_for(10, |e| matches!(e, Event::Log { level: "warn", message } if message.contains("PRACK"))).is_none(),
+            "the PRACK was rejected"
+        );
         a.hangup(a_call).unwrap();
         ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("terminated");
     }

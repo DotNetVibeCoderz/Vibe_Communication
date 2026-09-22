@@ -119,6 +119,18 @@ public sealed class VoipClientOptions
     /// <summary>Audio codecs to offer, in preference order. Supported natively: opus (48 kHz, in-band FEC), G722, PCMU, PCMA, L16.</summary>
     public IList<string> AudioCodecs { get; set; } = ["opus", "G722", "PCMU", "PCMA"];
 
+    /// <summary>Send provisional responses reliably (RFC 3262) to callers that support it. Callers that
+    /// require it always get them reliably.</summary>
+    public bool ReliableProvisional { get; set; } = true;
+
+    /// <summary>Session timer interval in seconds (RFC 4028), or 0 to leave it out. The refresher re-INVITEs
+    /// halfway through, and a call nobody refreshes within the interval is hung up. The standard minimum
+    /// is 90 seconds.</summary>
+    public int SessionExpires { get; set; } = 1800;
+
+    /// <summary>Shortest session timer interval this endpoint accepts (<c>Min-SE</c>); shorter offers get a 422.</summary>
+    public int MinSessionExpires { get; set; } = 90;
+
     /// <summary>Offer and accept a video stream next to the audio one. Frames are packetized, not encoded:
     /// the application supplies and consumes H.264 or VP8 frames itself.</summary>
     public bool Video { get; set; }

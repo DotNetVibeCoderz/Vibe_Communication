@@ -20,6 +20,8 @@
 | `RegisterOnStart` | `false` | Registrasi saat `StartAsync` dan tunggu hasilnya. |
 | `RegisterExpires` | `600` | Masa berlaku yang diminta; di-refresh pada 85%. |
 | `UserAgent` | `Voip.NET/1.0 (Gravicode Studios)` | Header User-Agent / Server. |
+| `SessionExpires`, `MinSessionExpires` | `1800`, `90` | Session timer (RFC 4028) dalam detik; `0` berarti tidak dipakai. Pihak refresher mengirim re-INVITE di tengah interval, dan panggilan yang tidak diperbarui akan ditutup. |
+| `ReliableProvisional` | `true` | Mengirim respons provisional secara reliable (RFC 3262) ke pemanggil yang mendukung 100rel; yang mewajibkannya selalu dilayani reliable. |
 | `AudioCodecs` | `opus, G722, PCMU, PCMA` | Urutan preferensi. Native: opus, G722, PCMU, PCMA, L16. |
 | `Video`, `VideoCodecs` | `false`, `H264, VP8` | Menawarkan stream `m=video` di samping audio; frame di-encode oleh aplikasi. |
 | `Srtp` | `Disabled` | `Disabled`, `Optional`, `Mandatory`. |

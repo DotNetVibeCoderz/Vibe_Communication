@@ -85,6 +85,17 @@ client.MediaNotification += (_, e) =>
 Bandwidth estimation and camera capture are not implemented yet — see
 [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
 
+## Session timers and reliable provisionals
+
+Calls carry a session timer (RFC 4028) by default: `Session-Expires: 1800`, refreshed by a re-INVITE
+halfway through the interval. A call nobody refreshes within the interval is hung up, which is what
+keeps a dialog from outliving a dead peer behind a proxy. Set `SessionExpires = 0` to leave the header
+out; `MinSessionExpires` is the shortest interval accepted, and shorter offers get a 422 naming it.
+
+Provisional responses are sent reliably (RFC 3262) to callers that advertise `100rel`: the 180 carries
+`RSeq` and is resent until the caller PRACKs it. Callers that put `100rel` in `Require` always get
+reliable provisionals; set `ReliableProvisional = false` to answer the rest the plain way.
+
 ## Codecs
 
 | Codec | Payload | Rate | Implementation |

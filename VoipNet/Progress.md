@@ -10,7 +10,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 
 | Suite | Result · Hasil |
 | --- | --- |
-| Rust engine `cargo test --lib` | **93 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
+| Rust engine `cargo test --lib` | **96 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
 | .NET `tests/VoipNet.Tests` | **44 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
 | `dotnet build Voip.Net.slnx -c Release` | 14 projects · proyek, **0 warnings, 0 errors** |
 | Benchmarks · Benchmark | `cargo bench --bench media` on a laptop (20 ms frame): opus encode 550 µs · decode 127 µs, G.722 encode 16 µs · decode 13 µs, G.711 encode 150 ns, SRTP protect 2.6 µs, conference mix-minus 3.7 µs at 50 participants; run in CI to catch breakage · dijalankan di CI |
@@ -35,6 +35,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | --- | --- | --- |
 | REGISTER, INVITE, ACK, BYE, CANCEL, REFER, OPTIONS, INFO, MESSAGE, NOTIFY, UPDATE | ✅ | RFC 3261 transactions and timers · transaksi dan timer |
 | Digest auth (401/407), NAT rport learning, keep-alive | ✅ | |
+| Session timers (RFC 4028), reliable provisionals + PRACK (RFC 3262) | ✅ | `SessionExpires`/`MinSessionExpires` refresh calls by re-INVITE and hang up unrefreshed ones (422 when the offer is shorter than the minimum); a 180 carries `RSeq` and is resent until the caller PRACKs it · memperbarui panggilan lewat re-INVITE dan menutup yang tidak diperbarui; respons 180 dikirim ulang sampai di-PRACK |
 | Transfer blind / attended (Replaces), hold, conferencing, recording | ✅ | |
 | UDP, TCP transports | ✅ | |
 | WebSocket transports `ws`/`wss` (RFC 7118) | ✅ | server and client, `sip` subprotocol, shared TLS stack · server dan client, subprotokol `sip` |
@@ -136,6 +137,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 
 ### Unreleased · Belum dirilis
 
+- SIP session timers (RFC 4028) and reliable provisional responses with PRACK (RFC 3262): calls are refreshed by re-INVITE and hung up when nobody refreshes them, and a 180 is resent until the caller acknowledges it. · Session timer SIP dan respons provisional reliable dengan PRACK: panggilan diperbarui lewat re-INVITE dan ditutup bila tidak ada yang memperbaruinya.
 - RTCP sender and receiver reports with report blocks: `CallStatistics` gains `RoundTripMs`, `RemoteLossPercent` and `RemoteJitterMs`, and the CLI shows them. · Report RTCP dengan report block; statistik panggilan menampilkan RTT dan laporan dari lawan.
 - Opus adapts to those reports (lower bitrate and more FEC as loss rises) and supports DTX through `OpusDtx`. · Opus menyesuaikan diri dengan laporan itu dan mendukung DTX.
 - RTCP XR VoIP metrics (RFC 3611) in both directions; `CallStatistics.RemoteMos` is what the peer hears. · Metrik VoIP RTCP XR dua arah; `RemoteMos` adalah MOS di sisi lawan.
