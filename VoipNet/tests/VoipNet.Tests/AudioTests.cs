@@ -101,10 +101,12 @@ public sealed class AudioTests
         await using var pair = await LoopbackPair.ConnectAsync();
         var path = Path.Combine(Path.GetTempPath(), $"voipnet-rec-{Guid.NewGuid():N}.mp3");
         var recorder = CallRecorder.Start(pair.CalleeLeg, path, RecordingFormat.Mp3, RecordingLayout.Mono);
-        pair.CallerLeg.SendAudio(TestHelpers.Tone(16000, 600), 16000);
-        var heard = await TestHelpers.ReceivedAudioAsync(pair.CalleeLeg, 500);
+        // Only one side is talking, and the recorder pairs the two directions: it starts writing once
+        // the silent side has been padded, which happens half a second in. Send well past that.
+        pair.CallerLeg.SendAudio(TestHelpers.Tone(16000, 1500), 16000);
+        var heard = await TestHelpers.ReceivedAudioAsync(pair.CalleeLeg, 900);
         recorder.Dispose();
-        Assert.True(heard >= 500, $"only {heard} ms of audio arrived");
+        Assert.True(heard >= 900, $"only {heard} ms of audio arrived");
 
         Assert.True(File.Exists(recorder.Path));
         Assert.True(new FileInfo(recorder.Path).Length > 1000);

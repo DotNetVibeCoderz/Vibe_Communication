@@ -8,7 +8,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>voipnet</ToolCommandName>
     <PackageId>VoipNet.Cli</PackageId>
-    <Description>Voip.NET command line tools: SIP tester (ping, register, call, listen, message) and RTP analyzer for captures and live streams.</Description>
+    <Description>Voip.NET command line tools: SIP tester (ping, register, call, listen, message), load generator and RTP analyzer for captures and live streams.</Description>
   </PropertyGroup>
 
   <ItemGroup>

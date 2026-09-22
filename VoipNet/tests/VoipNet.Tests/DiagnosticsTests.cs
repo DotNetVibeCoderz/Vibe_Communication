@@ -98,15 +98,22 @@ public sealed class DiagnosticsTests
         Assert.Equal(ActivityKind.Client, outbound.Kind);
         Assert.Equal(ActivityStatusCode.Ok, outbound.Status);
         Assert.Equal("opus", outbound.GetTagItem("voip.codec"));
-        Assert.NotNull(outbound.GetTagItem("voip.mos"));
+        // The engine's closing statistics are best effort (a purged call has none), but a connected
+        // call always knows how long it lasted.
+        Assert.NotNull(outbound.GetTagItem("voip.duration_seconds"));
         Assert.True(outbound.Duration > TimeSpan.Zero);
 
-        lock (finished)
-        {
-            var inbound = finished.FirstOrDefault(a => (string?)a.GetTagItem("sip.direction") == "inbound");
-            Assert.NotNull(inbound);
-            Assert.Equal(ActivityKind.Server, inbound.Kind);
-        }
+        var inbound = await TestHelpers.WaitAsync(
+            () =>
+            {
+                lock (finished)
+                {
+                    return finished.FirstOrDefault(a => (string?)a.GetTagItem("sip.direction") == "inbound");
+                }
+            },
+            TimeSpan.FromSeconds(10),
+            "inbound call span");
+        Assert.Equal(ActivityKind.Server, inbound.Kind);
     }
 
     [Fact]

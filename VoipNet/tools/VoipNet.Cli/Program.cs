@@ -5,4 +5,5 @@ var root = new RootCommand("Voip.NET tools — SIP tester and RTP analyzer. Made
 root.Subcommands.Add(VersionCommand.Create());
 root.Subcommands.Add(SipCommands.Create());
 root.Subcommands.Add(RtpCommands.Create());
+root.Subcommands.Add(LoadCommands.Create());
 return await root.Parse(args).InvokeAsync();

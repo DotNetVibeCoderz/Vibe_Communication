@@ -17,6 +17,7 @@ voipnet --help
 | `voipnet sip call <uri> [--duration 10] [--tone 440] [--dtmf 123] [--record out.wav] [--register]` | panggilan uji dengan pemantauan MOS, loss, jitter secara langsung |
 | `voipnet sip listen [--sip-port 5060] [--echo]` | menjawab panggilan; `--echo` menjadikannya layanan uji gema |
 | `voipnet sip message <uri> "teks"` | mengirim SIP MESSAGE |
+| `voipnet load <uri> [-n 20] [--concurrency 4] [--cps 2] [--duration 5]` | membuat panggilan dengan laju tetap dan melaporkan waktu setup, kegagalan, serta kualitas media |
 | `voipnet rtp analyze capture.pcap [--json]` | loss, jitter, urutan, dan MOS setiap stream RTP dalam capture |
 | `voipnet rtp listen --port 40000 [--seconds 30]` | menerima RTP pada port dan menganalisisnya secara langsung |
 
@@ -38,6 +39,30 @@ Connected codec G722 @ 16000 Hz
 │ Jitter                  │          0.2 ms │
 ╰─────────────────────────┴─────────────────╯
 ```
+
+Contoh — 50 panggilan, 5 per detik, 10 sekaligus:
+
+```bash
+voipnet load sip:echo@pbx.contoh.co.id -n 50 --cps 5 --concurrency 10 --duration 8
+```
+
+```
+╭───────────────────────┬────────────────────╮
+│ Calls placed          │ 50                 │
+│ Connected             │ 50                 │
+│ Failed                │ 0                  │
+│ Achieved rate         │ 4.91 calls/s       │
+│ Peak concurrent       │ 10                 │
+│ Setup p50 / p95 / max │ 112 / 186 / 233 ms │
+│ MOS (average)         │ 4.31               │
+│ Packet loss (average) │ 0.04 %             │
+╰───────────────────────┴────────────────────╯
+```
+
+Laju yang tercapai adalah yang benar-benar diterima lawan: batas konkurensi dan durasi panggilan
+menahannya, jadi laju di bawah permintaan berarti panggilan mengantre di batas itu. Perintah ini
+keluar dengan kode bukan nol bila ada panggilan yang gagal, sesuai kebutuhan job CI. MOS hanya terisi
+bila target mengirim audio balik — arahkan ke layanan echo atau IVR, bukan ke yang menjawab tanpa suara.
 
 ## Diagnostik di kode
 

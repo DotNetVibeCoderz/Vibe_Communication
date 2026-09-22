@@ -17,6 +17,7 @@ voipnet --help
 | `voipnet sip call <uri> [--duration 10] [--tone 440] [--dtmf 123] [--record out.wav] [--register]` | place a test call and watch MOS, loss, jitter live |
 | `voipnet sip listen [--sip-port 5060] [--echo]` | answer calls; `--echo` turns it into an echo test service |
 | `voipnet sip message <uri> "text"` | send a SIP MESSAGE |
+| `voipnet load <uri> [-n 20] [--concurrency 4] [--cps 2] [--duration 5]` | place calls at a steady rate and report setup times, failures and media quality |
 | `voipnet rtp analyze capture.pcap [--json]` | loss, jitter, ordering and MOS for every RTP stream in a capture |
 | `voipnet rtp listen --port 40000 [--seconds 30]` | receive RTP on a port and analyse it live |
 
@@ -38,6 +39,30 @@ Connected codec G722 @ 16000 Hz
 │ Jitter                  │          0.2 ms │
 ╰─────────────────────────┴─────────────────╯
 ```
+
+Example — 50 calls at 5 per second, 10 at a time:
+
+```bash
+voipnet load sip:echo@pbx.example.com -n 50 --cps 5 --concurrency 10 --duration 8
+```
+
+```
+╭───────────────────────┬────────────────────╮
+│ Calls placed          │ 50                 │
+│ Connected             │ 50                 │
+│ Failed                │ 0                  │
+│ Achieved rate         │ 4.91 calls/s       │
+│ Peak concurrent       │ 10                 │
+│ Setup p50 / p95 / max │ 112 / 186 / 233 ms │
+│ MOS (average)         │ 4.31               │
+│ Packet loss (average) │ 0.04 %             │
+╰───────────────────────┴────────────────────╯
+```
+
+The achieved rate is what the far end really saw: concurrency and call duration cap it, so a rate
+below the one you asked for means calls were queueing behind the limit. The command exits non-zero
+when any call failed, which is what a CI job wants. MOS is only scored when the target sends audio
+back — point the run at an echo service or an IVR, not at something that answers in silence.
 
 ## Diagnostics in code
 

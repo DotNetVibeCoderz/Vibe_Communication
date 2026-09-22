@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\src\VoipNet.Audio\VoipNet.Audio.csproj" />
     <ProjectReference Include="..\..\src\VoipNet.AI\VoipNet.AI.csproj" />
     <ProjectReference Include="..\..\src\VoipNet.Enterprise\VoipNet.Enterprise.csproj" />
+    <ProjectReference Include="..\..\tools\VoipNet.Cli\VoipNet.Cli.csproj" />
   </ItemGroup>
 
 </Project>
