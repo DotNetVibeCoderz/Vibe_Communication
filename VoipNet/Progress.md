@@ -11,7 +11,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | Suite | Result · Hasil |
 | --- | --- |
 | Rust engine `cargo test --lib` | **103 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
-| .NET `tests/VoipNet.Tests` | **65 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
+| .NET `tests/VoipNet.Tests` | **71 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
 | `dotnet build Voip.Net.slnx -c Release` | 14 projects · proyek, **0 warnings, 0 errors** |
 | Benchmarks · Benchmark | `cargo bench --bench media` on a laptop (20 ms frame): opus encode 550 µs · decode 127 µs, G.722 encode 16 µs · decode 13 µs, G.711 encode 150 ns, SRTP protect 2.6 µs, conference mix-minus 3.7 µs at 50 participants; run in CI to catch breakage · dijalankan di CI |
 | CLI end-to-end · ujung ke ujung | `sip listen --echo` ↔ `sip call --dtmf 123 --pcap`: MOS 4.38, all DTMF received · semua DTMF diterima |
@@ -87,6 +87,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 | Realtime models | ✅ | `RealtimeVoiceAgent`, GA and beta protocols, OpenAI and Azure OpenAI; verified live on a call with Azure `gpt-realtime-2.1-mini` (greeting, then an answer to the caller's speech via server VAD) · diuji langsung pada panggilan dengan Azure |
 | Kernel / AI functions (Semantic Kernel, Microsoft.Extensions.AI) | ✅ | call-control tools, CRM tools |
 | audio → STT → LLM → TTS → RTP loop, barge-in | ✅ | `VoiceAgent` |
+| Semantic turn detection | ✅ | `ITurnDetector`/`SemanticTurnDetector` holds the answer while a caller is mid-sentence and joins the parts, with a grace timeout and fail-open behaviour · menahan jawaban selama penelepon belum selesai, dengan batas waktu |
 | Context persistence, hand-off | ✅ | conversation stores, `HandOffAsync`, `transfer_call` |
 | Agent assist | ✅ | `AgentAssist` transcribes a live call (both directions optionally) and suggests replies for a human agent after every caller sentence, rate limited and grounded in the knowledge it is given · transkrip langsung dan saran balasan untuk agent manusia |
 | Post-call analytics | ✅ | `CallAnalyzer`: summary, caller sentiment, topics, action items and a QA score against a configurable checklist, from a recording (transcribed first), a transcript, or an agent's turns; verified live with Azure OpenAI · dari rekaman, transkrip, atau percakapan agent; diuji langsung |
@@ -144,6 +145,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 
 ### Unreleased · Belum dirilis
 
+- Semantic turn detection: the agent can ask a small model whether the caller has finished speaking instead of trusting silence, joining "my number is…" and what follows into one question. · Deteksi akhir ucapan berbasis model, bukan sekadar jeda.
 - Queue callbacks and estimated wait time: a caller can keep their place and hang up, and the service rings them back when their turn comes and an agent is free (`RequestCallback`, `PendingCallbacks`, `EstimatedWait`). · Callback antrean dan estimasi waktu tunggu.
 - Azure AI Speech (recognition and neural voices), Cartesia and Deepgram Aura (synthesis) join the speech providers, with `AddAzureSpeech` and `AddCartesiaTextToSpeech` for dependency injection. · Azure AI Speech dan Cartesia ditambahkan sebagai provider suara.
 - Agent assist (`AgentAssist`): a live transcript plus suggested replies for a human agent, offered after each caller sentence and never sent to the caller. · Agent assist: transkrip langsung dan saran balasan untuk agent manusia.

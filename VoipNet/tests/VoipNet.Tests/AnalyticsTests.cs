@@ -32,6 +32,29 @@ internal sealed class ScriptedChatClient(string answer) : IChatClient
     }
 }
 
+
+/// <summary>A model that takes longer than anyone is willing to wait.</summary>
+internal sealed class SlowChatClient(TimeSpan delay) : IChatClient
+{
+    public async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        await Task.Delay(delay, cancellationToken);
+        return new ChatResponse(new ChatMessage(ChatRole.Assistant, "YES"));
+    }
+
+    public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await Task.Delay(delay, cancellationToken);
+        yield return new ChatResponseUpdate(ChatRole.Assistant, "YES");
+    }
+
+    public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+    public void Dispose()
+    {
+    }
+}
+
 public sealed class AnalyticsTests
 {
     private const string Transcript = """
@@ -169,5 +192,28 @@ public sealed class AnalyticsTests
         {
             Assert.Equal("Halo, ada yang bisa dibantu?", suggestions[0].Text);
         }
+    }
+
+    [Theory]
+    [InlineData("YES", true)]
+    [InlineData("yes.", true)]
+    [InlineData("NO", false)]
+    [InlineData("No, the caller is still reading a number.", false)]
+    public async Task TheSemanticTurnDetectorReadsAOneWordAnswer(string answer, bool complete)
+    {
+        var detector = new SemanticTurnDetector(new ScriptedChatClient(answer));
+
+        Assert.Equal(complete, await detector.IsCompleteAsync("nomor saya delapan", []));
+    }
+
+    [Fact]
+    public async Task TheTurnDetectorFailsOpenWhenTheModelDoesNot()
+    {
+        // A model that never answers must not leave the caller listening to silence.
+        var detector = new SemanticTurnDetector(
+            new SlowChatClient(TimeSpan.FromSeconds(30)),
+            new SemanticTurnDetectorOptions { Timeout = TimeSpan.FromMilliseconds(100) });
+
+        Assert.True(await detector.IsCompleteAsync("halo", []));
     }
 }

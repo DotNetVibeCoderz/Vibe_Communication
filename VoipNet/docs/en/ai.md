@@ -128,6 +128,25 @@ How it behaves:
 
 With DI, `AddVoiceAgent` registers a `VoiceAgentFactory` that builds one agent per call with per-call adjustments.
 
+### Knowing when the caller has finished
+
+A recogniser ends an utterance on silence, and silence is a poor judge: "my number is…" and "yes" both
+end in one. Give the agent a turn detector and it asks a model whether the sentence is finished before
+answering:
+
+```csharp
+var options = new VoiceAgentOptions
+{
+    TurnDetector = new SemanticTurnDetector(fastChatClient),   // a small, quick model
+    TurnGrace = TimeSpan.FromSeconds(3),
+};
+```
+
+While the detector says the caller is not done, what they said is held and the next sentence is added to
+it, so the model finally sees "my number is 0812 3456 7890" as one question. If nothing more arrives
+within `TurnGrace`, the agent answers anyway — a wrong judgement costs a pause, not the call — and a
+detector that errors or runs long is treated as "the caller is done" for the same reason.
+
 ## RealtimeVoiceAgent
 
 ```csharp

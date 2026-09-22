@@ -52,6 +52,19 @@ public sealed class VoiceAgentOptions
 
     /// <summary>Number of previous turns to restore from the store when a caller returns.</summary>
     public int RestoreTurns { get; set; } = 20;
+
+    /// <summary>
+    /// Decides whether the caller has finished speaking, on top of the recogniser's own silence
+    /// detection. Leave it null to answer every final segment, which is what a recogniser's endpointing
+    /// already means.
+    /// </summary>
+    public ITurnDetector? TurnDetector { get; set; }
+
+    /// <summary>
+    /// How long to wait for the rest of a sentence the turn detector judged unfinished. When nothing
+    /// more arrives the agent answers anyway, so a wrong judgement costs a pause, not the call.
+    /// </summary>
+    public TimeSpan TurnGrace { get; set; } = TimeSpan.FromSeconds(3);
 }
 
 /// <summary>Something the agent or the caller said.</summary>

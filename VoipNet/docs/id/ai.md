@@ -128,6 +128,25 @@ Perilakunya:
 
 Dengan DI, `AddVoiceAgent` mendaftarkan `VoiceAgentFactory` yang membuat satu agen per panggilan dengan penyesuaian per panggilan.
 
+### Mengetahui kapan penelepon selesai bicara
+
+Pengenal suara mengakhiri ucapan saat ada jeda, dan jeda bukan penilai yang baik: "nomor saya…" dan "ya"
+sama-sama diikuti jeda. Beri agent sebuah turn detector, dan sebelum menjawab ia menanyakan ke model
+apakah kalimatnya sudah selesai:
+
+```csharp
+var options = new VoiceAgentOptions
+{
+    TurnDetector = new SemanticTurnDetector(fastChatClient),   // model kecil dan cepat
+    TurnGrace = TimeSpan.FromSeconds(3),
+};
+```
+
+Selama detector menilai penelepon belum selesai, ucapannya ditahan dan kalimat berikutnya digabungkan,
+sehingga model akhirnya menerima "nomor saya 0812 3456 7890" sebagai satu pertanyaan. Bila tidak ada
+lanjutan dalam `TurnGrace`, agent tetap menjawab — penilaian yang keliru hanya berbiaya jeda, bukan
+panggilan — dan detector yang error atau terlalu lama dianggap menjawab "penelepon sudah selesai".
+
 ## RealtimeVoiceAgent
 
 ```csharp

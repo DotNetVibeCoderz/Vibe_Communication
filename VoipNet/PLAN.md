@@ -33,7 +33,6 @@ Today H.264, VP8 and VP9 are negotiated as pass-through payloads only. This mile
 
 - Amazon Transcribe streaming (event-stream over HTTP/2, SigV4). · Amazon Transcribe streaming.
 - Live verification suite for every speech provider (opt-in keys). · Uji langsung setiap provider suara.
-- Semantic turn detection (end-of-utterance model) in addition to VAD. · Deteksi akhir ucapan berbasis semantik.
 - Realtime agent for Gemini Live (OpenAI and Azure OpenAI realtime are done). · Agen realtime Gemini Live.
 
 ## 1.5 — Contact centre · Contact center

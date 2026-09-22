@@ -100,6 +100,55 @@ internal sealed class EchoChatClient : IChatClient
 
 public sealed class AgentTests
 {
+    /// <summary>A detector the test drives: the first pause is mid-thought, the second is the end.</summary>
+    private sealed class ScriptedTurnDetector(params bool[] answers) : ITurnDetector
+    {
+        public List<string> Seen { get; } = [];
+
+        public Task<bool> IsCompleteAsync(string utterance, IReadOnlyList<ConversationTurn> history, CancellationToken cancellationToken = default)
+        {
+            Seen.Add(utterance);
+            var index = Math.Min(Seen.Count - 1, answers.Length - 1);
+            return Task.FromResult(answers[index]);
+        }
+    }
+
+    [Fact]
+    public async Task ATurnDetectorHoldsTheAnswerUntilTheCallerFinishes()
+    {
+        await using var pair = await LoopbackPair.ConnectAsync("customer", "agent");
+        var chat = new EchoChatClient();
+        var detector = new ScriptedTurnDetector(false, true);
+        await using var agent = new VoiceAgent(chat, new ScriptedSpeechToText("nomor saya", "delapan satu dua"), new ToneTextToSpeech(), new VoiceAgentOptions
+        {
+            SilencePrompt = TimeSpan.Zero,
+            SilenceHangup = TimeSpan.Zero,
+            EnableCallControlTools = false,
+            TurnDetector = detector,
+            TurnGrace = TimeSpan.FromSeconds(30),   // long enough that only the second sentence ends the turn
+        });
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+        var run = agent.RunAsync(pair.CalleeLeg, cts.Token);
+
+        // First half of the sentence: the detector says the caller is not done, so nothing is answered.
+        pair.CallerLeg.SendAudio(TestHelpers.Tone(16000, 700, 300, 7000), 16000);
+        await TestHelpers.WaitUntilAsync(() => detector.Seen.Count == 1, TimeSpan.FromSeconds(10), "first judgement");
+        await Task.Delay(500);
+        Assert.Empty(chat.Prompts);
+
+        // Second half arrives; the agent answers the whole sentence at once.
+        pair.CallerLeg.SendAudio(TestHelpers.Tone(16000, 700, 300, 7000), 16000);
+        await TestHelpers.WaitUntilAsync(() => chat.Prompts.Count == 1, TimeSpan.FromSeconds(10), "agent answer");
+
+        Assert.Equal("nomor saya delapan satu dua", chat.Prompts[0]);
+        Assert.Equal(["nomor saya", "nomor saya delapan satu dua"], detector.Seen);
+        Assert.Contains(agent.Turns, t => t.Role == "user" && t.Text == "nomor saya delapan satu dua");
+
+        await pair.CallerLeg.HangupAsync();
+        await run.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
     [Fact]
     public async Task VoiceAgentGreetsListensAndAnswers()
     {

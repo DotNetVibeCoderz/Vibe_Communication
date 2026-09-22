@@ -134,14 +134,81 @@ public sealed class VoiceAgent : IAsyncDisposable
             }, CancellationToken.None);
         }
 
-        async Task CancelTurnAsync()
+        // Everything the caller has said since the agent last spoke, which may span several pauses.
+        var pending = string.Empty;
+        Task grace = Task.CompletedTask;
+        CancellationTokenSource? graceCancellation = null;
+
+        void StartGrace(Func<CancellationToken, Task> work)
         {
-            if (turnCancellation is { } cancellation)
+            graceCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+            var token = graceCancellation.Token;
+            grace = Task.Run(async () =>
+            {
+                try
+                {
+                    await work(token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // The caller carried on talking, or the call ended.
+                }
+            }, CancellationToken.None);
+        }
+
+        async Task CancelGraceAsync()
+        {
+            if (graceCancellation is { } cancellation)
             {
                 await cancellation.CancelAsync().ConfigureAwait(false);
-                await turn.ConfigureAwait(false);
+                await grace.ConfigureAwait(false);
                 cancellation.Dispose();
-                turnCancellation = null;
+                graceCancellation = null;
+            }
+        }
+
+        // The grace timer answers from its own task, so starting a turn is serialised with the loop.
+        var turnLock = new SemaphoreSlim(1, 1);
+
+        async Task AnswerAsync(string said)
+        {
+            await turnLock.WaitAsync(lifetime.Token).ConfigureAwait(false);
+            try
+            {
+                pending = string.Empty;
+                Record("user", said);
+                StartTurn(async token =>
+                {
+                    await RespondAsync(said, token).ConfigureAwait(false);
+                    if (ShouldHangUp)
+                    {
+                        await WaitUntilSpokenAsync(token).ConfigureAwait(false);
+                        call.Hangup();
+                    }
+                });
+            }
+            finally
+            {
+                turnLock.Release();
+            }
+        }
+
+        async Task CancelTurnAsync()
+        {
+            await turnLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                if (turnCancellation is { } cancellation)
+                {
+                    await cancellation.CancelAsync().ConfigureAwait(false);
+                    await turn.ConfigureAwait(false);
+                    cancellation.Dispose();
+                    turnCancellation = null;
+                }
+            }
+            finally
+            {
+                turnLock.Release();
             }
         }
 
@@ -195,18 +262,28 @@ public sealed class VoiceAgent : IAsyncDisposable
 
                 // A new utterance supersedes whatever the agent was still doing.
                 await CancelTurnAsync().ConfigureAwait(false);
+                await CancelGraceAsync().ConfigureAwait(false);
                 CallerSaid?.Invoke(this, segment.Text);
-                Record("user", segment.Text);
-                var said = segment.Text;
-                StartTurn(async token =>
+                pending = pending.Length == 0 ? segment.Text : $"{pending} {segment.Text}";
+
+                // The recogniser stops at silence; the turn detector decides whether that silence was
+                // the end of a thought or a pause in the middle of one.
+                if (_options.TurnDetector is { } detector && !await detector.IsCompleteAsync(pending, _turns, lifetime.Token).ConfigureAwait(false))
                 {
-                    await RespondAsync(said, token).ConfigureAwait(false);
-                    if (ShouldHangUp)
+                    var waiting = pending;
+                    StartGrace(async token =>
                     {
-                        await WaitUntilSpokenAsync(token).ConfigureAwait(false);
-                        call.Hangup();
-                    }
-                });
+                        await Task.Delay(_options.TurnGrace, token).ConfigureAwait(false);
+                        // Nothing else came: answer what we have rather than leave the caller hanging.
+                        if (pending == waiting)
+                        {
+                            await AnswerAsync(waiting).ConfigureAwait(false);
+                        }
+                    });
+                    continue;
+                }
+
+                await AnswerAsync(pending).ConfigureAwait(false);
             }
 
             // Recognition ended (for example the audio stream closed): let the last answer finish.
@@ -222,6 +299,8 @@ public sealed class VoiceAgent : IAsyncDisposable
             StopSpeaking();
             await lifetime.CancelAsync().ConfigureAwait(false);
             await turn.ConfigureAwait(false);
+            await grace.ConfigureAwait(false);
+            graceCancellation?.Dispose();
             turnCancellation?.Dispose();
             await watchdog.ConfigureAwait(false);
             await PersistHistoryAsync(key).ConfigureAwait(false);
