@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using Microsoft.Extensions.AI;
 using VoipNet.AI.Agents;
 using VoipNet.AI.Analytics;
+using VoipNet.AI.Speech;
 using Xunit;
 
 namespace VoipNet.Tests;
@@ -110,5 +111,63 @@ public sealed class AnalyticsTests
     {
         var analyzer = new CallAnalyzer(new ScriptedChatClient("{}"));
         await Assert.ThrowsAsync<InvalidOperationException>(() => analyzer.AnalyzeRecordingAsync("call.wav"));
+    }
+
+    [Fact]
+    public async Task AgentAssistTranscribesTheCallerAndSuggestsReplies()
+    {
+        await using var pair = await LoopbackPair.ConnectAsync("customer", "human-agent");
+        var chat = new ScriptedChatClient("""
+            {"suggestions": [
+              {"text": "Saya cek dulu status pesanannya ya, Pak.", "reason": "caller asked about an order"},
+              {"text": "Boleh saya minta nomor pesanannya?", "reason": "the order number is missing"}
+            ]}
+            """);
+        var assist = new AgentAssist(chat, new ScriptedSpeechToText("pesanan saya di mana"), new AgentAssistOptions
+        {
+            Language = "Indonesian",
+            MinimumInterval = TimeSpan.Zero,
+            Knowledge = "Pengiriman reguler 2-3 hari kerja.",
+        });
+
+        var lines = new List<TranscriptLine>();
+        IReadOnlyList<AssistSuggestion> suggestions = [];
+        assist.TranscriptUpdated += (_, line) => { lock (lines) lines.Add(line); };
+        assist.SuggestionsUpdated += (_, s) => suggestions = s;
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var run = assist.RunAsync(pair.CalleeLeg, cts.Token);
+        pair.CallerLeg.SendAudio(TestHelpers.Tone(16000, 700, 500), 16000);
+
+        await TestHelpers.WaitAsync(() => suggestions.Count > 0 ? "ready" : null, TimeSpan.FromSeconds(15), "suggestions");
+        await pair.CallerLeg.HangupAsync();
+        await run;
+
+        Assert.Equal(2, suggestions.Count);
+        Assert.Equal("Saya cek dulu status pesanannya ya, Pak.", suggestions[0].Text);
+        Assert.Contains("order", suggestions[0].Reason);
+        lock (lines)
+        {
+            Assert.Contains(lines, l => l is { Speaker: "caller", IsFinal: true, Text: "pesanan saya di mana" });
+        }
+
+        Assert.Contains(assist.Transcript, t => t.Role == "user" && t.Text == "pesanan saya di mana");
+        // The knowledge and the transcript both reach the model, and nothing is sent to the caller.
+        Assert.Contains("Pengiriman reguler", chat.Prompts[0]);
+        Assert.Contains("Caller: pesanan saya di mana", chat.Prompts[1]);
+    }
+
+    [Theory]
+    [InlineData("""["Halo, ada yang bisa dibantu?", "Boleh minta nomor pesanan?"]""", 2)]
+    [InlineData("- Halo, ada yang bisa dibantu?\n- Boleh minta nomor pesanan?", 2)]
+    [InlineData("", 0)]
+    public void SuggestionsAreReadFromWhateverShapeTheModelReturns(string answer, int expected)
+    {
+        var suggestions = AgentAssist.ParseSuggestions(answer, 5);
+        Assert.Equal(expected, suggestions.Count);
+        if (expected > 0)
+        {
+            Assert.Equal("Halo, ada yang bisa dibantu?", suggestions[0].Text);
+        }
     }
 }

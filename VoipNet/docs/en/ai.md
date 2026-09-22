@@ -182,6 +182,30 @@ The model is asked for JSON and the answer is read leniently: a fenced block, a 
 a score written as text all still produce a usable analysis, and a field the model leaves out keeps its
 default instead of failing the report.
 
+## Agent assist
+
+`AgentAssist` sits beside a human agent: it writes the transcript as the call goes on and, whenever the
+caller finishes a sentence, offers replies the agent can read out or ignore. Nothing it produces reaches
+the caller.
+
+```csharp
+var assist = new AgentAssist(chat, speechToText, new AgentAssistOptions
+{
+    Language = "Indonesian",
+    Knowledge = "Pengiriman reguler 2-3 hari kerja. Retur dalam 7 hari.",
+    SuggestionCount = 3,
+});
+
+assist.TranscriptUpdated += (_, line) => view.Append(line.Speaker, line.Text, line.IsFinal);
+assist.SuggestionsUpdated += (_, suggestions) => view.Show(suggestions);
+await assist.RunAsync(call, cancellationToken);
+```
+
+Interim lines arrive while the caller is still speaking, so the transcript keeps up with the call; only
+finished sentences go to the model, and no more often than `MinimumInterval`. `TranscribeAgent` adds a
+second recognition stream for the agent's own side, which costs another provider connection but gives
+the model both halves of the conversation. The turns it collects feed `CallAnalyzer` when the call ends.
+
 ## Choosing an approach
 
 | Need | Use |

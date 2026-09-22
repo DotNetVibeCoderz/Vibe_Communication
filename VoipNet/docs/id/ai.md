@@ -183,6 +183,31 @@ Model diminta menjawab dalam JSON dan jawabannya dibaca secara longgar: blok ber
 atau skor yang ditulis sebagai teks tetap menghasilkan analisis yang bisa dipakai, dan field yang tidak
 diisi model memakai nilai bawaan alih-alih menggagalkan laporan.
 
+## Agent assist
+
+`AgentAssist` mendampingi agent manusia: menuliskan transkrip selama panggilan berlangsung dan, setiap
+kali penelepon selesai bicara, menawarkan kalimat balasan yang boleh dipakai atau diabaikan agent. Tidak
+ada satu pun keluarannya yang dikirim ke penelepon.
+
+```csharp
+var assist = new AgentAssist(chat, speechToText, new AgentAssistOptions
+{
+    Language = "Indonesian",
+    Knowledge = "Pengiriman reguler 2-3 hari kerja. Retur dalam 7 hari.",
+    SuggestionCount = 3,
+});
+
+assist.TranscriptUpdated += (_, line) => view.Append(line.Speaker, line.Text, line.IsFinal);
+assist.SuggestionsUpdated += (_, suggestions) => view.Show(suggestions);
+await assist.RunAsync(call, cancellationToken);
+```
+
+Baris sementara muncul saat penelepon masih bicara sehingga transkrip mengikuti percakapan; hanya
+kalimat yang sudah selesai yang dikirim ke model, dan tidak lebih sering dari `MinimumInterval`.
+`TranscribeAgent` menambah satu aliran pengenalan untuk sisi agent — biayanya satu koneksi provider
+lagi, tetapi model jadi melihat kedua sisi percakapan. Transkrip yang terkumpul bisa langsung diberikan
+ke `CallAnalyzer` saat panggilan selesai.
+
 ## Memilih pendekatan
 
 | Kebutuhan | Gunakan |
