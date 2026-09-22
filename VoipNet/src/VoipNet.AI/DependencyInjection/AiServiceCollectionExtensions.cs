@@ -86,6 +86,20 @@ public static class AiServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>Registers Deepgram Aura for synthesis.</summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configure">Configures the provider.</param>
+    public static IServiceCollection AddDeepgramTextToSpeech(this IServiceCollection services, Action<DeepgramOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configure);
+        var options = new DeepgramOptions();
+        configure(options);
+        services.AddHttpClient(nameof(DeepgramTextToSpeech));
+        services.AddSingleton<ITextToSpeech>(sp => new DeepgramTextToSpeech(options, Http(sp, nameof(DeepgramTextToSpeech))));
+        return services;
+    }
+
     /// <summary>Registers Azure AI Speech for transcription and neural synthesis.</summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configure">Configures the provider.</param>

@@ -30,6 +30,58 @@ public sealed class DeepgramOptions
 
     /// <summary>Batch endpoint used by <see cref="ISpeechToText.TranscribeOnceAsync"/>.</summary>
     public Uri BatchUri { get; set; } = new("https://api.deepgram.com/v1/listen");
+
+    /// <summary>Synthesis endpoint for Aura voices.</summary>
+    public Uri SpeakUri { get; set; } = new("https://api.deepgram.com/v1/speak");
+
+    /// <summary>Aura voice, for example <c>aura-2-thalia-en</c>.</summary>
+    public string Voice { get; set; } = "aura-2-thalia-en";
+}
+
+/// <summary>
+/// Speech synthesis with Deepgram Aura. The service returns raw little-endian PCM at the rate that
+/// was asked for, so the audio goes straight onto a call.
+/// </summary>
+/// <param name="options">Provider settings.</param>
+/// <param name="httpClient">HTTP client to use.</param>
+public sealed class DeepgramTextToSpeech(DeepgramOptions options, HttpClient? httpClient = null) : ITextToSpeech
+{
+    private readonly HttpClient _http = httpClient ?? new HttpClient();
+
+    /// <inheritdoc/>
+    public string Name => "Deepgram Aura";
+
+    /// <inheritdoc/>
+    public int PreferredSampleRate => 24000;
+
+    /// <inheritdoc/>
+    public async IAsyncEnumerable<AudioChunk> SynthesizeAsync(
+        string text,
+        SpeechSynthesisOptions? ttsOptions = null,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        var rate = ttsOptions?.SampleRate ?? PreferredSampleRate;
+        var voice = ttsOptions?.Voice ?? ttsOptions?.Model ?? options.Voice;
+        var uri = new UriBuilder(options.SpeakUri)
+        {
+            Query = $"model={Uri.EscapeDataString(voice)}&encoding=linear16&sample_rate={rate}",
+        }.Uri;
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, uri)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(new { text }), Encoding.UTF8, "application/json"),
+        };
+        request.Headers.TryAddWithoutValidation("Authorization", $"Token {options.ApiKey}");
+
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        await response.EnsureSuccessAsync(Name, cancellationToken).ConfigureAwait(false);
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        await foreach (var chunk in PcmStream.ReadChunksAsync(stream, rate, cancellationToken).ConfigureAwait(false))
+        {
+            yield return chunk;
+        }
+    }
 }
 
 /// <summary>

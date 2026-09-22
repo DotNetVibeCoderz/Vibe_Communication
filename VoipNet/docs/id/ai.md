@@ -80,7 +80,7 @@ Audio selalu PCM 16-bit mono; engine yang mengonversi sample rate.
 
 | Provider | STT | TTS | Catatan |
 | --- | --- | --- | --- |
-| Deepgram | `DeepgramSpeechToText` — streaming web socket dengan hasil sementara | — | latensi barge-in terendah |
+| Deepgram | `DeepgramSpeechToText` — streaming web socket dengan hasil sementara | `DeepgramTextToSpeech` (Aura, PCM mentah, streaming) | latensi barge-in terendah |
 | OpenAI | `OpenAiSpeechToText` | `OpenAiTextToSpeech` (PCM 24 kHz, streaming) | bekerja dengan server kompatibel |
 | ElevenLabs | `ElevenLabsSpeechToText` (Scribe) | `ElevenLabsTextToSpeech` (PCM 8–44,1 kHz, streaming) | suara ekspresif; paket gratis hanya boleh memakai voice premade lewat API (`VoiceId` bawaan termasuk di dalamnya) |
 | Google Cloud | `GoogleCloudSpeechToText` | `GoogleCloudTextToSpeech` (LINEAR16) | API key atau token OAuth; model `telephony` |

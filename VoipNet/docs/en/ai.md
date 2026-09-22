@@ -80,7 +80,7 @@ Audio is always 16-bit mono PCM; the engine converts sample rates.
 
 | Provider | STT | TTS | Notes |
 | --- | --- | --- | --- |
-| Deepgram | `DeepgramSpeechToText` — web socket streaming with interim results | — | lowest barge-in latency |
+| Deepgram | `DeepgramSpeechToText` — web socket streaming with interim results | `DeepgramTextToSpeech` (Aura, raw PCM, streamed) | lowest barge-in latency |
 | OpenAI | `OpenAiSpeechToText` | `OpenAiTextToSpeech` (PCM 24 kHz, streamed) | works with compatible servers |
 | ElevenLabs | `ElevenLabsSpeechToText` (Scribe) | `ElevenLabsTextToSpeech` (PCM at 8–44.1 kHz, streamed) | expressive voices; free plans may only use premade voices through the API (the default `VoiceId` is one) |
 | Google Cloud | `GoogleCloudSpeechToText` | `GoogleCloudTextToSpeech` (LINEAR16) | API key or OAuth token; `telephony` model |

@@ -100,6 +100,24 @@ public sealed class SpeechProviderTests
     }
 
     [Fact]
+    public async Task DeepgramAuraAsksForLinearPcmAtTheCallRate()
+    {
+        var pcm = new byte[512];
+        var handler = new CannedHandler(_ => Audio(pcm));
+        var tts = new DeepgramTextToSpeech(new DeepgramOptions { ApiKey = "k", Voice = "aura-2-thalia-en" }, new HttpClient(handler));
+
+        var audio = await tts.SynthesizeOnceAsync("Halo", new SpeechSynthesisOptions { SampleRate = 8000 });
+
+        Assert.Equal(pcm.Length, audio.Data.Length);
+        Assert.Equal(8000, audio.SampleRate);
+        var request = handler.Requests[0];
+        Assert.Contains("encoding=linear16", request.RequestUri!.Query);
+        Assert.Contains("sample_rate=8000", request.RequestUri.Query);
+        Assert.Contains("aura-2-thalia-en", request.RequestUri.Query);
+        Assert.Equal("Token k", request.Headers.GetValues("Authorization").Single());
+    }
+
+    [Fact]
     public async Task ProviderErrorsCarryTheServiceMessage()
     {
         var handler = new CannedHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized)
