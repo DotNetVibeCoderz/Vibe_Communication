@@ -122,4 +122,72 @@ public sealed class StoreTests : IDisposable
         Assert.Equal(AgentState.Available, agents[0].State);
         Assert.Equal("pbx-1", agents[0].Node);
     }
+
+    [Fact]
+    public async Task FinishedCallsAreStoredAndSummarised()
+    {
+        var store = Store("pbx-1");
+        var day = new DateTimeOffset(2026, 3, 2, 9, 0, 0, TimeSpan.Zero);
+        var calls = new[]
+        {
+            new CallRecord("c1", "support", "sip:a@x", "a1", QueueOutcome.Answered, day, TimeSpan.FromSeconds(8), TimeSpan.FromMinutes(4), "pbx-1"),
+            new CallRecord("c2", "support", "sip:b@x", "a2", QueueOutcome.Answered, day.AddMinutes(10), TimeSpan.FromSeconds(42), TimeSpan.FromMinutes(2), "pbx-1"),
+            new CallRecord("c3", "support", "sip:c@x", null, QueueOutcome.Abandoned, day.AddMinutes(20), TimeSpan.FromSeconds(95), TimeSpan.Zero, "pbx-1"),
+            new CallRecord("c4", "support", "sip:d@x", "a1", QueueOutcome.Answered, day.AddMinutes(40), TimeSpan.FromSeconds(4), TimeSpan.FromMinutes(6), "pbx-2"),
+            new CallRecord("c5", "sales", "sip:e@x", null, QueueOutcome.Overflowed, day.AddMinutes(5), TimeSpan.FromMinutes(5), TimeSpan.Zero, "pbx-1"),
+        };
+        foreach (var call in calls)
+        {
+            await store.SaveCallAsync(call);
+        }
+
+        // Only what the period covers, and only the queue asked for.
+        var support = await store.LoadCallsAsync(day.AddMinutes(-1), day.AddHours(1), "support");
+        Assert.Equal(["c1", "c2", "c3", "c4"], support.Select(c => c.Id));
+        Assert.Equal("pbx-2", support.Single(c => c.Id == "c4").Node);
+        Assert.Null(support.Single(c => c.Id == "c3").AgentId);
+
+        var rows = WorkforceReport.Summarize(
+            await store.LoadCallsAsync(day.AddMinutes(-1), day.AddHours(1)),
+            TimeSpan.FromMinutes(30),
+            TimeSpan.FromSeconds(20));
+
+        // Two queues in the first half hour, one in the second.
+        Assert.Equal(3, rows.Count);
+        var first = rows.Single(r => r.Queue == "support" && r.Start == day);
+        Assert.Equal(3, first.Offered);
+        Assert.Equal(2, first.Answered);
+        Assert.Equal(1, first.Abandoned);
+        Assert.Equal(TimeSpan.FromSeconds(25), first.AverageWait);          // 8 s and 42 s, answered only
+        Assert.Equal(TimeSpan.FromSeconds(95), first.LongestWait);          // the caller who gave up
+        Assert.Equal(TimeSpan.FromMinutes(3), first.AverageTalk);
+        Assert.Equal(0.5, first.ServiceLevel);                              // one of two within 20 s
+        Assert.Equal(1 / 3d, first.AbandonRate, 3);
+
+        var sales = rows.Single(r => r.Queue == "sales");
+        Assert.Equal(1, sales.Overflowed);
+        Assert.Equal(0, sales.ServiceLevel);
+
+        var agents = WorkforceReport.ByAgent(await store.LoadCallsAsync(day.AddMinutes(-1), day.AddHours(1)));
+        Assert.Equal("a1", agents[0].AgentId);
+        Assert.Equal(2, agents[0].Calls);
+        Assert.Equal(TimeSpan.FromMinutes(10), agents[0].TalkTime);
+        Assert.Equal(TimeSpan.FromMinutes(5), agents[0].AverageTalk);
+
+        var csv = WorkforceReport.ToCsv(rows);
+        var lines = csv.TrimEnd('\n').Split('\n');
+        Assert.Equal(4, lines.Length);   // header plus three rows
+        Assert.StartsWith("queue,interval_start,offered,answered", lines[0]);
+        Assert.Contains(lines, l => l.StartsWith("support,2026-03-02T09:00:00", StringComparison.Ordinal) && l.Contains(",3,2,1,0,", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CsvQuotesAQueueNameWithAComma()
+    {
+        var row = new ReportRow("support, night", DateTimeOffset.UnixEpoch, 1, 1, 0, 0, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, 1);
+
+        var csv = WorkforceReport.ToCsv([row]);
+
+        Assert.Contains("\"support, night\"", csv, StringComparison.Ordinal);
+    }
 }

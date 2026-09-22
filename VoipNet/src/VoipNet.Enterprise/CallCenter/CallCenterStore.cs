@@ -46,6 +46,18 @@ public interface ICallCenterStore
     /// <param name="cancellationToken">Cancels the write.</param>
     Task<bool> TryClaimCallbackAsync(string id, string node, CancellationToken cancellationToken = default);
 
+    /// <summary>Stores a finished queue call for the reports.</summary>
+    /// <param name="record">The call.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    Task SaveCallAsync(CallRecord record, CancellationToken cancellationToken = default);
+
+    /// <summary>Finished calls between two times, for a queue or for all of them.</summary>
+    /// <param name="from">Earliest enqueue time to include.</param>
+    /// <param name="to">Latest enqueue time to include.</param>
+    /// <param name="queueName">Queue to read, or null for every queue.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    Task<IReadOnlyList<CallRecord>> LoadCallsAsync(DateTimeOffset from, DateTimeOffset to, string? queueName = null, CancellationToken cancellationToken = default);
+
     /// <summary>Records how a callback ended.</summary>
     /// <param name="id">Callback identifier.</param>
     /// <param name="outcome">How it ended.</param>
@@ -216,6 +228,67 @@ public sealed class SqlCallCenterStore : ICallCenterStore
             ("@id", id)).ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
+    public async Task SaveCallAsync(CallRecord record, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await ExecuteAsync(
+            connection,
+            """
+            INSERT INTO voipnet_calls (id, queue, remote_uri, agent_id, outcome, enqueued_at, waited_ms, talked_ms, node)
+            VALUES (@id, @queue, @remote, @agent, @outcome, @enqueued, @waited, @talked, @node)
+            """,
+            cancellationToken,
+            ("@id", record.Id),
+            ("@queue", record.QueueName),
+            ("@remote", record.RemoteUri),
+            ("@agent", record.AgentId),
+            ("@outcome", record.Outcome.ToString()),
+            ("@enqueued", record.EnqueuedAt.ToUnixTimeMilliseconds()),
+            ("@waited", (long)record.Waited.TotalMilliseconds),
+            ("@talked", (long)record.Talked.TotalMilliseconds),
+            ("@node", record.Node)).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<CallRecord>> LoadCallsAsync(DateTimeOffset from, DateTimeOffset to, string? queueName = null, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT id, queue, remote_uri, agent_id, outcome, enqueued_at, waited_ms, talked_ms, node
+            FROM voipnet_calls WHERE enqueued_at >= @from AND enqueued_at <= @to
+            """;
+        if (queueName is { Length: > 0 })
+        {
+            command.CommandText += " AND queue = @queue";
+            Add(command, "@queue", queueName);
+        }
+
+        command.CommandText += " ORDER BY enqueued_at";
+        Add(command, "@from", from.ToUnixTimeMilliseconds());
+        Add(command, "@to", to.ToUnixTimeMilliseconds());
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        var calls = new List<CallRecord>();
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            calls.Add(new CallRecord(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.IsDBNull(3) ? null : reader.GetString(3),
+                Enum.TryParse<QueueOutcome>(reader.GetString(4), out var outcome) ? outcome : QueueOutcome.Cancelled,
+                DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(5)),
+                TimeSpan.FromMilliseconds(reader.GetInt64(6)),
+                TimeSpan.FromMilliseconds(reader.GetInt64(7)),
+                reader.GetString(8)));
+        }
+
+        return calls;
+    }
+
     private async Task<DbConnection> OpenAsync(CancellationToken cancellationToken)
     {
         var connection = _connect();
@@ -245,6 +318,15 @@ public sealed class SqlCallCenterStore : ICallCenterStore
                         id TEXT PRIMARY KEY, queue TEXT NOT NULL, destination TEXT NOT NULL,
                         priority INT NOT NULL, requested_at BIGINT NOT NULL, not_before BIGINT NOT NULL,
                         already_waited BIGINT NOT NULL, attempts INT NOT NULL, outcome TEXT NOT NULL, owner TEXT NULL)
+                    """,
+                    cancellationToken).ConfigureAwait(false);
+                await ExecuteAsync(
+                    connection,
+                    """
+                    CREATE TABLE IF NOT EXISTS voipnet_calls (
+                        id TEXT PRIMARY KEY, queue TEXT NOT NULL, remote_uri TEXT NOT NULL, agent_id TEXT NULL,
+                        outcome TEXT NOT NULL, enqueued_at BIGINT NOT NULL, waited_ms BIGINT NOT NULL,
+                        talked_ms BIGINT NOT NULL, node TEXT NOT NULL)
                     """,
                     cancellationToken).ConfigureAwait(false);
                 _created = true;

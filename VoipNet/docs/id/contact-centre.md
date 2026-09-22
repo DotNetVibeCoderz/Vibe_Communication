@@ -134,6 +134,26 @@ sehingga dua node tidak pernah menelepon pelanggan yang sama; pelanggan yang tid
 dilepaskan kembali untuk node mana pun yang bebas berikutnya. Tabel dibuat saat pertama dipakai, dan
 store yang sesaat tidak tersedia hanya dicatat di log, bukan menghentikan call center.
 
+### Laporan historis
+
+Bila store terpasang, setiap panggilan antrean yang selesai dicatat ke riwayat, dan laporan dibaca
+kembali dari sana:
+
+```csharp
+var rows = await centre.ReportAsync(
+    DateTimeOffset.UtcNow.AddDays(-7),
+    DateTimeOffset.UtcNow,
+    TimeSpan.FromMinutes(30),
+    queueName: "support");
+
+File.WriteAllText("support.csv", WorkforceReport.ToCsv(rows));
+```
+
+Setiap baris mencakup satu antrean dalam satu interval: offered, answered, abandoned, overflowed,
+rata-rata dan waktu tunggu terlama, rata-rata waktu bicara, service level, serta abandon rate. CSV-nya
+UTF-8 biasa dengan timestamp ISO per baris, sehingga langsung bisa dibuka di spreadsheet, dimuat ke
+warehouse, atau dipakai sebagai sumber Grafana.
+
 ### Metrik
 
 ```csharp

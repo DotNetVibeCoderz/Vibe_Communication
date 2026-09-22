@@ -132,6 +132,41 @@ public sealed class CallCenterService(
         StartCallbackPump();
     }
 
+    /// <summary>
+    /// Writes a finished queue call to the history. The talk time is filled in when the bridge ends,
+    /// so the row is written then for answered calls and straight away for the rest.
+    /// </summary>
+    private void Record(QueuedCall entry, QueueResult result, TimeSpan talked = default)
+    {
+        if (store is null || (result.Outcome == QueueOutcome.Answered && talked == TimeSpan.Zero))
+        {
+            return;
+        }
+
+        var record = new CallRecord(
+            $"{entry.Call.Id}-{entry.EnqueuedAt.ToUnixTimeMilliseconds()}",
+            entry.QueueName,
+            entry.Call.RemoteUri,
+            result.Agent?.Id,
+            result.Outcome,
+            entry.EnqueuedAt,
+            result.Waited,
+            talked,
+            NodeName);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await store.SaveCallAsync(record).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is System.Data.Common.DbException or InvalidOperationException)
+            {
+                _logger.LogWarning(ex, "Could not store the history of call {Call}", record.Id);
+            }
+        });
+    }
+
     /// <summary>Writes an agent's state to the shared store, when there is one.</summary>
     private void Publish(Agent agent)
     {
@@ -167,6 +202,34 @@ public sealed class CallCenterService(
         }
 
         return await store.LoadAgentsAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Report rows for a stretch of time, read from the shared store. Without a store there is no
+    /// history to report on, and an empty report says so rather than inventing one.
+    /// </summary>
+    /// <param name="from">Start of the period.</param>
+    /// <param name="to">End of the period.</param>
+    /// <param name="interval">Reporting interval; half an hour is the usual choice.</param>
+    /// <param name="queueName">Queue to report on, or null for every queue.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    public async Task<IReadOnlyList<ReportRow>> ReportAsync(
+        DateTimeOffset from,
+        DateTimeOffset to,
+        TimeSpan interval,
+        string? queueName = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (store is null)
+        {
+            return [];
+        }
+
+        var calls = await store.LoadCallsAsync(from, to, queueName, cancellationToken).ConfigureAwait(false);
+        var target = queueName is not null && _queues.TryGetValue(queueName, out var options)
+            ? options.ServiceLevelTarget
+            : TimeSpan.FromSeconds(20);
+        return WorkforceReport.Summarize(calls, interval, target);
     }
 
     /// <summary>Callbacks still to be made for a queue, in the order they will be made.</summary>
@@ -336,6 +399,7 @@ public sealed class CallCenterService(
         }
 
         Metrics.RecordOutcome(queueName, result, options.ServiceLevelTarget);
+        Record(entry, result);
         CallDequeued?.Invoke(this, (entry, result));
         return result;
     }
@@ -667,6 +731,7 @@ public sealed class CallCenterService(
         {
             var talk = DateTimeOffset.UtcNow - start;
             Metrics.RecordTalkTime(entry.QueueName, talk);
+            Record(entry, new QueueResult(QueueOutcome.Answered, agent, entry.Waiting), talk);
             agent.TalkTime += talk;
             agent.LastCallEnded = DateTimeOffset.UtcNow;
             agent.CurrentCall = null;

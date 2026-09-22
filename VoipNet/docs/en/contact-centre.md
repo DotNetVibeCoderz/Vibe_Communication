@@ -133,6 +133,29 @@ single conditional update, so two nodes never ring the same customer; a caller w
 released again for whichever node is free next. The tables are created on first use, and a store that
 is briefly unavailable is logged and stepped over rather than allowed to stop the call centre.
 
+### Historical reports
+
+With a store attached, every finished queue call is written to the history, and reports are read back
+from it:
+
+```csharp
+var rows = await centre.ReportAsync(
+    DateTimeOffset.UtcNow.AddDays(-7),
+    DateTimeOffset.UtcNow,
+    TimeSpan.FromMinutes(30),
+    queueName: "support");
+
+File.WriteAllText("support.csv", WorkforceReport.ToCsv(rows));
+foreach (var (agent, calls, talk, average) in WorkforceReport.ByAgent(await store.LoadCallsAsync(from, to)))
+{
+    Console.WriteLine($"{agent}: {calls} calls, {talk:hh\:mm} talking, {average:mm\:ss} each");
+}
+```
+
+Each row covers one queue in one interval: offered, answered, abandoned, overflowed, average and
+longest wait, average talk time, service level and abandon rate. The CSV is plain UTF-8 with an ISO
+timestamp per row, which loads into a spreadsheet, a warehouse or a Grafana source without a converter.
+
 ### Metrics
 
 ```csharp

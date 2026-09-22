@@ -36,7 +36,7 @@ Today H.264, VP8 and VP9 are negotiated as pass-through payloads only. This mile
 
 - Scheduled routing (callbacks and estimated wait time are done). · Routing terjadwal.
 - Visual IVR designer: drag-and-drop graph, versioning, A/B tests. · Desainer IVR visual.
-- Workforce dashboards: historical reports, CSV/Parquet export, Grafana templates. · Laporan historis.
+- Workforce dashboards: Grafana templates over the exported history (reports and CSV export are done). · Template Grafana di atas riwayat yang diekspor.
 - ZRTP (RFC 6189) end-to-end media encryption. · Enkripsi ZRTP.
 - CRM connectors: HubSpot, Salesforce, Dynamics 365, Odoo. · Konektor CRM.
 
