@@ -76,7 +76,8 @@ jobs:
       # rather than failed, because a busy runner is not a regression.
       - name: Compare with the baseline
         shell: pwsh
-        run: ./VoipNet/build/bench-report.ps1
+        # Steps run in VoipNet/ by default (see defaults.run above).
+        run: ./build/bench-report.ps1
 
   dotnet:
     name: .NET tests (${{ matrix.os }})
