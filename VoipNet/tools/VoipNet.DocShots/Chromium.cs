@@ -62,22 +62,29 @@ internal sealed class Chromium : Browser
         process.BeginErrorReadLine();
 
         using var http = new HttpClient();
-        JsonArray? targets = null;
-        // Busy CI runners can take a while to start a browser.
+        JsonNode? page = null;
+        // Busy CI runners can take a while to start a browser, and the DevTools port answers a moment
+        // before the first tab exists — so wait for the tab, not just for the port.
         var deadline = DateTime.UtcNow.AddSeconds(60);
-        while (targets is null && DateTime.UtcNow < deadline)
+        while (page is null && DateTime.UtcNow < deadline)
         {
             try
             {
-                targets = await http.GetFromJsonAsync<JsonArray>($"http://127.0.0.1:{Port}/json/list");
+                var targets = await http.GetFromJsonAsync<JsonArray>($"http://127.0.0.1:{Port}/json/list");
+                page = targets?.FirstOrDefault(t => t?["type"]?.GetValue<string>() == "page" && t["webSocketDebuggerUrl"] is not null);
             }
             catch (HttpRequestException)
+            {
+                // The port is not up yet.
+            }
+
+            if (page is null)
             {
                 await Task.Delay(250);
             }
         }
 
-        if (targets is null)
+        if (page is null)
         {
             var state = process.HasExited ? $"exited with code {process.ExitCode}" : "is still running";
             string tail;
@@ -86,10 +93,9 @@ internal sealed class Chromium : Browser
                 tail = string.Join(" | ", complaints);
             }
 
-            throw new InvalidOperationException($"{path} did not open its DevTools port; it {state}. Last output: {tail}");
+            throw new InvalidOperationException($"{path} never offered a DevTools page; it {state}. Last output: {tail}");
         }
 
-        var page = targets.First(t => t!["type"]!.GetValue<string>() == "page")!;
         var browser = new Chromium(await ConnectAsync(new Uri(page["webSocketDebuggerUrl"]!.GetValue<string>())), process);
         await browser.SendAsync("Emulation.setEmulatedMedia", new JsonObject
         {

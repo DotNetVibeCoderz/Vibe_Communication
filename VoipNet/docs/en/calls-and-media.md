@@ -209,7 +209,7 @@ The engine accepts `UDP/TLS/RTP/SAVPF` offers, answers with ICE candidates, `a=m
 
 ### ICE
 
-With `Ice = true` (always on for DTLS-SRTP and whenever the peer offers ICE), each call runs a full ICE agent (RFC 8445): it pairs local host, server-reflexive and relayed candidates with the peer's, paces connectivity checks, answers checks with triggered checks, learns peer-reflexive candidates (which covers browsers that hide addresses behind mDNS names), resolves role conflicts, and nominates one pair. The offerer is the controlling agent. Candidates the peer trickles later in SIP INFO (`application/trickle-ice-sdpfrag`, RFC 8840) join the checks. Once a pair is selected, consent is refreshed every few seconds (RFC 7675).
+With `Ice = true` (always on for DTLS-SRTP and whenever the peer offers ICE), each call runs a full ICE agent (RFC 8445): it pairs local host, server-reflexive and relayed candidates with the peer's, paces connectivity checks, answers checks with triggered checks, learns peer-reflexive candidates (which covers browsers that hide addresses behind mDNS names), resolves role conflicts, and nominates one pair. The offerer is the controlling agent. Candidates the peer trickles later in SIP INFO (`application/trickle-ice-sdpfrag`, RFC 8840) join the checks, and ours travel the same way: an ICE call sends its STUN probe without waiting for the answer, so a slow or unreachable STUN server never delays the call, and the reflexive candidate is sent to the peer as soon as it arrives. (A call without ICE still waits: there the reflexive address is what the SDP advertises.) Once a pair is selected, consent is refreshed every few seconds (RFC 7675).
 
 ```csharp
 client.MediaNotification += (_, e) => Console.WriteLine($"{e.Kind}: {e.Detail}");

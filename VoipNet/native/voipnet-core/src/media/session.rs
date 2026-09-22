@@ -71,6 +71,9 @@ pub struct MediaConfig {
     pub jitter_min_ms: u32,
     pub jitter_max_ms: u32,
     pub stun_server: Option<SocketAddr>,
+    /// ICE decides the media path. Without it the reflexive address goes straight into the SDP, so it
+    /// has to be known before the offer; with it the address is just another candidate and can trickle.
+    pub ice: bool,
     pub turn_server: Option<SocketAddr>,
     pub turn_username: String,
     pub turn_password: String,
@@ -102,6 +105,7 @@ impl Default for MediaConfig {
             jitter_min_ms: 40,
             jitter_max_ms: 300,
             stun_server: None,
+            ice: false,
             turn_server: None,
             turn_username: String::new(),
             turn_password: String::new(),
@@ -173,6 +177,14 @@ pub struct MediaStats {
     pub round_trip_ms: f64,
     /// MOS the peer reports for the audio it receives (RTCP XR); zero when it sends no extended reports.
     pub remote_mos: f64,
+}
+
+/// A reflexive address being looked up while the call sets up.
+struct Gathering {
+    server: SocketAddr,
+    transaction: [u8; 12],
+    sent: Instant,
+    attempts: u8,
 }
 
 /// A session in video mode packetizes whole frames instead of encoding audio.
@@ -258,7 +270,12 @@ struct Shared {
     tx: Mutex<TxState>,
     rx: Mutex<RxState>,
     ice: Mutex<IceAgent>,
-    local_candidates: Vec<Candidate>,
+    /// The host address this session advertises, used to ignore a reflexive answer that matches it.
+    local_address: SocketAddr,
+    /// Candidates known so far. The reflexive one arrives later, so this grows during a call.
+    local_candidates: Mutex<Vec<Candidate>>,
+    /// The outstanding reflexive probe: the server, the transaction it belongs to, and when it went out.
+    gathering: Mutex<Option<Gathering>>,
     relay: Mutex<Option<TurnAllocation>>,
     /// Media goes through the TURN relay (always when allocated without ICE; per the selected pair with ICE).
     via_relay: AtomicBool,
@@ -329,12 +346,16 @@ impl MediaSession {
         });
         let local = SocketAddr::new(advertised_ip, bound.port());
 
+        // Without ICE the reflexive address is what the SDP advertises, so the offer has to wait for
+        // it. With ICE it is one candidate among several: the probe goes out without blocking the call
+        // and its answer is trickled to the peer (RFC 8838) whenever it arrives.
         let mut candidates = vec![Candidate::new(CandidateKind::Host, local, 1)];
-        let reflexive = config.stun_server.and_then(|s| stun::discover_reflexive(&socket, s, Duration::from_millis(1500)));
+        let reflexive = match (config.ice, config.stun_server) {
+            (false, Some(server)) => stun::discover_reflexive(&socket, server, Duration::from_millis(1500)).filter(|r| *r != local),
+            _ => None,
+        };
         if let Some(r) = reflexive {
-            if r != local {
-                candidates.push(Candidate::new(CandidateKind::ServerReflexive, r, 1));
-            }
+            candidates.push(Candidate::new(CandidateKind::ServerReflexive, r, 1));
         }
         let relay = config.turn_server.and_then(|server| {
             TurnAllocation::allocate(&socket, server, &config.turn_username, &config.turn_password, Duration::from_secs(3))
@@ -399,7 +420,9 @@ impl MediaSession {
                 burst_gap: BurstGapTracker::default(),
             }),
             ice: Mutex::new(IceAgent::new(&candidates, IceRole::Controlled)),
-            local_candidates: candidates,
+            local_address: local,
+            local_candidates: Mutex::new(candidates),
+            gathering: Mutex::new(None),
             via_relay: AtomicBool::new(relay.is_some()),
             relay_permissions: Mutex::new(Vec::new()),
             relay: Mutex::new(relay),
@@ -421,7 +444,14 @@ impl MediaSession {
             dtls_start_pending: AtomicBool::new(false),
             secure_required: AtomicBool::new(false),
         });
-        Ok(Arc::new(Self { shared, local, reflexive, threads: Mutex::new(Vec::new()), local_srtp_key: Mutex::new(None), dtls_role: Mutex::new(None) }))
+        let session = Arc::new(Self { shared, local, reflexive, threads: Mutex::new(Vec::new()), local_srtp_key: Mutex::new(None), dtls_role: Mutex::new(None) });
+        if reflexive.is_none() {
+            if let Some(server) = session.shared.config.stun_server {
+                probe_reflexive(&session.shared, server);
+            }
+        }
+
+        Ok(session)
     }
 
     /// Address to advertise in SDP (server-reflexive when available).
@@ -466,7 +496,7 @@ impl MediaSession {
     }
 
     pub fn local_candidates(&self) -> Vec<Candidate> {
-        self.shared.local_candidates.clone()
+        self.shared.local_candidates.lock().clone()
     }
 
     /// Creates (once) and returns the local SDES key-params for SRTP.
@@ -1064,10 +1094,66 @@ fn handle_stun(sh: &Arc<Shared>, data: &[u8], from: SocketAddr, via_relay: bool)
             return;
         }
         stun::BINDING_REQUEST => sh.ice.lock().handle_request(data, &msg, from, via_relay, now),
+        stun::BINDING_SUCCESS if sh.gathering.lock().as_ref().is_some_and(|g| g.transaction == msg.transaction_id) => {
+            *sh.gathering.lock() = None;
+            if let Some(address) = msg.mapped_address() {
+                if address != sh.local_address {
+                    gathered(sh, address);
+                }
+            }
+
+            return;
+        }
         stun::BINDING_SUCCESS | stun::BINDING_ERROR => sh.ice.lock().handle_response(data, &msg, from, now).1,
         _ => return,
     };
     process_ice_outputs(sh, outputs);
+}
+
+/// Sends a STUN binding request to learn this socket's address as the world sees it. The answer is
+/// picked up by the receive loop, because that is the only thread reading the socket.
+fn probe_reflexive(sh: &Arc<Shared>, server: SocketAddr) {
+    let mut request = StunMessage::new(stun::BINDING_REQUEST);
+    request.add(stun::ATTR_SOFTWARE, b"Voip.NET".to_vec());
+    let attempts = sh.gathering.lock().as_ref().map_or(0, |g| g.attempts);
+    *sh.gathering.lock() = Some(Gathering {
+        server,
+        transaction: request.transaction_id,
+        sent: Instant::now(),
+        attempts: attempts + 1,
+    });
+    let _ = sh.socket.send_to(&request.encode(None, true), server);
+}
+
+/// Resends the probe while it goes unanswered; a lost packet, or a server that takes its time, should
+/// not cost the call its candidate. Five tries half a second apart cover the first seconds of a call,
+/// which is where a reflexive candidate is still worth having.
+fn retry_gathering(sh: &Arc<Shared>) {
+    let retry = {
+        let gathering = sh.gathering.lock();
+        match gathering.as_ref() {
+            Some(g) if g.attempts < 5 && g.sent.elapsed() > Duration::from_millis(500) => Some(g.server),
+            _ => None,
+        }
+    };
+    if let Some(server) = retry {
+        probe_reflexive(sh, server);
+    }
+}
+
+/// Records the reflexive address the STUN server reported and offers it to the peer.
+fn gathered(sh: &Arc<Shared>, address: SocketAddr) {
+    let candidate = Candidate::new(CandidateKind::ServerReflexive, address, 1);
+    {
+        let mut candidates = sh.local_candidates.lock();
+        if candidates.iter().any(|c| c.address == address) {
+            return;
+        }
+
+        candidates.push(candidate.clone());
+    }
+
+    sh.sink.on_media_event(sh.call_id, "ice-candidate", &candidate.to_sdp());
 }
 
 /// Acts on ICE agent output. Runs without the ICE lock held.
@@ -1308,6 +1394,7 @@ fn playout_loop(sh: &Arc<Shared>) {
         }
 
         // ---- RTCP / TURN / timeouts ----
+        retry_gathering(sh);
         if last_sr.elapsed() >= Duration::from_secs(4) {
             last_sr = Instant::now();
             send_sender_report(sh);

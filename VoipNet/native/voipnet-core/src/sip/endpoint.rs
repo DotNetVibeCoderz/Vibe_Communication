@@ -512,6 +512,8 @@ impl Endpoint {
             jitter_min_ms: cfg.jitter_min_ms,
             jitter_max_ms: cfg.jitter_max_ms,
             stun_server: cfg.stun_server.as_deref().and_then(|s| resolve_hostport(s, 3478)),
+            // DTLS keying is WebRTC, which always runs ICE.
+            ice: cfg.ice || cfg.srtp_keying == SrtpKeying::Dtls,
             turn_server: cfg.turn_server.as_deref().and_then(|s| resolve_hostport(s, 3478)),
             turn_username: cfg.turn_username.clone(),
             turn_password: cfg.turn_password.clone(),
@@ -570,12 +572,25 @@ impl Endpoint {
         });
 
         let dispatcher_handler = handler;
+        let dispatcher_inner = Arc::downgrade(&inner);
         let dispatcher = std::thread::Builder::new()
             .name("voipnet-events".into())
             .spawn(move || {
                 while let Ok(d) = rx.recv() {
                     match d {
-                        Dispatch::Event(e) => dispatcher_handler.on_event(&e),
+                        Dispatch::Event(e) => {
+                            // A candidate gathered after the offer went out goes to the peer instead of
+                            // waiting for the next re-INVITE (RFC 8838).
+                            if let Event::MediaEvent { call_id, kind, detail } = &e {
+                                if kind == "ice-candidate" {
+                                    if let Some(inner) = dispatcher_inner.upgrade() {
+                                        inner.trickle_candidate(*call_id, detail);
+                                    }
+                                }
+                            }
+
+                            dispatcher_handler.on_event(&e);
+                        }
                         Dispatch::Dtmf(id, digit, src) => dispatcher_handler.on_dtmf(id, digit, src),
                     }
                 }
@@ -1907,6 +1922,34 @@ impl Inner {
         let dest = self.dialog_dest(call);
         self.send_request(st, req, dest, Purpose::ReInvite(call_id));
         Ok(())
+    }
+
+    /// Sends a candidate we have just gathered to the peer (RFC 8838). Before the dialog exists there
+    /// is nowhere to send it, and none is needed: the candidate goes out with the offer or answer.
+    fn trickle_candidate(&self, call_id: u64, candidate: &str) {
+        let mut st = self.state.lock();
+        let st = &mut *st;
+        let Some(call) = st.calls.get_mut(&call_id) else { return };
+        if call.remote_tag.is_none() || call.state == CallState::Terminated {
+            return;
+        }
+
+        let Some(media) = call.media.clone() else { return };
+        let (ufrag, pwd) = media.ice_credentials();
+        let body = format!(
+            "a=ice-ufrag:{ufrag}
+a=ice-pwd:{pwd}
+m=audio {} RTP/AVP 0
+a=mid:0
+a=candidate:{candidate}
+",
+            media.advertised_address().port()
+        );
+        call.local_cseq += 1;
+        let mut req = self.dialog_request(call, Method::Info);
+        req.set_body("application/trickle-ice-sdpfrag", body.into_bytes());
+        let dest = self.dialog_dest(call);
+        self.send_request(st, req, dest, Purpose::Info(call_id));
     }
 
     /// Restarts ICE on an established call: fresh credentials in a re-INVITE (RFC 8445 §9).
@@ -3409,6 +3452,48 @@ m=audio {} RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n",
         ep.register().unwrap();
         let ev = rec.wait_for(5000, |e| matches!(e, Event::RegistrationChanged { .. })).expect("registration result");
         assert!(matches!(ev, Event::RegistrationChanged { state: "registered", code: 200, .. }), "{ev:?}");
+    }
+
+    #[test]
+    fn a_late_reflexive_candidate_is_trickled_to_the_peer() {
+        // A STUN server that answers only after the call is already up, which is exactly the case
+        // trickle ICE exists for.
+        let stun_server = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let stun_addr = stun_server.local_addr().unwrap();
+        let reflexive: SocketAddr = "203.0.113.7:40404".parse().unwrap();
+        let (tx, answer_now) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 1024];
+            while let Ok((n, from)) = stun_server.recv_from(&mut buf) {
+                let Some(request) = crate::stun::StunMessage::decode(&buf[..n]) else { continue };
+                if answer_now.try_recv().is_err() {
+                    continue; // still "slow"
+                }
+
+                let mut response = request.reply(crate::stun::BINDING_SUCCESS);
+                response.add_xor_address(crate::stun::ATTR_XOR_MAPPED_ADDRESS, reflexive);
+                let _ = stun_server.send_to(&response.encode(None, true), from);
+            }
+        });
+
+        let mut ca = cfg("alice");
+        ca.ice = true;
+        ca.stun_server = Some(stun_addr.to_string());
+        let (a, ra, b, rb) = pair(ca, EndpointConfig { ice: true, trace_sip: true, ..cfg("bob") });
+        let (a_call, _) = establish(&a, &b, &rb, &ra);
+
+        // The call went through without waiting for the STUN server.
+        assert!(a.call_info(a_call).unwrap().state == CallState::Connected);
+
+        // Now the server answers: the candidate must reach the peer in an INFO, not sit in memory.
+        let _ = tx.send(());
+        let trickled = rb.wait_for(6000, |e| {
+            matches!(e, Event::SipTrace { direction: "in", message, .. }
+                if message.starts_with("INFO") && message.contains("trickle-ice-sdpfrag") && message.contains("203.0.113.7"))
+        });
+        assert!(trickled.is_some(), "no trickled candidate arrived");
+        a.hangup(a_call).unwrap();
+        ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("terminated");
     }
 
     #[test]
