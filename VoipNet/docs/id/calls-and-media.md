@@ -69,8 +69,22 @@ Console.WriteLine(call.VideoCodec);                     // "H264", atau null pad
 ```
 
 Frame yang kehilangan paket dibuang, bukan diserahkan dalam keadaan rusak, sehingga decoder tidak
-pernah menerima frame cacat. Permintaan keyframe (RTCP PLI/FIR), estimasi bandwidth, dan penangkapan
-kamera belum ada — lihat [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
+pernah menerima frame cacat; engine lalu meminta keyframe ke pengirim (RTCP PLI, RFC 4585) agar gambar
+kembali. Minta sendiri dengan `call.RequestKeyframe()`, dan tanggapi permintaan lawan dengan meng-encode
+satu keyframe:
+
+```csharp
+client.MediaNotification += (_, e) =>
+{
+    if (e.Kind == "keyframe-request")
+    {
+        encoder.ForceKeyframe();
+    }
+};
+```
+
+Estimasi bandwidth dan penangkapan kamera belum ada — lihat
+[PLAN 1.3](../../PLAN.md#13---video--fitur-video).
 
 ## Codec
 

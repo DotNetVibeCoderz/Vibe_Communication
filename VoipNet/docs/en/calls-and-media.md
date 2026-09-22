@@ -69,8 +69,21 @@ Console.WriteLine(call.VideoCodec);                     // "H264", or null on an
 ```
 
 A frame that loses a packet is dropped rather than handed over damaged, so decoders never see a torn
-frame. Keyframe requests (RTCP PLI/FIR), bandwidth estimation and camera capture are not implemented
-yet — see [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
+frame; the engine then asks the sender for a keyframe (RTCP PLI, RFC 4585) so the picture comes back.
+Ask for one yourself with `call.RequestKeyframe()`, and answer the peer's requests by encoding one:
+
+```csharp
+client.MediaNotification += (_, e) =>
+{
+    if (e.Kind == "keyframe-request")
+    {
+        encoder.ForceKeyframe();
+    }
+};
+```
+
+Bandwidth estimation and camera capture are not implemented yet — see
+[PLAN 1.3](../../PLAN.md#13---video--fitur-video).
 
 ## Codecs
 

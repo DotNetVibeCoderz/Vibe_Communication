@@ -371,6 +371,16 @@ pub unsafe extern "C" fn voipnet_send_video_frame(
     }
 }
 
+/// Asks the peer for a video keyframe: a Full Intra Request when `full` is non-zero, otherwise a
+/// Picture Loss Indication.
+///
+/// # Safety
+/// `handle` must be a live endpoint handle.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_request_keyframe(handle: *mut c_void, call_id: u64, full: c_int) -> c_int {
+    with_endpoint!(handle, ep => ep.request_keyframe(call_id, full != 0))
+}
+
 /// Writes the call's negotiated video codec into `out` (empty when the call has no video stream).
 ///
 /// # Safety

@@ -22,7 +22,7 @@ use crate::rtp::jitter::{JitterBuffer, JitterStats, Playout};
 use crate::rtp::quality::BurstGapTracker;
 use crate::rtp::video::{VideoDepacketizer, VideoFormat, VideoPacketizer};
 use crate::rtp::packet::{
-    build_bye, build_receiver_report, build_sender_report, build_xr_voip_metrics, classify, parse_rtcp, PacketClass, ReportBlock, RtcpPacket,
+    build_bye, build_keyframe_request, build_receiver_report, build_sender_report, build_xr_voip_metrics, classify, parse_rtcp, PacketClass, ReportBlock, RtcpPacket,
     RtpHeader, RtpPacketRef, VoipMetrics,
 };
 use crate::sdp::{Direction, RtpMap};
@@ -177,7 +177,15 @@ struct VideoTrack {
     payload_type: u8,
     packetizer: VideoPacketizer,
     depacketizer: VideoDepacketizer,
+    /// Incomplete frames already reported, so only new losses ask for a keyframe.
+    incomplete_seen: u64,
+    last_request: Option<Instant>,
+    /// Sequence number carried by Full Intra Requests (RFC 5104) so repeats can be told apart.
+    fir_sequence: u8,
 }
+
+/// Losses come in bursts; one request per interval is enough to get a fresh keyframe.
+const KEYFRAME_REQUEST_INTERVAL: Duration = Duration::from_millis(500);
 
 struct TxState {
     codec: Option<Box<dyn AudioCodec>>,
@@ -706,8 +714,24 @@ impl MediaSession {
             payload_type,
             packetizer: VideoPacketizer::new(format),
             depacketizer: VideoDepacketizer::new(format),
+            incomplete_seen: 0,
+            last_request: None,
+            fir_sequence: 0,
         });
         true
+    }
+
+    /// Asks the peer for a keyframe. `full` sends a Full Intra Request (RFC 5104) instead of a Picture
+    /// Loss Indication (RFC 4585). Returns false when there is no video stream or no peer yet.
+    pub fn request_keyframe(&self, full: bool) -> bool {
+        let sequence = {
+            let mut track = self.shared.video.lock();
+            let Some(track) = track.as_mut() else { return false };
+            track.last_request = Some(Instant::now());
+            track.fir_sequence = track.fir_sequence.wrapping_add(1);
+            track.fir_sequence
+        };
+        send_keyframe_request(&self.shared, full, sequence)
     }
 
     pub fn video_enabled(&self) -> bool {
@@ -966,6 +990,10 @@ fn handle_rtcp(sh: &Arc<Shared>, data: &[u8]) {
                 }
                 continue;
             }
+            RtcpPacket::KeyframeRequest { full, .. } => {
+                sh.sink.on_media_event(sh.call_id, "keyframe-request", if full { "fir" } else { "pli" });
+                continue;
+            }
             RtcpPacket::Bye { .. } => continue,
         };
         for block in reports.into_iter().filter(|b| b.ssrc == our_ssrc) {
@@ -1116,13 +1144,27 @@ fn handle_rtp(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
     // Video frames are reassembled outside the rx lock: a frame can be large and the handler may call
     // back into the session.
     if let Some((h, payload)) = passthrough.as_ref() {
-        let assembled = {
+        let (assembled, request) = {
             let mut track = sh.video.lock();
             match track.as_mut().filter(|t| t.payload_type == h.payload_type) {
-                Some(t) => Some(t.depacketizer.push(h.sequence, h.timestamp, h.marker, payload)),
-                None => None,
+                Some(t) => {
+                    let frame = t.depacketizer.push(h.sequence, h.timestamp, h.marker, payload);
+                    // A frame that lost packets is dropped, so ask the sender to start again from a keyframe.
+                    let lost = t.depacketizer.incomplete_frames > t.incomplete_seen;
+                    t.incomplete_seen = t.depacketizer.incomplete_frames;
+                    let due = lost && t.last_request.is_none_or(|at| at.elapsed() >= KEYFRAME_REQUEST_INTERVAL);
+                    if due {
+                        t.last_request = Some(Instant::now());
+                        t.fir_sequence = t.fir_sequence.wrapping_add(1);
+                    }
+                    (Some(frame), due.then_some(t.fir_sequence))
+                }
+                None => (None, None),
             }
         };
+        if let Some(sequence) = request {
+            send_keyframe_request(sh, false, sequence);
+        }
         if let Some(frame) = assembled {
             if let Some(frame) = frame {
                 sh.sink.on_video_frame(sh.call_id, frame.timestamp, frame.keyframe, &frame.data);
@@ -1405,6 +1447,23 @@ fn send_sender_report(sh: &Arc<Shared>) {
     send_extended_report(sh);
 }
 
+/// Asks the peer to send a keyframe, over the same path and encryption as the other RTCP.
+fn send_keyframe_request(sh: &Arc<Shared>, full: bool, sequence: u8) -> bool {
+    let Some(media_ssrc) = sh.rx.lock().remote_ssrc else { return false };
+    let mut tx = sh.tx.lock();
+    let mut packet = build_keyframe_request(tx.ssrc, media_ssrc, full, sequence);
+    let secured = match tx.srtp.as_mut() {
+        Some(ctx) => ctx.protect_rtcp(&mut packet).is_ok(),
+        None => !sh.secure_required.load(Ordering::Relaxed),
+    };
+    drop(tx);
+    if !secured {
+        return false;
+    }
+    send_raw(sh, &packet);
+    true
+}
+
 /// Tells the peer how the audio sounds on this end (RFC 3611 VoIP metrics).
 fn send_extended_report(sh: &Arc<Shared>) {
     let stats = {
@@ -1494,6 +1553,7 @@ mod tests {
         dtmf: Mutex<Vec<char>>,
         frames: AtomicUsize,
         video: Mutex<Vec<(u32, bool, Vec<u8>)>>,
+        events: Mutex<Vec<String>>,
     }
 
     impl MediaSink for Collect {
@@ -1507,7 +1567,9 @@ mod tests {
             self.dtmf.lock().push(digit);
         }
         fn on_encoded(&self, _: u64, _: u8, _: u32, _: bool, _: &[u8]) {}
-        fn on_media_event(&self, _: u64, _: &str, _: &str) {}
+        fn on_media_event(&self, _: u64, kind: &str, detail: &str) {
+            self.events.lock().push(format!("{kind} {detail}"));
+        }
         fn on_video_frame(&self, _: u64, timestamp: u32, keyframe: bool, frame: &[u8]) {
             self.video.lock().push((timestamp, keyframe, frame.to_vec()));
         }
@@ -1644,6 +1706,46 @@ mod tests {
         assert_eq!(received.len(), 2, "received {} frames", received.len());
         assert_eq!(received[0], (90_000, true, keyframe));
         assert_eq!(received[1], (93_000, false, delta));
+        a.stop();
+        b.stop();
+    }
+
+    #[test]
+    fn a_keyframe_request_reaches_the_sender() {
+        let (ca, cb) = (Arc::new(Collect::default()), Arc::new(Collect::default()));
+        let a = MediaSession::new(1, loopback_config(), ca.clone()).unwrap();
+        let b = MediaSession::new(2, loopback_config(), cb.clone()).unwrap();
+        let map = CodecKind::H264.rtpmap();
+        assert!(a.enable_video(&map.encoding, map.payload_type));
+        assert!(b.enable_video(&map.encoding, map.payload_type));
+        let neg = |remote: SocketAddr| NegotiatedMedia {
+            remote: Some(remote),
+            codec: map.clone(),
+            dtmf: None,
+            direction: Direction::SendRecv,
+            remote_srtp_key: None,
+            remote_ice_ufrag: None,
+            remote_ice_pwd: None,
+            remote_candidates: vec![],
+            ice_controlling: false,
+            ptime_ms: None,
+            remote_fingerprint: None,
+            dtls_role: None,
+        };
+        a.apply(&neg(b.local_address())).unwrap();
+        b.apply(&neg(a.local_address())).unwrap();
+
+        // The receiver learns the sender's SSRC from its first frame, which a request needs.
+        assert!(a.send_video_frame(90_000, &[0, 0, 0, 1, 0x65, 1, 2, 3]));
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while cb.video.lock().is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(b.request_keyframe(false), "the request was sent");
+        while !ca.events.lock().iter().any(|e| e == "keyframe-request pli") && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(ca.events.lock().iter().any(|e| e == "keyframe-request pli"), "events: {:?}", ca.events.lock());
         a.stop();
         b.stop();
     }

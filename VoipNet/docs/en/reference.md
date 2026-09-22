@@ -73,6 +73,7 @@
 | `AudioReceived`, `ReadAudioAsync(direction)` | Audio from the call. |
 | `SendEncoded(...)`, `EncodedReceived` | Pass-through payloads. |
 | `SendVideoFrame(...)`, `VideoFrameReceived`, `VideoCodec` | Whole video frames on the call's video stream. |
+| `RequestKeyframe(full)` | Asks the peer for a video keyframe (RTCP PLI or FIR). |
 | `GetStatistics()`, `FinalStatistics` | Quality, including what the peer reports over RTCP (`RoundTripMs`, `RemoteLossPercent`, `RemoteJitterMs`, `RemoteMos`). |
 | `JoinConference(c)`, `LeaveConference()` | Conferencing. |
 | `Connected`, `Completion` | Tasks for linear async code. |

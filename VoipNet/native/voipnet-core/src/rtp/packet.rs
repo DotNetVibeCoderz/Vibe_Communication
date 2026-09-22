@@ -231,6 +231,8 @@ pub enum RtcpPacket {
     ReceiverReport { ssrc: u32, reports: Vec<ReportBlock> },
     ExtendedReport { ssrc: u32, metrics: VoipMetrics },
     Bye { ssrc: u32 },
+    /// The peer asks for a keyframe: Picture Loss Indication (RFC 4585) or Full Intra Request (RFC 5104).
+    KeyframeRequest { ssrc: u32, full: bool },
 }
 
 /// Parses a compound RTCP packet, ignoring types the engine does not use.
@@ -271,6 +273,8 @@ pub fn parse_rtcp(data: &[u8]) -> Vec<RtcpPacket> {
                 }
             }
             203 => out.push(RtcpPacket::Bye { ssrc }),
+            // Payload-specific feedback (RFC 4585 6.3): FMT 1 is PLI, FMT 4 is FIR (RFC 5104 4.3.1).
+            206 if matches!(count, 1 | 4) => out.push(RtcpPacket::KeyframeRequest { ssrc, full: count == 4 }),
             _ => {}
         }
         rest = tail;
@@ -312,6 +316,20 @@ pub fn build_receiver_report(ssrc: u32, report: ReportBlock) -> Vec<u8> {
     out
 }
 
+/// Asks the peer for a keyframe. `full` sends a Full Intra Request (RFC 5104), which needs a sequence
+/// number so repeats can be told apart; otherwise a Picture Loss Indication (RFC 4585).
+pub fn build_keyframe_request(ssrc: u32, media_ssrc: u32, full: bool, sequence: u8) -> Vec<u8> {
+    let mut out = vec![0x80 | if full { 4 } else { 1 }, 206, 0, if full { 4 } else { 2 }];
+    out.extend_from_slice(&ssrc.to_be_bytes());
+    out.extend_from_slice(&media_ssrc.to_be_bytes());
+    if full {
+        // FCI: the SSRC to refresh, the request sequence number, then three reserved bytes.
+        out.extend_from_slice(&media_ssrc.to_be_bytes());
+        out.extend_from_slice(&[sequence, 0, 0, 0]);
+    }
+    out
+}
+
 pub fn build_bye(ssrc: u32) -> Vec<u8> {
     let mut out = vec![0x81, 203, 0, 1];
     out.extend_from_slice(&ssrc.to_be_bytes());
@@ -321,6 +339,16 @@ pub fn build_bye(ssrc: u32) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keyframe_requests_round_trip() {
+        for (full, expected) in [(false, false), (true, true)] {
+            let bytes = build_keyframe_request(1, 2, full, 7);
+            assert_eq!(bytes.len() % 4, 0);
+            let parsed = parse_rtcp(&bytes);
+            assert_eq!(parsed, vec![RtcpPacket::KeyframeRequest { ssrc: 1, full: expected }]);
+        }
+    }
 
     #[test]
     fn roundtrip() {

@@ -218,6 +218,12 @@ public sealed class VoipCall
     /// <param name="frame">The encoded frame; it is split across as many RTP packets as it needs.</param>
     public void SendVideoFrame(uint timestamp, ReadOnlySpan<byte> frame) => _client.SendVideoFrame(Id, timestamp, frame);
 
+    /// <summary>Asks the peer for a keyframe. The engine already does this when a frame arrives with packets
+    /// missing; call it yourself when a decoder loses its state. Requests arrive as a
+    /// <c>keyframe-request</c> media notification.</summary>
+    /// <param name="full">Send a Full Intra Request (RFC 5104) instead of a Picture Loss Indication (RFC 4585).</param>
+    public void RequestKeyframe(bool full = false) => _client.RequestKeyframe(Id, full);
+
     /// <summary>The video codec negotiated for this call, or <c>null</c> when the call has no video stream.</summary>
     public string? VideoCodec => _client.VideoCodec(Id);
 

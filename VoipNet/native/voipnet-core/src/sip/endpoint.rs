@@ -679,6 +679,19 @@ impl Endpoint {
         Ok(())
     }
 
+    /// Asks the peer for a video keyframe (RFC 4585 PLI, or RFC 5104 FIR when `full`). The engine also
+    /// does this on its own when a frame arrives with packets missing.
+    pub fn request_keyframe(&self, call_id: u64, full: bool) -> Result<()> {
+        let st = self.inner.state.lock();
+        let video = st.calls.get(&call_id).ok_or(EndpointError::NotFound)?.video.clone();
+        drop(st);
+        let video = video.ok_or(EndpointError::InvalidState("call has no video stream"))?;
+        if !video.request_keyframe(full) {
+            return Err(EndpointError::InvalidState("no video stream from the peer yet"));
+        }
+        Ok(())
+    }
+
     /// The codec negotiated for the call's video stream, if it has one.
     pub fn video_codec(&self, call_id: u64) -> Result<Option<String>> {
         let st = self.inner.state.lock();

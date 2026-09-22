@@ -73,6 +73,7 @@
 | `AudioReceived`, `ReadAudioAsync(direction)` | Audio dari panggilan. |
 | `SendEncoded(...)`, `EncodedReceived` | Payload pass-through. |
 | `SendVideoFrame(...)`, `VideoFrameReceived`, `VideoCodec` | Frame video utuh pada stream video panggilan. |
+| `RequestKeyframe(full)` | Meminta keyframe video ke lawan (RTCP PLI atau FIR). |
 | `GetStatistics()`, `FinalStatistics` | Kualitas, termasuk laporan lawan lewat RTCP (`RoundTripMs`, `RemoteLossPercent`, `RemoteJitterMs`, `RemoteMos`). |
 | `JoinConference(c)`, `LeaveConference()` | Konferensi. |
 | `Connected`, `Completion` | Task untuk kode async yang linear. |

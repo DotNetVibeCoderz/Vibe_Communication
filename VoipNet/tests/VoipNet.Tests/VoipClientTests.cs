@@ -50,6 +50,15 @@ public sealed class VoipClientTests
 
         Assert.True(first.Keyframe);
         Assert.Equal(keyframe, first.Data);
+
+        // The receiver can ask for a fresh keyframe; the sender hears about it as a media notification.
+        var requests = new ConcurrentQueue<string>();
+        pair.Caller.MediaNotification += (_, e) => requests.Enqueue(e.Kind);
+        pair.CalleeLeg.RequestKeyframe();
+        await TestHelpers.WaitAsync(
+            () => requests.Contains("keyframe-request") ? "requested" : null,
+            TimeSpan.FromSeconds(5),
+            "keyframe request");
         await pair.CallerLeg.HangupAsync();
     }
 

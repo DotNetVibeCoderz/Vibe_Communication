@@ -377,6 +377,9 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
         }
     }
 
+    internal void RequestKeyframe(ulong id, bool full) =>
+        Check(NativeMethods.RequestKeyframe(_handle, id, full ? 1 : 0), "request a keyframe");
+
     internal unsafe string? VideoCodec(ulong id)
     {
         var buffer = stackalloc byte[32];
