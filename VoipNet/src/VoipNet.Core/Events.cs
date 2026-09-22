@@ -79,6 +79,13 @@ public delegate void AudioFrameHandler(VoipCall call, AudioDirection direction, 
 /// <param name="payload">Encoded payload bytes.</param>
 public delegate void EncodedFrameHandler(VoipCall call, int payloadType, uint timestamp, bool marker, ReadOnlySpan<byte> payload);
 
+/// <summary>Handles a complete video frame received on a call.</summary>
+/// <param name="call">The call the frame belongs to.</param>
+/// <param name="timestamp">RTP timestamp in the 90 kHz video clock.</param>
+/// <param name="keyframe">True when the frame can be decoded on its own.</param>
+/// <param name="frame">The frame bytes: one H.264 access unit in Annex B form, or one VP8 frame.</param>
+public delegate void VideoFrameHandler(VoipCall call, uint timestamp, bool keyframe, ReadOnlySpan<byte> frame);
+
 /// <summary>Registration state change.</summary>
 /// <param name="State">New registration state.</param>
 /// <param name="StatusCode">SIP status code that caused the change.</param>

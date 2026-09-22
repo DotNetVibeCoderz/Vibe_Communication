@@ -119,6 +119,13 @@ public sealed class VoipClientOptions
     /// <summary>Audio codecs to offer, in preference order. Supported natively: opus (48 kHz, in-band FEC), G722, PCMU, PCMA, L16.</summary>
     public IList<string> AudioCodecs { get; set; } = ["opus", "G722", "PCMU", "PCMA"];
 
+    /// <summary>Offer and accept a video stream next to the audio one. Frames are packetized, not encoded:
+    /// the application supplies and consumes H.264 or VP8 frames itself.</summary>
+    public bool Video { get; set; }
+
+    /// <summary>Video codecs to offer, in preference order. Payload formats: H264 (RFC 6184), VP8 (RFC 7741).</summary>
+    public IList<string> VideoCodecs { get; set; } = ["H264", "VP8"];
+
     /// <summary>Media encryption policy.</summary>
     public SrtpMode Srtp { get; set; } = SrtpMode.Disabled;
 

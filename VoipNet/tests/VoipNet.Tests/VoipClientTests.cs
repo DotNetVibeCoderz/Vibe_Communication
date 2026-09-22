@@ -9,6 +9,51 @@ public sealed class VoipClientTests
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
 
     [Fact]
+    public async Task VideoCallsCarryFramesAlongsideAudio()
+    {
+        await using var pair = await LoopbackPair.ConnectAsync("caller", "callee", o => o.Video = true);
+        Assert.Equal("H264", pair.CallerLeg.VideoCodec);
+        Assert.Equal("H264", pair.CalleeLeg.VideoCodec);
+
+        var received = new List<(uint Timestamp, bool Keyframe, byte[] Data)>();
+        pair.CalleeLeg.VideoFrameReceived += (_, timestamp, keyframe, frame) =>
+        {
+            lock (received)
+            {
+                received.Add((timestamp, keyframe, frame.ToArray()));
+            }
+        };
+
+        // An access unit that has to be split across several RTP packets.
+        var keyframe = new byte[] { 0, 0, 0, 1, 0x67, 0x42, 0xE0, 0x1F, 0, 0, 0, 1, 0x65 }
+            .Concat(Enumerable.Range(0, 3000).Select(i => (byte)(i % 251 | 1)))
+            .ToArray();
+        for (var i = 0u; i < 10; i++)
+        {
+            pair.CallerLeg.SendVideoFrame(90000 + (i * 3000), keyframe);
+            await Task.Delay(100);
+            lock (received)
+            {
+                if (received.Count > 0)
+                {
+                    break;
+                }
+            }
+        }
+
+        (uint Timestamp, bool Keyframe, byte[] Data) first;
+        lock (received)
+        {
+            Assert.NotEmpty(received);
+            first = received[0];
+        }
+
+        Assert.True(first.Keyframe);
+        Assert.Equal(keyframe, first.Data);
+        await pair.CallerLeg.HangupAsync();
+    }
+
+    [Fact]
     public void EngineVersionIsReported()
     {
         Assert.False(string.IsNullOrWhiteSpace(VoipClient.EngineVersion));

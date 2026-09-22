@@ -61,6 +61,7 @@ internal static unsafe partial class NativeMethods
         public delegate* unmanaged<nint, ulong, int, uint, short*, int, void> OnAudio;
         public delegate* unmanaged<nint, ulong, uint, int, void> OnDtmf;
         public delegate* unmanaged<nint, ulong, byte, uint, int, byte*, int, void> OnEncoded;
+        public delegate* unmanaged<nint, ulong, uint, int, byte*, int, void> OnVideo;
         public nint UserData;
     }
 
@@ -140,6 +141,12 @@ internal static unsafe partial class NativeMethods
 
     [LibraryImport(Library, EntryPoint = "voipnet_send_encoded")]
     internal static partial int SendEncoded(nint handle, ulong callId, byte payloadType, uint timestamp, int marker, byte* data, int length);
+
+    [LibraryImport(Library, EntryPoint = "voipnet_send_video_frame")]
+    internal static partial int SendVideoFrame(nint handle, ulong callId, uint timestamp, byte* data, int length);
+
+    [LibraryImport(Library, EntryPoint = "voipnet_video_codec")]
+    internal static partial int VideoCodec(nint handle, ulong callId, byte* buffer, int length);
 
     [LibraryImport(Library, EntryPoint = "voipnet_call_stats")]
     internal static partial int CallStats(nint handle, ulong callId, out MediaStatsNative stats);

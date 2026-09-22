@@ -135,6 +135,7 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
             OnAudio = &NativeCallbacks.OnAudio,
             OnDtmf = &NativeCallbacks.OnDtmf,
             OnEncoded = &NativeCallbacks.OnEncoded,
+            OnVideo = &NativeCallbacks.OnVideo,
             UserData = GCHandle.ToIntPtr(_self),
         };
 
@@ -365,6 +366,30 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
         if (_calls.TryGetValue(callId, out var call))
         {
             call.RaiseAudio((AudioDirection)direction, sampleRate, new ReadOnlySpan<short>(samples, count));
+        }
+    }
+
+    internal unsafe void SendVideoFrame(ulong id, uint timestamp, ReadOnlySpan<byte> frame)
+    {
+        fixed (byte* data = frame)
+        {
+            Check(NativeMethods.SendVideoFrame(_handle, id, timestamp, data, frame.Length), "send video frame");
+        }
+    }
+
+    internal unsafe string? VideoCodec(ulong id)
+    {
+        var buffer = stackalloc byte[32];
+        Check(NativeMethods.VideoCodec(_handle, id, buffer, 32), "read video codec");
+        var codec = Marshal.PtrToStringUTF8((nint)buffer);
+        return string.IsNullOrEmpty(codec) ? null : codec;
+    }
+
+    internal unsafe void HandleVideoFrame(ulong callId, uint timestamp, bool keyframe, byte* data, int length)
+    {
+        if (_calls.TryGetValue(callId, out var call))
+        {
+            call.RaiseVideoFrame(timestamp, keyframe, new ReadOnlySpan<byte>(data, length));
         }
     }
 

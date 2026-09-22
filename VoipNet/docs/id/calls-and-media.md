@@ -46,12 +46,31 @@ await call.SendAudioStreamAsync(ttsChunks, 24000, maxQueuedMs: 2000);
 call.ClearAudio();                                     // barge-in
 ```
 
-Codec pass-through (video, G.729) dipertukarkan sebagai payload ter-encode:
+Codec pass-through (G.729, SILK, Speex) dipertukarkan sebagai payload ter-encode:
 
 ```csharp
 call.EncodedReceived += (c, payloadType, timestamp, marker, payload) => decoder.Feed(payload);
 call.SendEncoded(96, rtpTimestamp, marker: true, h264Nal);
 ```
+
+## Video
+
+Dengan `Video = true`, panggilan membawa stream `m=video` di samping audio, pada port RTP sendiri dan
+dengan enkripsi serta ICE yang sama seperti audio. Engine memaket dan merakit frame utuh (H.264
+FU-A/STAP-A sesuai RFC 6184, VP8 sesuai RFC 7741); encode dan decode dilakukan aplikasi, jadi kirimkan
+access unit H.264 dalam bentuk Annex B atau frame VP8:
+
+```csharp
+var options = new VoipClientOptions { Video = true, VideoCodecs = ["H264"] };
+
+call.VideoFrameReceived += (c, timestamp, keyframe, frame) => decoder.Feed(frame, keyframe);
+call.SendVideoFrame(rtpTimestamp90kHz, encodedFrame);   // dipecah menjadi beberapa paket bila perlu
+Console.WriteLine(call.VideoCodec);                     // "H264", atau null pada panggilan audio saja
+```
+
+Frame yang kehilangan paket dibuang, bukan diserahkan dalam keadaan rusak, sehingga decoder tidak
+pernah menerima frame cacat. Permintaan keyframe (RTCP PLI/FIR), estimasi bandwidth, dan penangkapan
+kamera belum ada — lihat [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
 
 ## Codec
 
@@ -63,7 +82,8 @@ call.SendEncoded(96, rtpTimestamp, marker: true, h264Nal);
 | L16 | 97 | 16 kHz | native |
 | telephone-event | 101, 110 | 8 kHz, 48 kHz | RFC 4733, pada clock rate codec audio |
 | G.729, SILK, Speex | 18, 112, 113 | — | dinegosiasikan, pass-through |
-| H.264, VP8, VP9 | 96, 98, 100 | 90 kHz | dinegosiasikan, pass-through |
+| H.264, VP8 | 96, 98 | 90 kHz | stream video terpaket (lihat bagian Video); frame di-encode oleh aplikasi |
+| VP9 | 100 | 90 kHz | dinegosiasikan, pass-through |
 
 Urutkan `AudioCodecs` sesuai preferensi. Jawaban mengikuti urutan pihak penawar (RFC 3264).
 

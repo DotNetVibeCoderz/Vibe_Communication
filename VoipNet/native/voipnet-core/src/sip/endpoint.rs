@@ -80,6 +80,9 @@ pub struct EndpointConfig {
     pub register_expires: u32,
     pub user_agent: String,
     pub audio_codecs: Vec<String>,
+    /// Offer and accept a video stream alongside the audio one.
+    pub video: bool,
+    pub video_codecs: Vec<String>,
     pub srtp: SrtpMode,
     pub srtp_keying: SrtpKeying,
     pub dtmf_mode: DtmfModeConfig,
@@ -134,6 +137,8 @@ impl Default for EndpointConfig {
             register_expires: 600,
             user_agent: format!("Voip.NET/{}", env!("CARGO_PKG_VERSION")),
             audio_codecs: vec!["opus".into(), "G722".into(), "PCMU".into(), "PCMA".into()],
+            video: false,
+            video_codecs: vec!["H264".into(), "VP8".into()],
             srtp: SrtpMode::Disabled,
             srtp_keying: SrtpKeying::Sdes,
             dtmf_mode: DtmfModeConfig::Rfc4733,
@@ -194,6 +199,8 @@ pub trait EndpointHandler: Send + Sync {
     fn on_audio(&self, call_id: u64, direction: AudioDirection, sample_rate: u32, pcm: &[i16]);
     fn on_dtmf(&self, call_id: u64, digit: char, source: DtmfSource);
     fn on_encoded(&self, call_id: u64, payload_type: u8, timestamp: u32, marker: bool, payload: &[u8]);
+    /// A complete video frame was received; `frame` is one H.264 access unit (Annex B) or VP8 frame.
+    fn on_video_frame(&self, _call_id: u64, _timestamp: u32, _keyframe: bool, _frame: &[u8]) {}
 }
 
 enum Dispatch {
@@ -218,6 +225,9 @@ impl MediaSink for SinkAdapter {
     }
     fn on_media_event(&self, call_id: u64, kind: &str, detail: &str) {
         let _ = self.tx.lock().send(Dispatch::Event(Event::MediaEvent { call_id, kind: kind.into(), detail: detail.into() }));
+    }
+    fn on_video_frame(&self, call_id: u64, timestamp: u32, keyframe: bool, frame: &[u8]) {
+        self.handler.on_video_frame(call_id, timestamp, keyframe, frame);
     }
 }
 
@@ -328,6 +338,10 @@ struct Call {
     invite_branch: String,
     peer: SocketAddr,
     media: Option<Arc<MediaSession>>,
+    /// Second media session carrying video, with its own port; `None` on audio-only calls.
+    video: Option<Arc<MediaSession>>,
+    /// Formats to put on the `m=video` line: everything we support in an offer, the chosen one in an answer.
+    video_formats: Vec<RtpMap>,
     remote_offer: Option<SessionDescription>,
     session_id: u64,
     session_version: u64,
@@ -350,6 +364,9 @@ impl Call {
     /// Detaches the media session, keeping its last statistics so quality can still be reported
     /// after the call has ended.
     fn take_media(&mut self) -> Option<Arc<MediaSession>> {
+        if let Some(video) = self.video.take() {
+            video.stop();
+        }
         let media = self.media.take()?;
         self.final_stats = Some(media.stats());
         Some(media)
@@ -393,6 +410,7 @@ struct Inner {
     media_cfg: MediaConfig,
     conferences: Mutex<HashMap<u64, Arc<Conference>>>,
     supported_audio: Vec<RtpMap>,
+    supported_video: Vec<RtpMap>,
 }
 
 pub struct Endpoint {
@@ -481,6 +499,13 @@ impl Endpoint {
         if supported_audio.is_empty() {
             supported_audio = vec![CodecKind::Pcmu.rtpmap(), CodecKind::Pcma.rtpmap()];
         }
+        let supported_video: Vec<RtpMap> = cfg
+            .video_codecs
+            .iter()
+            .filter_map(|n| CodecKind::parse(n))
+            .filter(|k| k.is_video())
+            .map(CodecKind::rtpmap)
+            .collect();
         supported_audio.push(CodecKind::TelephoneEvent.rtpmap());
         // RFC 4733 events use the audio clock, so wideband Opus calls need a 48 kHz telephone-event too.
         if supported_audio.iter().any(|m| m.clock_rate == 48000 && !m.encoding.eq_ignore_ascii_case("telephone-event")) {
@@ -502,6 +527,7 @@ impl Endpoint {
             media_cfg,
             conferences: Mutex::new(HashMap::new()),
             supported_audio,
+            supported_video,
         });
 
         let dispatcher_handler = handler;
@@ -638,6 +664,26 @@ impl Endpoint {
     pub fn clear_audio(&self, call_id: u64) -> Result<()> {
         self.inner.media_of(call_id)?.clear_audio();
         Ok(())
+    }
+
+    /// Sends one encoded video frame on the call's video stream. `timestamp` is in the 90 kHz video
+    /// clock; the frame is split into as many RTP packets as it needs.
+    pub fn send_video_frame(&self, call_id: u64, timestamp: u32, frame: &[u8]) -> Result<()> {
+        let st = self.inner.state.lock();
+        let video = st.calls.get(&call_id).ok_or(EndpointError::NotFound)?.video.clone();
+        drop(st);
+        let video = video.ok_or(EndpointError::InvalidState("call has no video stream"))?;
+        if !video.send_video_frame(timestamp, frame) {
+            return Err(EndpointError::InvalidState("video stream cannot send"));
+        }
+        Ok(())
+    }
+
+    /// The codec negotiated for the call's video stream, if it has one.
+    pub fn video_codec(&self, call_id: u64) -> Result<Option<String>> {
+        let st = self.inner.state.lock();
+        let call = st.calls.get(&call_id).ok_or(EndpointError::NotFound)?;
+        Ok(call.video.as_ref().and(call.video_formats.first()).map(|f| f.encoding.clone()))
     }
 
     pub fn send_encoded(&self, call_id: u64, payload_type: u8, timestamp: u32, marker: bool, payload: &[u8]) -> Result<()> {
@@ -1103,6 +1149,8 @@ impl Inner {
             invite_branch: String::new(),
             peer: dest,
             media: Some(media),
+            video: None,
+            video_formats: Vec::new(),
             remote_offer: None,
             session_id: rand::random::<u32>() as u64,
             session_version: 1,
@@ -1120,6 +1168,7 @@ impl Inner {
             final_stats: None,
             redirects: 0,
         };
+        self.offer_video(&mut call);
         let sdp = self.local_offer(&call, Direction::SendRecv);
         let mut req = self.base_request(Method::Invite, &uri.to_string(), &call.local_uri, &call.remote_uri, &sip_call_id, 1, &[]);
         if let Some(r) = replaces {
@@ -1154,25 +1203,86 @@ impl Inner {
 
     fn build_sdp(&self, call: &Call, media: &Arc<MediaSession>, formats: Vec<RtpMap>, direction: Direction, answer_to: Option<&SessionDescription>) -> String {
         let addr = media.advertised_address();
+        let mut lines = vec![self.media_line("audio", media, formats, direction, answer_to, answer_to.and_then(|o| o.audio()), "0")];
+        // The video stream has its own port, so it gets its own m-line rather than a BUNDLE group.
+        if let Some(video) = call.video.as_ref().filter(|_| !call.video_formats.is_empty()) {
+            lines.push(self.media_line(
+                "video",
+                video,
+                call.video_formats.clone(),
+                direction,
+                answer_to,
+                answer_to.and_then(|o| o.video()),
+                "1",
+            ));
+        }
+        let mut sdp = SessionDescription {
+            origin_user: "voipnet".into(),
+            session_id: call.session_id,
+            session_version: call.session_version,
+            origin_address: addr.ip().to_string(),
+            session_name: "Voip.NET".into(),
+            connection: Some(addr.ip().to_string()),
+            media: lines,
+            ..Default::default()
+        };
+        // RFC 3264 6: an answer keeps the offer's m-lines in order; streams we did not accept get port 0.
+        if let Some(offer) = answer_to {
+            let mut ours: Vec<Option<MediaDescription>> = sdp.media.drain(..).map(Some).collect();
+            for om in &offer.media {
+                let mine = ours.iter_mut().find(|l| l.as_ref().is_some_and(|l| l.media == om.media)).and_then(Option::take);
+                sdp.media.push(mine.unwrap_or_else(|| MediaDescription {
+                    media: om.media.clone(),
+                    port: 0,
+                    protocol: om.protocol.clone(),
+                    formats: om.formats.iter().take(1).cloned().collect(),
+                    direction: Direction::Inactive,
+                    mid: om.mid.clone(),
+                    ..Default::default()
+                }));
+            }
+            // Keep BUNDLE (RFC 8843) for the accepted streams so WebRTC peers accept the answer.
+            if offer.groups.iter().any(|g| g.starts_with("BUNDLE")) {
+                let mids: Vec<String> = sdp.media.iter().filter(|m| m.port != 0).filter_map(|m| m.mid.clone()).collect();
+                if !mids.is_empty() {
+                    sdp.groups.push(format!("BUNDLE {}", mids.join(" ")));
+                }
+            }
+        }
+        sdp.to_string_sdp()
+    }
+
+    /// Builds one m-line: the stream's formats, keying material and ICE candidates. `answer_to_line` is
+    /// the offered line being answered, if any.
+    fn media_line(
+        &self,
+        kind: &str,
+        media: &Arc<MediaSession>,
+        formats: Vec<RtpMap>,
+        direction: Direction,
+        answer_to: Option<&SessionDescription>,
+        answer_to_line: Option<&MediaDescription>,
+        default_mid: &str,
+    ) -> MediaDescription {
+        let addr = media.advertised_address();
         let mut m = MediaDescription {
-            media: "audio".into(),
+            media: kind.into(),
             port: addr.port(),
             protocol: if self.cfg.srtp == SrtpMode::Mandatory { "RTP/SAVP".into() } else { "RTP/AVP".into() },
             formats,
             direction,
             rtcp_mux: true,
-            ptime: Some(self.cfg.ptime_ms),
+            ptime: (kind == "audio").then_some(self.cfg.ptime_ms),
             ..Default::default()
         };
-        let offer_audio = answer_to.and_then(|o| o.audio());
-        if let Some(offer_audio) = offer_audio {
-            m.protocol = offer_audio.protocol.clone();
-            m.rtcp_mux = offer_audio.rtcp_mux;
-            m.mid = offer_audio.mid.clone();
+        if let Some(offered) = answer_to_line {
+            m.protocol = offered.protocol.clone();
+            m.rtcp_mux = offered.rtcp_mux;
+            m.mid = offered.mid.clone();
         }
         if media.srtp_enabled() {
             let key = media.enable_srtp();
-            let tag = offer_audio.and_then(|a| a.crypto.first()).map_or(1, |c| c.tag);
+            let tag = answer_to_line.and_then(|a| a.crypto.first()).map_or(1, |c| c.tag);
             m.crypto.push(CryptoAttr { tag, suite: SUITE_AES_CM_128_HMAC_SHA1_80.into(), key_params: key });
         }
         // DTLS-SRTP (RFC 5763): certificate fingerprint plus the connection role.
@@ -1189,57 +1299,19 @@ impl Inner {
             );
             if answer_to.is_none() {
                 m.protocol = "UDP/TLS/RTP/SAVP".into();
-                m.mid = Some("0".into());
+                m.mid = Some(default_mid.into());
             }
         }
         // WebRTC peers require ICE, so DTLS offers and ICE offers are answered with candidates.
-        let remote_ice = offer_audio.is_some_and(|a| a.ice_ufrag.is_some()) || answer_to.is_some_and(|o| o.ice_ufrag.is_some());
+        let remote_ice = answer_to_line.is_some_and(|a| a.ice_ufrag.is_some()) || answer_to.is_some_and(|o| o.ice_ufrag.is_some());
         if self.cfg.ice || dtls || remote_ice {
             let (ufrag, pwd) = media.ice_credentials();
             m.ice_ufrag = Some(ufrag);
             m.ice_pwd = Some(pwd);
             m.other_attributes.push("ice-options:trickle".into());
-            m.candidates = media.local_candidates().iter().filter(|c| c.address.ip() == addr.ip() || true).map(Candidate::to_sdp).collect();
+            m.candidates = media.local_candidates().iter().map(Candidate::to_sdp).collect();
         }
-        let mut sdp = SessionDescription {
-            origin_user: "voipnet".into(),
-            session_id: call.session_id,
-            session_version: call.session_version,
-            origin_address: addr.ip().to_string(),
-            session_name: "Voip.NET".into(),
-            connection: Some(addr.ip().to_string()),
-            media: vec![m],
-            ..Default::default()
-        };
-        // RFC 3264 §6: answer must contain the same number of m-lines; reject non-audio streams.
-        if let Some(offer) = answer_to {
-            let mut lines = Vec::with_capacity(offer.media.len());
-            let mut audio_used = false;
-            for om in &offer.media {
-                if om.media == "audio" && !audio_used {
-                    audio_used = true;
-                    lines.push(sdp.media[0].clone());
-                } else {
-                    lines.push(MediaDescription {
-                        media: om.media.clone(),
-                        port: 0,
-                        protocol: om.protocol.clone(),
-                        formats: om.formats.iter().take(1).cloned().collect(),
-                        direction: Direction::Inactive,
-                        mid: om.mid.clone(),
-                        ..Default::default()
-                    });
-                }
-            }
-            sdp.media = lines;
-            // Keep BUNDLE (RFC 8843) for the accepted stream so WebRTC peers accept the answer.
-            if offer.groups.iter().any(|g| g.starts_with("BUNDLE")) {
-                if let Some(mid) = sdp.media.iter().find(|m| m.port != 0).and_then(|m| m.mid.clone()) {
-                    sdp.groups.push(format!("BUNDLE {mid}"));
-                }
-            }
-        }
-        sdp.to_string_sdp()
+        m
     }
 
     /// Negotiates an incoming offer. Returns (formats for answer, negotiated media) or a SIP error code.
@@ -1322,6 +1394,150 @@ impl Inner {
         })
     }
 
+    /// Creates the call's video session: a second RTP stream that packetizes whole frames.
+    fn new_video_media(&self, call_id: u64, format: &RtpMap) -> Result<Arc<MediaSession>> {
+        let media = MediaSession::new(call_id, self.media_cfg.clone(), self.sink.clone())?;
+        if !media.enable_video(&format.encoding, format.payload_type) {
+            media.stop();
+            return Err(EndpointError::InvalidArgument(format!("unsupported video codec {}", format.encoding)));
+        }
+        match (self.cfg.srtp, self.cfg.srtp_keying) {
+            (SrtpMode::Disabled, _) => {}
+            (_, SrtpKeying::Dtls) => {
+                media.enable_dtls();
+            }
+            (_, SrtpKeying::Sdes) => {
+                media.enable_srtp();
+            }
+        }
+        Ok(media)
+    }
+
+    /// Adds a video stream to a call we are about to offer, when video is enabled and a codec is configured.
+    fn offer_video(&self, call: &mut Call) {
+        if !self.cfg.video || call.video.is_some() {
+            return;
+        }
+        let Some(first) = self.supported_video.first() else { return };
+        match self.new_video_media(call.id, first) {
+            Ok(session) => {
+                call.video = Some(session);
+                call.video_formats = self.supported_video.clone();
+            }
+            Err(e) => self.log("warn", format!("call {}: no video stream ({e})", call.id)),
+        }
+    }
+
+    /// Negotiates the video stream of an offer we are answering. Clears `call.video_formats` when the
+    /// offer has no video we can use, so the answer rejects that m-line with port 0.
+    fn negotiate_video_offer(&self, offer: &SessionDescription, call: &mut Call) -> Option<NegotiatedMedia> {
+        let video = offer.video().filter(|v| v.port != 0);
+        let codec = video.and_then(|v| negotiate(&v.formats, &self.supported_video).0).filter(|_| self.cfg.video);
+        let (Some(video), Some(codec)) = (video, codec) else {
+            call.video_formats.clear();
+            if let Some(session) = call.video.take() {
+                session.stop();
+            }
+            return None;
+        };
+        let session = match call.video.clone() {
+            Some(session) => {
+                session.enable_video(&codec.encoding, codec.payload_type);
+                session
+            }
+            None => match self.new_video_media(call.id, &codec) {
+                Ok(session) => {
+                    call.video = Some(session.clone());
+                    session
+                }
+                Err(e) => {
+                    self.log("warn", format!("call {}: no video stream ({e})", call.id));
+                    call.video_formats.clear();
+                    return None;
+                }
+            },
+        };
+        let crypto = video.crypto.iter().find(|c| c.suite == SUITE_AES_CM_128_HMAC_SHA1_80);
+        let fingerprint = video.fingerprint.clone().or_else(|| offer.fingerprint.clone()).filter(|_| video.protocol.contains("TLS"));
+        let use_dtls = self.cfg.srtp != SrtpMode::Disabled && fingerprint.is_some() && (crypto.is_none() || self.cfg.srtp_keying == SrtpKeying::Dtls);
+        if use_dtls {
+            session.enable_dtls();
+            session.set_dtls_role(match video.setup.as_deref() {
+                Some("active") => DtlsRole::Server,
+                _ => DtlsRole::Client,
+            });
+        } else if crypto.is_some() && self.cfg.srtp != SrtpMode::Disabled {
+            session.enable_srtp();
+        }
+        call.video_formats = vec![codec.clone()];
+        let remote_ip = offer.rtp_address(video).and_then(|a| a.parse::<IpAddr>().ok());
+        Some(NegotiatedMedia {
+            remote: remote_ip.filter(|ip| !ip.is_unspecified()).map(|ip| SocketAddr::new(ip, video.port)),
+            codec,
+            dtmf: None,
+            direction: video.direction.reversed(),
+            remote_srtp_key: crypto.map(|c| c.key_params.clone()).filter(|_| !use_dtls && self.cfg.srtp != SrtpMode::Disabled),
+            remote_ice_ufrag: video.ice_ufrag.clone().or_else(|| offer.ice_ufrag.clone()),
+            remote_ice_pwd: video.ice_pwd.clone().or_else(|| offer.ice_pwd.clone()),
+            ice_controlling: offer.ice_lite,
+            remote_candidates: video.candidates.iter().filter_map(|c| Candidate::parse(c)).collect(),
+            ptime_ms: None,
+            remote_fingerprint: fingerprint.filter(|_| use_dtls),
+            dtls_role: session.dtls_role(),
+        })
+    }
+
+    /// Applies the answer to a video stream we offered, dropping the stream if the peer refused it.
+    fn apply_video_answer(&self, call: &mut Call, answer: &SessionDescription) -> Vec<Event> {
+        if call.video.is_none() {
+            return Vec::new();
+        }
+        let video = answer.video().filter(|v| v.port != 0);
+        let codec = video.and_then(|v| negotiate(&v.formats, &self.supported_video).0);
+        let remote_ip = video.and_then(|v| answer.rtp_address(v)).and_then(|a| a.parse::<IpAddr>().ok());
+        let (Some(video), Some(codec), Some(remote_ip)) = (video, codec, remote_ip) else {
+            if let Some(session) = call.video.take() {
+                session.stop();
+            }
+            call.video_formats.clear();
+            return vec![Event::MediaEvent { call_id: call.id, kind: "video".into(), detail: "declined".into() }];
+        };
+        let session = call.video.clone().expect("checked above");
+        session.enable_video(&codec.encoding, codec.payload_type);
+        call.video_formats = vec![codec.clone()];
+        let n = NegotiatedMedia {
+            remote: Some(SocketAddr::new(remote_ip, video.port)).filter(|a| !a.ip().is_unspecified()),
+            codec,
+            dtmf: None,
+            direction: video.direction.reversed(),
+            remote_srtp_key: video.crypto.iter().find(|c| c.suite == SUITE_AES_CM_128_HMAC_SHA1_80).map(|c| c.key_params.clone()),
+            remote_ice_ufrag: video.ice_ufrag.clone().or_else(|| answer.ice_ufrag.clone()),
+            remote_ice_pwd: video.ice_pwd.clone().or_else(|| answer.ice_pwd.clone()),
+            ice_controlling: true,
+            remote_candidates: video.candidates.iter().filter_map(|c| Candidate::parse(c)).collect(),
+            ptime_ms: None,
+            remote_fingerprint: video.fingerprint.clone().or_else(|| answer.fingerprint.clone()),
+            dtls_role: Some(if video.setup.as_deref() == Some("active") { DtlsRole::Server } else { DtlsRole::Client }),
+        };
+        self.apply_video(call, &n)
+    }
+
+    /// Starts a negotiated video stream and reports it.
+    fn apply_video(&self, call: &mut Call, n: &NegotiatedMedia) -> Vec<Event> {
+        let Some(session) = call.video.clone() else { return Vec::new() };
+        if let Err(e) = session.apply(n) {
+            call.video = None;
+            call.video_formats.clear();
+            session.stop();
+            return vec![Event::Log { level: "error", message: format!("call {}: video {e}", call.id) }];
+        }
+        vec![Event::MediaEvent {
+            call_id: call.id,
+            kind: "video".into(),
+            detail: format!("{} {}", n.codec.encoding, n.direction.as_str()),
+        }]
+    }
+
     fn apply_media(&self, call: &mut Call, n: &NegotiatedMedia) -> Vec<Event> {
         let mut events = Vec::new();
         let Some(media) = call.media.clone() else { return events };
@@ -1361,8 +1577,12 @@ impl Inner {
             let body = match call.remote_offer.clone() {
                 Some(offer) => match self.negotiate_offer(&offer, &media) {
                     Ok((formats, negotiated)) => {
+                        let video = self.negotiate_video_offer(&offer, call);
                         let sdp = self.build_sdp(call, &media, formats, negotiated.direction, Some(&offer));
                         events.extend(self.apply_media(call, &negotiated));
+                        if let Some(video) = video {
+                            events.extend(self.apply_video(call, &video));
+                        }
                         sdp
                     }
                     Err(code) => {
@@ -1722,8 +1942,12 @@ impl Inner {
                         call.pending_2xx = None;
                         // Late offer: SDP answer arrives in the ACK.
                         if !req.body.is_empty() && call.codec_name.is_none() {
-                            if let Some(n) = SessionDescription::parse(req.body_str()).and_then(|s| self.negotiate_answer(&s)) {
-                                events.extend(self.apply_media(call, &n));
+                            if let Some(sdp) = SessionDescription::parse(req.body_str()) {
+                                if let Some(n) = self.negotiate_answer(&sdp) {
+                                    events.extend(self.apply_media(call, &n));
+                                }
+                                let video = self.apply_video_answer(call, &sdp);
+                                events.extend(video);
                             }
                         }
                     }
@@ -1912,6 +2136,8 @@ impl Inner {
             invite_branch: req.via_branch().unwrap_or_default(),
             peer: from,
             media: Some(media),
+            video: None,
+            video_formats: Vec::new(),
             remote_offer: offer.clone(),
             session_id: rand::random::<u32>() as u64,
             session_version: 1,
@@ -1982,8 +2208,12 @@ impl Inner {
                         (false, false) => Direction::SendRecv,
                     };
                     call.session_version += 1;
+                    let video = self.negotiate_video_offer(&offer, call);
                     let sdp = self.build_sdp(call, &media, formats, negotiated.direction, Some(&offer));
                     events.extend(self.apply_media(call, &negotiated));
+                    if let Some(video) = video {
+                        events.extend(self.apply_video(call, &video));
+                    }
                     resp.set_body("application/sdp", sdp.into_bytes());
                     if remote_hold != call.remote_hold {
                         call.remote_hold = remote_hold;
@@ -2108,8 +2338,12 @@ impl Inner {
                                 let d = self.dialog_dest(call);
                                 let bytes = self.send_bytes(d, &ack);
                                 call.last_ack = Some((bytes, d));
-                                if let Some(n) = SessionDescription::parse(resp.body_str()).and_then(|s| self.negotiate_answer(&s)) {
-                                    events.extend(self.apply_media(call, &n));
+                                if let Some(sdp) = SessionDescription::parse(resp.body_str()) {
+                                    if let Some(n) = self.negotiate_answer(&sdp) {
+                                        events.extend(self.apply_media(call, &n));
+                                    }
+                                    let video = self.apply_video_answer(call, &sdp);
+                                    events.extend(video);
                                 }
                                 let new_state = if call.local_hold { CallState::OnHold } else if call.remote_hold { CallState::RemoteHold } else { CallState::Connected };
                                 if new_state != call.state {
@@ -2271,12 +2505,17 @@ impl Inner {
                     self.terminate(st, id, 487, "cancelled", events, stop);
                     return;
                 }
-                match SessionDescription::parse(resp.body_str()).and_then(|s| self.negotiate_answer(&s)) {
+                let answer = SessionDescription::parse(resp.body_str());
+                match answer.as_ref().and_then(|s| self.negotiate_answer(s)) {
                     Some(n) => events.extend(self.apply_media(call, &n)),
                     None if call.codec_name.is_none() => {
                         events.push(Event::Log { level: "warn", message: format!("call {id}: 2xx without usable SDP answer") });
                     }
                     None => {}
+                }
+                if let Some(answer) = answer.as_ref() {
+                    let video = self.apply_video_answer(call, answer);
+                    events.extend(video);
                 }
                 call.state = CallState::Connected;
                 call.connected_at = Some(Instant::now());
@@ -2546,6 +2785,7 @@ mod tests {
         events: Mutex<Vec<Event>>,
         audio_frames: AtomicU32,
         dtmf: Mutex<String>,
+        video: Mutex<Vec<(u32, bool, Vec<u8>)>>,
     }
 
     impl EndpointHandler for Recorder {
@@ -2561,6 +2801,9 @@ mod tests {
             self.dtmf.lock().push(digit);
         }
         fn on_encoded(&self, _: u64, _: u8, _: u32, _: bool, _: &[u8]) {}
+        fn on_video_frame(&self, _: u64, timestamp: u32, keyframe: bool, frame: &[u8]) {
+            self.video.lock().push((timestamp, keyframe, frame.to_vec()));
+        }
     }
 
     impl Recorder {
@@ -2592,6 +2835,15 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(20));
             }
             self.audio_frames.load(Ordering::Relaxed)
+        }
+
+        /// Waits for at least `min` video frames and returns the ones received.
+        fn wait_video(&self, min: usize, timeout_ms: u64) -> Vec<(u32, bool, Vec<u8>)> {
+            let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+            while self.video.lock().len() < min && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            self.video.lock().clone()
         }
 
         /// Waits until the received DTMF digits equal `expected`; returns what arrived.
@@ -2651,6 +2903,38 @@ mod tests {
         b.answer(b_call).unwrap();
         ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "connected", .. })).expect("caller connected");
         (a_call, b_call)
+    }
+
+    #[test]
+    fn video_calls_negotiate_a_second_stream_and_carry_frames() {
+        let (mut ca, mut cb) = (cfg("alice"), cfg("bob"));
+        ca.video = true;
+        cb.video = true;
+        let (a, ra, b, rb) = pair(ca, cb);
+        let (a_call, b_call) = establish(&a, &b, &rb, &ra);
+        let is_video = |e: &Event| matches!(e, Event::MediaEvent { kind, detail, .. } if kind == "video" && detail.starts_with("H264"));
+        ra.wait_for(3000, is_video).expect("caller video stream");
+        rb.wait_for(3000, is_video).expect("callee video stream");
+        assert_eq!(a.video_codec(a_call).unwrap().as_deref(), Some("H264"));
+        assert_eq!(b.video_codec(b_call).unwrap().as_deref(), Some("H264"));
+        // An access unit large enough to be split across several RTP packets.
+        let mut frame = vec![0, 0, 0, 1, 0x67, 0x42, 0xe0, 0x1f];
+        frame.extend_from_slice(&[0, 0, 0, 1, 0x65]);
+        frame.extend((0..3000).map(|i| (i % 251) as u8 | 1));
+        // ICE and DTLS may still be settling, so send a few frames until one arrives.
+        let mut received = Vec::new();
+        for i in 0..10u32 {
+            a.send_video_frame(a_call, 90_000 + i * 3000, &frame).unwrap();
+            received = rb.wait_video(1, 300);
+            if !received.is_empty() {
+                break;
+            }
+        }
+        let (_, keyframe, data) = received.first().expect("callee received a video frame").clone();
+        assert!(keyframe, "the frame carries an IDR slice");
+        assert_eq!(data, frame);
+        a.hangup(a_call).unwrap();
+        ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("terminated");
     }
 
     #[test]

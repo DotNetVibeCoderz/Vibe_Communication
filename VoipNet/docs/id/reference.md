@@ -21,6 +21,7 @@
 | `RegisterExpires` | `600` | Masa berlaku yang diminta; di-refresh pada 85%. |
 | `UserAgent` | `Voip.NET/1.0 (Gravicode Studios)` | Header User-Agent / Server. |
 | `AudioCodecs` | `opus, G722, PCMU, PCMA` | Urutan preferensi. Native: opus, G722, PCMU, PCMA, L16. |
+| `Video`, `VideoCodecs` | `false`, `H264, VP8` | Menawarkan stream `m=video` di samping audio; frame di-encode oleh aplikasi. |
 | `Srtp` | `Disabled` | `Disabled`, `Optional`, `Mandatory`. |
 | `SrtpKeying` | `Sdes` | `Sdes` (`a=crypto`) atau `Dtls` (DTLS-SRTP dengan ICE, seperti WebRTC). Offer masuk boleh memakai keduanya. |
 | `DtmfMode` | `Rfc4733` | `Rfc4733`, `InBand`, `SipInfo`. |
@@ -71,6 +72,7 @@
 | `SendAudio(samples, rate)`, `SendAudio(bytes, rate)`, `SendAudioStreamAsync(...)`, `ClearAudio()`, `QueuedAudioMs` | Audio keluar. |
 | `AudioReceived`, `ReadAudioAsync(direction)` | Audio dari panggilan. |
 | `SendEncoded(...)`, `EncodedReceived` | Payload pass-through. |
+| `SendVideoFrame(...)`, `VideoFrameReceived`, `VideoCodec` | Frame video utuh pada stream video panggilan. |
 | `GetStatistics()`, `FinalStatistics` | Kualitas, termasuk laporan lawan lewat RTCP (`RoundTripMs`, `RemoteLossPercent`, `RemoteJitterMs`, `RemoteMos`). |
 | `JoinConference(c)`, `LeaveConference()` | Konferensi. |
 | `Connected`, `Completion` | Task untuk kode async yang linear. |

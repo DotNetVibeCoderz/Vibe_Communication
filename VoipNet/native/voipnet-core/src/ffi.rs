@@ -31,6 +31,9 @@ pub type VnEncodedCallback = extern "C" fn(
     len: c_int,
 );
 
+pub type VnVideoCallback =
+    extern "C" fn(user: *mut c_void, call_id: u64, timestamp: u32, keyframe: c_int, data: *const u8, len: c_int);
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct VnCallbacks {
@@ -38,6 +41,7 @@ pub struct VnCallbacks {
     pub on_audio: Option<VnAudioCallback>,
     pub on_dtmf: Option<VnDtmfCallback>,
     pub on_encoded: Option<VnEncodedCallback>,
+    pub on_video: Option<VnVideoCallback>,
     pub user_data: *mut c_void,
 }
 
@@ -74,6 +78,12 @@ impl EndpointHandler for FfiHandler {
     fn on_encoded(&self, call_id: u64, payload_type: u8, timestamp: u32, marker: bool, payload: &[u8]) {
         if let Some(f) = self.cb.on_encoded {
             f(self.cb.user_data, call_id, payload_type, timestamp, c_int::from(marker), payload.as_ptr(), payload.len() as c_int);
+        }
+    }
+
+    fn on_video_frame(&self, call_id: u64, timestamp: u32, keyframe: bool, frame: &[u8]) {
+        if let Some(f) = self.cb.on_video {
+            f(self.cb.user_data, call_id, timestamp, c_int::from(keyframe), frame.as_ptr(), frame.len() as c_int);
         }
     }
 }
@@ -338,6 +348,45 @@ pub unsafe extern "C" fn voipnet_send_encoded(
     }
 }
 
+/// Sends one encoded video frame (H.264 Annex B access unit or VP8 frame) on the call's video stream.
+///
+/// # Safety
+/// `data` must point to `len` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_send_video_frame(
+    handle: *mut c_void,
+    call_id: u64,
+    timestamp: u32,
+    data: *const u8,
+    len: c_int,
+) -> c_int {
+    let Some(ep) = endpoint(handle) else { return VN_ERR_INVALID_ARGUMENT };
+    if data.is_null() || len < 0 {
+        return VN_ERR_INVALID_ARGUMENT;
+    }
+    let slice = std::slice::from_raw_parts(data, len as usize);
+    match ep.send_video_frame(call_id, timestamp, slice) {
+        Ok(()) => VN_OK,
+        Err(e) => map_error(e),
+    }
+}
+
+/// Writes the call's negotiated video codec into `out` (empty when the call has no video stream).
+///
+/// # Safety
+/// `out` must point to `len` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_video_codec(handle: *mut c_void, call_id: u64, out: *mut c_char, len: c_int) -> c_int {
+    let Some(ep) = endpoint(handle) else { return VN_ERR_INVALID_ARGUMENT };
+    match ep.video_codec(call_id) {
+        Ok(codec) => {
+            write_error(out, len, codec.as_deref().unwrap_or(""));
+            VN_OK
+        }
+        Err(e) => map_error(e),
+    }
+}
+
 /// # Safety
 /// `out_stats` must point to a writable [`MediaStats`].
 #[no_mangle]
@@ -514,6 +563,7 @@ mod tests {
             on_audio: None,
             on_dtmf: None,
             on_encoded: None,
+            on_video: None,
             user_data: std::ptr::null_mut(),
         };
         let mut handle = std::ptr::null_mut();
@@ -550,7 +600,7 @@ mod tests {
     #[test]
     fn invalid_configuration_is_reported() {
         let cfg = CString::new(r#"{"sipPort":"not-a-number"}"#).unwrap();
-        let cbs = VnCallbacks { on_event: None, on_audio: None, on_dtmf: None, on_encoded: None, user_data: std::ptr::null_mut() };
+        let cbs = VnCallbacks { on_event: None, on_audio: None, on_dtmf: None, on_encoded: None, on_video: None, user_data: std::ptr::null_mut() };
         let mut handle = std::ptr::null_mut();
         let mut err = [0i8; 256];
         unsafe {

@@ -20,6 +20,7 @@ use crate::codec::dtmf::{self, DtmfDetector, TelephoneEvent};
 use crate::codec::{create_audio_codec, AudioCodec, Concealer};
 use crate::rtp::jitter::{JitterBuffer, JitterStats, Playout};
 use crate::rtp::quality::BurstGapTracker;
+use crate::rtp::video::{VideoDepacketizer, VideoFormat, VideoPacketizer};
 use crate::rtp::packet::{
     build_bye, build_receiver_report, build_sender_report, build_xr_voip_metrics, classify, parse_rtcp, PacketClass, ReportBlock, RtcpPacket,
     RtpHeader, RtpPacketRef, VoipMetrics,
@@ -56,6 +57,8 @@ pub trait MediaSink: Send + Sync {
     fn on_dtmf(&self, call_id: u64, digit: char, source: DtmfSource);
     fn on_encoded(&self, call_id: u64, payload_type: u8, timestamp: u32, marker: bool, payload: &[u8]);
     fn on_media_event(&self, call_id: u64, kind: &str, detail: &str);
+    /// A complete video frame arrived (H.264 access unit in Annex B form, or a VP8 frame).
+    fn on_video_frame(&self, _call_id: u64, _timestamp: u32, _keyframe: bool, _frame: &[u8]) {}
 }
 
 #[derive(Debug, Clone)]
@@ -169,6 +172,13 @@ pub struct MediaStats {
     pub remote_mos: f64,
 }
 
+/// A session in video mode packetizes whole frames instead of encoding audio.
+struct VideoTrack {
+    payload_type: u8,
+    packetizer: VideoPacketizer,
+    depacketizer: VideoDepacketizer,
+}
+
 struct TxState {
     codec: Option<Box<dyn AudioCodec>>,
     payload_type: u8,
@@ -243,6 +253,8 @@ struct Shared {
     via_relay: AtomicBool,
     relay_permissions: Mutex<Vec<IpAddr>>,
     conference: Mutex<Option<Arc<Conference>>>,
+    /// Set when this session carries video rather than audio.
+    video: Mutex<Option<VideoTrack>>,
     sink: Arc<dyn MediaSink>,
     config: MediaConfig,
     packets_sent: AtomicU64,
@@ -379,6 +391,7 @@ impl MediaSession {
             relay_permissions: Mutex::new(Vec::new()),
             relay: Mutex::new(relay),
             conference: Mutex::new(None),
+            video: Mutex::new(None),
             sink,
             config: MediaConfig { ptime_ms: ptime, ..config },
             packets_sent: AtomicU64::new(0),
@@ -679,6 +692,45 @@ impl MediaSession {
     /// Drops all queued outbound audio (barge-in / interruption).
     pub fn clear_audio(&self) {
         self.shared.tx.lock().pending.clear();
+    }
+
+    /// Switches this session to video: frames are packetized on the way out and reassembled on the
+    /// way in (RFC 6184 for H.264, RFC 7741 for VP8). Returns false for formats without a payload format.
+    pub fn enable_video(&self, encoding: &str, payload_type: u8) -> bool {
+        let format = match encoding.to_ascii_uppercase().as_str() {
+            "H264" => VideoFormat::H264,
+            "VP8" => VideoFormat::Vp8,
+            _ => return false,
+        };
+        *self.shared.video.lock() = Some(VideoTrack {
+            payload_type,
+            packetizer: VideoPacketizer::new(format),
+            depacketizer: VideoDepacketizer::new(format),
+        });
+        true
+    }
+
+    pub fn video_enabled(&self) -> bool {
+        self.shared.video.lock().is_some()
+    }
+
+    /// Sends one encoded video frame, split across as many RTP packets as it needs. `timestamp` is in
+    /// the 90 kHz video clock.
+    pub fn send_video_frame(&self, timestamp: u32, frame: &[u8]) -> bool {
+        let Some((payload_type, packets)) = ({
+            let mut track = self.shared.video.lock();
+            track.as_mut().map(|t| (t.payload_type, t.packetizer.packetize(frame)))
+        }) else {
+            return false;
+        };
+        if !direction_from(self.shared.direction.load(Ordering::Relaxed)).can_send() {
+            return false;
+        }
+        let last = packets.len().saturating_sub(1);
+        for (i, payload) in packets.iter().enumerate() {
+            self.send_encoded(payload_type, timestamp, i == last, payload);
+        }
+        !packets.is_empty()
     }
 
     /// Sends an already-encoded payload (pass-through codecs and video).
@@ -1060,6 +1112,24 @@ fn handle_rtp(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
             passthrough = Some((h, pkt.payload.to_vec()));
         }
     }
+
+    // Video frames are reassembled outside the rx lock: a frame can be large and the handler may call
+    // back into the session.
+    if let Some((h, payload)) = passthrough.as_ref() {
+        let assembled = {
+            let mut track = sh.video.lock();
+            match track.as_mut().filter(|t| t.payload_type == h.payload_type) {
+                Some(t) => Some(t.depacketizer.push(h.sequence, h.timestamp, h.marker, payload)),
+                None => None,
+            }
+        };
+        if let Some(frame) = assembled {
+            if let Some(frame) = frame {
+                sh.sink.on_video_frame(sh.call_id, frame.timestamp, frame.keyframe, &frame.data);
+            }
+            return;
+        }
+    }
     if let Some(d) = dtmf_digit {
         sh.sink.on_dtmf(sh.call_id, d, DtmfSource::Rfc4733);
     }
@@ -1186,7 +1256,9 @@ fn playout_loop(sh: &Arc<Shared>) {
                 let _ = sh.socket.send_to(&relay.refresh(600), relay.server);
             }
         }
+        // A video stream may legitimately stay silent (camera off), so only audio reports a timeout.
         if sh.config.rtp_timeout_ms > 0
+            && sh.video.lock().is_none()
             && sh.last_rx.lock().elapsed() > Duration::from_millis(sh.config.rtp_timeout_ms as u64)
             && direction.can_receive()
             && !sh.timeout_reported.swap(true, Ordering::Relaxed)
@@ -1421,6 +1493,7 @@ mod tests {
         inbound: Mutex<Vec<i16>>,
         dtmf: Mutex<Vec<char>>,
         frames: AtomicUsize,
+        video: Mutex<Vec<(u32, bool, Vec<u8>)>>,
     }
 
     impl MediaSink for Collect {
@@ -1435,6 +1508,9 @@ mod tests {
         }
         fn on_encoded(&self, _: u64, _: u8, _: u32, _: bool, _: &[u8]) {}
         fn on_media_event(&self, _: u64, _: &str, _: &str) {}
+        fn on_video_frame(&self, _: u64, timestamp: u32, keyframe: bool, frame: &[u8]) {
+            self.video.lock().push((timestamp, keyframe, frame.to_vec()));
+        }
     }
 
     fn loopback_config() -> MediaConfig {
@@ -1522,6 +1598,52 @@ mod tests {
         std::thread::sleep(Duration::from_millis(200));
         let peak = cb.inbound.lock().iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);
         assert!(peak > 2000, "speech was suppressed as well: peak {peak}");
+        a.stop();
+        b.stop();
+    }
+
+
+    #[test]
+    fn video_frames_are_packetized_and_reassembled_over_rtp() {
+        let (ca, cb) = (Arc::new(Collect::default()), Arc::new(Collect::default()));
+        let a = MediaSession::new(1, loopback_config(), ca.clone()).unwrap();
+        let b = MediaSession::new(2, loopback_config(), cb.clone()).unwrap();
+        let map = CodecKind::H264.rtpmap();
+        assert!(a.enable_video(&map.encoding, map.payload_type));
+        assert!(b.enable_video(&map.encoding, map.payload_type));
+        let neg = |remote: SocketAddr| NegotiatedMedia {
+            remote: Some(remote),
+            codec: map.clone(),
+            dtmf: None,
+            direction: Direction::SendRecv,
+            remote_srtp_key: None,
+            remote_ice_ufrag: None,
+            remote_ice_pwd: None,
+            remote_candidates: vec![],
+            ice_controlling: false,
+            ptime_ms: None,
+            remote_fingerprint: None,
+            dtls_role: None,
+        };
+        a.apply(&neg(b.local_address())).unwrap();
+        b.apply(&neg(a.local_address())).unwrap();
+
+        // A keyframe big enough to need fragmenting, then a small frame that fits one packet.
+        let mut keyframe = vec![0, 0, 0, 1, 0x67, 1, 2, 3];
+        keyframe.extend_from_slice(&[0, 0, 0, 1, 0x65]);
+        keyframe.extend((0..4000).map(|i| (i % 251) as u8 | 1));
+        let delta: Vec<u8> = [0, 0, 0, 1, 0x61, 9, 8, 7].to_vec();
+        assert!(a.send_video_frame(90_000, &keyframe));
+        assert!(a.send_video_frame(93_000, &delta));
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while cb.video.lock().len() < 2 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let received = cb.video.lock().clone();
+        assert_eq!(received.len(), 2, "received {} frames", received.len());
+        assert_eq!(received[0], (90_000, true, keyframe));
+        assert_eq!(received[1], (93_000, false, delta));
         a.stop();
         b.stop();
     }

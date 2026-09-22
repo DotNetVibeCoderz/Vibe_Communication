@@ -21,6 +21,7 @@
 | `RegisterExpires` | `600` | Requested lifetime; refreshed at 85%. |
 | `UserAgent` | `Voip.NET/1.0 (Gravicode Studios)` | User-Agent / Server header. |
 | `AudioCodecs` | `opus, G722, PCMU, PCMA` | Preference order. Native: opus, G722, PCMU, PCMA, L16. |
+| `Video`, `VideoCodecs` | `false`, `H264, VP8` | Offer an `m=video` stream next to audio; the application encodes the frames. |
 | `Srtp` | `Disabled` | `Disabled`, `Optional`, `Mandatory`. |
 | `SrtpKeying` | `Sdes` | `Sdes` (`a=crypto`) or `Dtls` (DTLS-SRTP with ICE, as WebRTC uses). Incoming offers may use either. |
 | `DtmfMode` | `Rfc4733` | `Rfc4733`, `InBand`, `SipInfo`. |
@@ -71,6 +72,7 @@
 | `SendAudio(samples, rate)`, `SendAudio(bytes, rate)`, `SendAudioStreamAsync(...)`, `ClearAudio()`, `QueuedAudioMs` | Outbound audio. |
 | `AudioReceived`, `ReadAudioAsync(direction)` | Audio from the call. |
 | `SendEncoded(...)`, `EncodedReceived` | Pass-through payloads. |
+| `SendVideoFrame(...)`, `VideoFrameReceived`, `VideoCodec` | Whole video frames on the call's video stream. |
 | `GetStatistics()`, `FinalStatistics` | Quality, including what the peer reports over RTCP (`RoundTripMs`, `RemoteLossPercent`, `RemoteJitterMs`, `RemoteMos`). |
 | `JoinConference(c)`, `LeaveConference()` | Conferencing. |
 | `Connected`, `Completion` | Tasks for linear async code. |

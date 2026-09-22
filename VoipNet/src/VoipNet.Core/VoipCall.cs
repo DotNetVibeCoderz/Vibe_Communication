@@ -93,6 +93,9 @@ public sealed class VoipCall
     /// <summary>Raised for payloads of codecs the engine does not decode (video, G.729, Opus).</summary>
     public event EncodedFrameHandler? EncodedReceived;
 
+    /// <summary>Raised for every complete video frame received on the call's video stream.</summary>
+    public event VideoFrameHandler? VideoFrameReceived;
+
     /// <summary>Raised when the call changes state.</summary>
     public event EventHandler<CallStateEventArgs>? StateChanged;
 
@@ -210,6 +213,14 @@ public sealed class VoipCall
     /// <summary>Audio still queued for transmission, in milliseconds.</summary>
     public int QueuedAudioMs => GetStatistics().OutboundQueuedMs;
 
+    /// <summary>Sends one encoded video frame on the call's video stream (H.264 Annex B access unit or VP8 frame).</summary>
+    /// <param name="timestamp">Presentation timestamp in the 90 kHz video clock.</param>
+    /// <param name="frame">The encoded frame; it is split across as many RTP packets as it needs.</param>
+    public void SendVideoFrame(uint timestamp, ReadOnlySpan<byte> frame) => _client.SendVideoFrame(Id, timestamp, frame);
+
+    /// <summary>The video codec negotiated for this call, or <c>null</c> when the call has no video stream.</summary>
+    public string? VideoCodec => _client.VideoCodec(Id);
+
     /// <summary>Sends an already encoded payload for a pass-through codec.</summary>
     /// <param name="payloadType">RTP payload type.</param>
     /// <param name="timestamp">RTP timestamp.</param>
@@ -280,6 +291,9 @@ public sealed class VoipCall
             channel.Writer.TryWrite(new AudioSegment(samples.ToArray(), sampleRate, direction, DateTimeOffset.UtcNow));
         }
     }
+
+    internal void RaiseVideoFrame(uint timestamp, bool keyframe, ReadOnlySpan<byte> frame) =>
+        VideoFrameReceived?.Invoke(this, timestamp, keyframe, frame);
 
     internal void RaiseEncoded(int payloadType, uint timestamp, bool marker, ReadOnlySpan<byte> payload) =>
         EncodedReceived?.Invoke(this, payloadType, timestamp, marker, payload);

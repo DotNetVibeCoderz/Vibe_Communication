@@ -46,12 +46,31 @@ await call.SendAudioStreamAsync(ttsChunks, 24000, maxQueuedMs: 2000);
 call.ClearAudio();                                     // barge-in
 ```
 
-Pass-through codecs (video, G.729) are exchanged as encoded payloads:
+Pass-through codecs (G.729, SILK, Speex) are exchanged as encoded payloads:
 
 ```csharp
 call.EncodedReceived += (c, payloadType, timestamp, marker, payload) => decoder.Feed(payload);
 call.SendEncoded(96, rtpTimestamp, marker: true, h264Nal);
 ```
+
+## Video
+
+Set `Video = true` and the call carries an `m=video` stream next to the audio one, on its own RTP port
+and with the same encryption and ICE as audio. The engine packetizes and reassembles whole frames
+(H.264 FU-A/STAP-A per RFC 6184, VP8 per RFC 7741); encoding and decoding are yours to do, so pass
+H.264 access units in Annex B form or VP8 frames:
+
+```csharp
+var options = new VoipClientOptions { Video = true, VideoCodecs = ["H264"] };
+
+call.VideoFrameReceived += (c, timestamp, keyframe, frame) => decoder.Feed(frame, keyframe);
+call.SendVideoFrame(rtpTimestamp90kHz, encodedFrame);   // split across as many packets as it needs
+Console.WriteLine(call.VideoCodec);                     // "H264", or null on an audio-only call
+```
+
+A frame that loses a packet is dropped rather than handed over damaged, so decoders never see a torn
+frame. Keyframe requests (RTCP PLI/FIR), bandwidth estimation and camera capture are not implemented
+yet — see [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
 
 ## Codecs
 
@@ -63,7 +82,8 @@ call.SendEncoded(96, rtpTimestamp, marker: true, h264Nal);
 | L16 | 97 | 16 kHz | native |
 | telephone-event | 101, 110 | 8 kHz, 48 kHz | RFC 4733, at the audio codec's clock rate |
 | G.729, SILK, Speex | 18, 112, 113 | — | negotiated, pass-through |
-| H.264, VP8, VP9 | 96, 98, 100 | 90 kHz | negotiated, pass-through |
+| H.264, VP8 | 96, 98 | 90 kHz | packetized video stream (see Video below); frames are encoded by the application |
+| VP9 | 100 | 90 kHz | negotiated, pass-through |
 
 Order `AudioCodecs` by preference. Answers follow the offerer's order (RFC 3264).
 
