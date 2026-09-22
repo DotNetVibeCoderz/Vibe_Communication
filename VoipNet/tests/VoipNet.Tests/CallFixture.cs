@@ -60,6 +60,23 @@ public static class TestHelpers
         }
     }
 
+    /// <summary>Waits for a probe that has to await something itself, for example a database read.</summary>
+    public static async Task<T> WaitAsync<T>(Func<Task<T?>> probe, TimeSpan timeout, string what) where T : class
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (await probe() is { } value)
+            {
+                return value;
+            }
+
+            await Task.Delay(20);
+        }
+
+        throw new TimeoutException($"Timed out waiting for {what}.");
+    }
+
     public static async Task<T> WaitAsync<T>(Func<T?> probe, TimeSpan timeout, string what) where T : class
     {
         var deadline = DateTime.UtcNow + timeout;

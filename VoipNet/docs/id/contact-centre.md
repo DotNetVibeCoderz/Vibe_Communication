@@ -114,6 +114,26 @@ selama antrean belum punya riwayat) ke jumlah agent yang sedang login untuk antr
 itu tidak ada estimasi yang jujur untuk diberikan, dan lebih baik mengatakannya daripada mengarang
 angka.
 
+### Berbagi state antar-node
+
+Satu node memegang panggilan yang ia jawab, tetapi siapa yang sedang login dan callback apa yang masih
+terutang harus disepakati bersama. `ICallCenterStore` menyimpan tepat hal itu, dan `SqlCallCenterStore`
+mengimplementasikannya di atas provider ADO.NET mana pun — SQLite untuk satu node yang ingin tahan
+restart, SQL Server atau PostgreSQL untuk beberapa node:
+
+```csharp
+var store = new SqlCallCenterStore(() => new SqliteConnection("Data Source=callcentre.db"), node: "pbx-1");
+var centre = new CallCenterService(pbxClient, textToSpeech, store: store);
+centre.AddQueue(new CallQueueOptions { Name = "support" });
+await centre.RestoreAsync();        // ambil kembali callback yang masih terutang
+```
+
+State agent ditulis setiap kali berubah dan dibaca lewat `AllAgentsAsync()`, persis yang dibutuhkan
+dashboard lintas node. Sebelum menelepon balik, node mengklaim callback lewat satu update bersyarat,
+sehingga dua node tidak pernah menelepon pelanggan yang sama; pelanggan yang tidak mengangkat
+dilepaskan kembali untuk node mana pun yang bebas berikutnya. Tabel dibuat saat pertama dipakai, dan
+store yang sesaat tidak tersedia hanya dicatat di log, bukan menghentikan call center.
+
 ### Metrik
 
 ```csharp

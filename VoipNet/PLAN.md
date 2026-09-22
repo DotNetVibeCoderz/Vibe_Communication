@@ -34,7 +34,6 @@ Today H.264, VP8 and VP9 are negotiated as pass-through payloads only. This mile
 
 ## 1.5 — Contact centre · Contact center
 
-- Persistent queue and agent state (Redis / SQL) for multiple PBX nodes. · State antrean dan agen yang persisten.
 - Scheduled routing (callbacks and estimated wait time are done). · Routing terjadwal.
 - Visual IVR designer: drag-and-drop graph, versioning, A/B tests. · Desainer IVR visual.
 - Workforce dashboards: historical reports, CSV/Parquet export, Grafana templates. · Laporan historis.

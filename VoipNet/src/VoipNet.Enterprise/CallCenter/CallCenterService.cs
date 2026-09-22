@@ -13,7 +13,13 @@ namespace VoipNet.Enterprise.CallCenter;
 /// <param name="client">Client used to call agents.</param>
 /// <param name="textToSpeech">Optional synthesiser for queue announcements.</param>
 /// <param name="logger">Optional logger.</param>
-public sealed class CallCenterService(VoipClient client, ITextToSpeech? textToSpeech = null, ILogger<CallCenterService>? logger = null) : IAsyncDisposable
+/// <param name="store">Optional shared state, so agent states and callbacks survive a restart and can
+/// be shared between nodes.</param>
+public sealed class CallCenterService(
+    VoipClient client,
+    ITextToSpeech? textToSpeech = null,
+    ILogger<CallCenterService>? logger = null,
+    ICallCenterStore? store = null) : IAsyncDisposable
 {
     private readonly ConcurrentDictionary<string, Agent> _agents = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CallQueueOptions> _queues = new(StringComparer.OrdinalIgnoreCase);
@@ -82,6 +88,7 @@ public sealed class CallCenterService(VoipClient client, ITextToSpeech? textToSp
         agent.State = state;
         agent.StateSince = DateTimeOffset.UtcNow;
         AgentStateChanged?.Invoke(this, agent);
+        Publish(agent);
         _logger.LogInformation("Agent {Agent} is now {State}", agent.Name, state);
     }
 
@@ -89,6 +96,78 @@ public sealed class CallCenterService(VoipClient client, ITextToSpeech? textToSp
     /// <param name="queueName">Queue to inspect.</param>
     public IReadOnlyList<QueuedCall> Waiting(string queueName) =>
         _waiting.TryGetValue(queueName, out var list) ? Snapshot(list) : [];
+
+    /// <summary>
+    /// Loads the callbacks the store still owes and takes them on. Call this at startup: a caller who
+    /// was promised a ring back should get one even if the node that promised it was restarted.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    public async Task RestoreAsync(CancellationToken cancellationToken = default)
+    {
+        if (store is null)
+        {
+            return;
+        }
+
+        foreach (var queueName in _queues.Keys)
+        {
+            var pending = await store.LoadCallbacksAsync(queueName, cancellationToken).ConfigureAwait(false);
+            if (pending.Count == 0)
+            {
+                continue;
+            }
+
+            var list = _callbacks.GetOrAdd(queueName, _ => []);
+            lock (_gate)
+            {
+                foreach (var request in pending.Where(p => list.All(existing => existing.Id != p.Id)))
+                {
+                    list.Add(request);
+                }
+            }
+
+            _logger.LogInformation("Restored {Count} callbacks for queue {Queue}", pending.Count, queueName);
+        }
+
+        StartCallbackPump();
+    }
+
+    /// <summary>Writes an agent's state to the shared store, when there is one.</summary>
+    private void Publish(Agent agent)
+    {
+        if (store is null)
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await store.SaveAgentAsync(new StoredAgent(agent.Id, agent.Name, agent.Uri, agent.State, agent.StateSince, NodeName)).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is System.Data.Common.DbException or InvalidOperationException)
+            {
+                // A store that is briefly unavailable must not stop a call centre from running.
+                _logger.LogWarning(ex, "Could not publish the state of agent {Agent}", agent.Id);
+            }
+        });
+    }
+
+    /// <summary>Name this node writes into shared rows.</summary>
+    public string NodeName { get; set; } = Environment.MachineName;
+
+    /// <summary>Agents across every node, from the shared store. Falls back to this node's own agents.</summary>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    public async Task<IReadOnlyList<StoredAgent>> AllAgentsAsync(CancellationToken cancellationToken = default)
+    {
+        if (store is null)
+        {
+            return Agents.Select(a => new StoredAgent(a.Id, a.Name, a.Uri, a.State, a.StateSince, NodeName)).ToArray();
+        }
+
+        return await store.LoadAgentsAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>Callbacks still to be made for a queue, in the order they will be made.</summary>
     /// <param name="queueName">Queue to inspect.</param>
@@ -168,6 +247,19 @@ public sealed class CallCenterService(VoipClient client, ITextToSpeech? textToSp
         }
 
         entry.Callback = request;
+        if (store is not null)
+        {
+            // Saved before the caller hangs up, so a crash cannot lose a promise already made.
+            try
+            {
+                store.SaveCallbackAsync(request).GetAwaiter().GetResult();
+            }
+            catch (Exception ex) when (ex is System.Data.Common.DbException or InvalidOperationException)
+            {
+                _logger.LogWarning(ex, "Could not store the callback for {Destination}", request.Destination);
+            }
+        }
+
         StartCallbackPump();
         CallbackScheduled?.Invoke(this, request);
         _logger.LogInformation("Caller {Caller} asked for a callback on {Destination} in queue {Queue}", entry.Call.RemoteUri, request.Destination, entry.QueueName);
@@ -351,6 +443,14 @@ public sealed class CallCenterService(VoipClient client, ITextToSpeech? textToSp
                         continue;
                     }
 
+                    // With several nodes sharing a queue, exactly one of them may ring this caller.
+                    if (store is not null && !await store.TryClaimCallbackAsync(due.Id, NodeName, cancellationToken).ConfigureAwait(false))
+                    {
+                        SetAgentState(agent.Id, AgentState.Available);
+                        due.Outcome = CallbackOutcome.Cancelled;
+                        continue;
+                    }
+
                     await MakeCallbackAsync(due, agent, options, cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -407,8 +507,14 @@ public sealed class CallCenterService(VoipClient client, ITextToSpeech? textToSp
             if (request.Attempts >= options.Callbacks.MaxAttempts)
             {
                 request.Outcome = CallbackOutcome.NoAnswer;
+                await RecordAsync(request).ConfigureAwait(false);
                 CallbackCompleted?.Invoke(this, request);
                 _logger.LogInformation("Gave up calling {Destination} back after {Attempts} attempts", request.Destination, request.Attempts);
+            }
+            else
+            {
+                // Still owed: let go of it so any node can try again after the retry interval.
+                await RecordAsync(request).ConfigureAwait(false);
             }
 
             return;
@@ -450,7 +556,26 @@ public sealed class CallCenterService(VoipClient client, ITextToSpeech? textToSp
             }
         }
 
+        await RecordAsync(request).ConfigureAwait(false);
         CallbackCompleted?.Invoke(this, request);
+    }
+
+    /// <summary>Writes a callback's progress to the shared store, when there is one.</summary>
+    private async Task RecordAsync(CallbackRequest request)
+    {
+        if (store is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await store.CompleteCallbackAsync(request.Id, request.Outcome, request.Attempts).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is System.Data.Common.DbException or InvalidOperationException)
+        {
+            _logger.LogWarning(ex, "Could not record the outcome of callback {Id}", request.Id);
+        }
     }
 
     private Agent? TryReserveAgent(CallQueueOptions options)

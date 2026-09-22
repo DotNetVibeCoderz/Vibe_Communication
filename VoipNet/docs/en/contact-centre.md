@@ -113,6 +113,26 @@ until the queue has history) across the agents signed in for that queue. It retu
 when an agent is free, and `TimeSpan.MaxValue` when nobody is signed in at all — there is no honest
 estimate to give then, and it is better to say so than to invent a number.
 
+### Sharing state between nodes
+
+One node holds the calls it answered, but who is signed in and which callbacks are still owed have to
+be agreed on. `ICallCenterStore` keeps exactly that, and `SqlCallCenterStore` implements it over any
+ADO.NET provider — SQLite for a single node that should survive a restart, SQL Server or PostgreSQL for
+several:
+
+```csharp
+var store = new SqlCallCenterStore(() => new SqliteConnection("Data Source=callcentre.db"), node: "pbx-1");
+var centre = new CallCenterService(pbxClient, textToSpeech, store: store);
+centre.AddQueue(new CallQueueOptions { Name = "support" });
+await centre.RestoreAsync();        // take back the callbacks this deployment still owes
+```
+
+Agent states are written as they change and read back with `AllAgentsAsync()`, which is what a
+dashboard spanning nodes needs. Before ringing a caller back, the node claims the callback with a
+single conditional update, so two nodes never ring the same customer; a caller who does not pick up is
+released again for whichever node is free next. The tables are created on first use, and a store that
+is briefly unavailable is logged and stepped over rather than allowed to stop the call centre.
+
 ### Metrics
 
 ```csharp
