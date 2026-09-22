@@ -84,6 +84,8 @@ Audio selalu PCM 16-bit mono; engine yang mengonversi sample rate.
 | OpenAI | `OpenAiSpeechToText` | `OpenAiTextToSpeech` (PCM 24 kHz, streaming) | bekerja dengan server kompatibel |
 | ElevenLabs | `ElevenLabsSpeechToText` (Scribe) | `ElevenLabsTextToSpeech` (PCM 8–44,1 kHz, streaming) | suara ekspresif; paket gratis hanya boleh memakai voice premade lewat API (`VoiceId` bawaan termasuk di dalamnya) |
 | Google Cloud | `GoogleCloudSpeechToText` | `GoogleCloudTextToSpeech` (LINEAR16) | API key atau token OAuth; model `telephony` |
+| Azure AI Speech | `AzureSpeechToText` (short audio, per ucapan) | `AzureTextToSpeech` (PCM mentah 8/16/24/48 kHz, streaming) | endpoint regional plus subscription key; suara neural seperti `id-ID-GadisNeural` |
+| Cartesia | — | `CartesiaTextToSpeech` (PCM mentah, streaming) | latensi rendah; bawaan `sonic-2` |
 | Amazon | — | `AmazonPollyTextToSpeech` (PCM 8/16 kHz, SigV4, tanpa AWS SDK) | Transcribe ada di roadmap |
 | ElBruno.Realtime | `ElBrunoRealtimeSpeechToText` (web socket) | `ElBrunoRealtimeTextToSpeech` (HTTP PCM) | self-hosted, open source |
 

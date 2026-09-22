@@ -84,6 +84,8 @@ Audio is always 16-bit mono PCM; the engine converts sample rates.
 | OpenAI | `OpenAiSpeechToText` | `OpenAiTextToSpeech` (PCM 24 kHz, streamed) | works with compatible servers |
 | ElevenLabs | `ElevenLabsSpeechToText` (Scribe) | `ElevenLabsTextToSpeech` (PCM at 8–44.1 kHz, streamed) | expressive voices; free plans may only use premade voices through the API (the default `VoiceId` is one) |
 | Google Cloud | `GoogleCloudSpeechToText` | `GoogleCloudTextToSpeech` (LINEAR16) | API key or OAuth token; `telephony` model |
+| Azure AI Speech | `AzureSpeechToText` (short audio, per utterance) | `AzureTextToSpeech` (raw PCM 8/16/24/48 kHz, streamed) | regional endpoint plus subscription key; neural voices such as `id-ID-GadisNeural` |
+| Cartesia | — | `CartesiaTextToSpeech` (raw PCM, streamed) | low latency; `sonic-2` by default |
 | Amazon | — | `AmazonPollyTextToSpeech` (PCM 8/16 kHz, SigV4 signed, no AWS SDK) | Transcribe is on the roadmap |
 | ElBruno.Realtime | `ElBrunoRealtimeSpeechToText` (web socket) | `ElBrunoRealtimeTextToSpeech` (HTTP PCM) | self-hosted, open source |
 

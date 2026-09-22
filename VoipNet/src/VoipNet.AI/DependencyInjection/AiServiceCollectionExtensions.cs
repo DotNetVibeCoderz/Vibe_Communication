@@ -86,6 +86,35 @@ public static class AiServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>Registers Azure AI Speech for transcription and neural synthesis.</summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configure">Configures the provider.</param>
+    public static IServiceCollection AddAzureSpeech(this IServiceCollection services, Action<AzureSpeechOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configure);
+        var options = new AzureSpeechOptions();
+        configure(options);
+        services.AddHttpClient("azure-speech");
+        services.TryAddSingleton<ISpeechToText>(sp => new AzureSpeechToText(options, Http(sp, "azure-speech")));
+        services.TryAddSingleton<ITextToSpeech>(sp => new AzureTextToSpeech(options, Http(sp, "azure-speech")));
+        return services;
+    }
+
+    /// <summary>Registers Cartesia for low-latency synthesis.</summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configure">Configures the provider.</param>
+    public static IServiceCollection AddCartesiaTextToSpeech(this IServiceCollection services, Action<CartesiaOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configure);
+        var options = new CartesiaOptions();
+        configure(options);
+        services.AddHttpClient(nameof(CartesiaTextToSpeech));
+        services.AddSingleton<ITextToSpeech>(sp => new CartesiaTextToSpeech(options, Http(sp, nameof(CartesiaTextToSpeech))));
+        return services;
+    }
+
     /// <summary>Registers ElevenLabs for expressive synthesis.</summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configure">Configures the provider.</param>
