@@ -179,16 +179,33 @@ recordings.ApplyRetention();
 
 ## CRM tools
 
-Implement `ICrmConnector` over your CRM and give the tools to the model:
+Four CRMs ship with a connector, and any other one is an `ICrmConnector` away:
+
+| CRM | Connector | Authentication |
+| --- | --- | --- |
+| HubSpot | `HubSpotCrmConnector` (contacts, tickets, notes) | private app token |
+| Salesforce | `SalesforceCrmConnector` (contacts, cases, activity tasks) | OAuth access token and instance URL |
+| Dynamics 365 | `DynamicsCrmConnector` (contacts, incidents, annotations) | OAuth access token for Dataverse |
+| Odoo | `OdooCrmConnector` (partners, helpdesk tickets, chatter) | database, user id and API key |
 
 ```csharp
-public sealed class HubSpotConnector : ICrmConnector { … }
+services.AddHubSpotCrm(o => o.AccessToken = configuration["HubSpot:Token"]!);
 
-var tools = CrmToolset.Create(new HubSpotConnector(...));
+// or directly
+var crm = new SalesforceCrmConnector(new SalesforceOptions
+{
+    InstanceUri = new Uri("https://acme.my.salesforce.com"),
+    AccessToken = token,      // refreshing it is the application's business
+});
+
+var tools = CrmToolset.Create(crm);
 var options = new VoiceAgentOptions { ChatOptions = new ChatOptions { Tools = [.. tools] } };
 ```
 
-`InMemoryCrmConnector` matches phone numbers on their last nine digits, so `+62 812…`, `62812…` and `0812…` refer to the same customer.
+A lookup takes whatever the call gives it: `sip:+628123456@pbx` is reduced to `+628123456` before the
+search, and both the fixed and the mobile number are checked. `InMemoryCrmConnector` matches phone
+numbers on their last nine digits, so `+62 812…`, `62812…` and `0812…` refer to the same customer; it
+is what the samples and tests use.
 
 ## Analytics with AI
 

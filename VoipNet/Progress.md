@@ -11,7 +11,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | Suite | Result · Hasil |
 | --- | --- |
 | Rust engine `cargo test --lib` | **104 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
-| .NET `tests/VoipNet.Tests` | **78 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
+| .NET `tests/VoipNet.Tests` | **88 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
 | `dotnet build Voip.Net.slnx -c Release` | 14 projects · proyek, **0 warnings, 0 errors** |
 | Benchmarks · Benchmark | `cargo bench --bench media` on a laptop (20 ms frame): opus encode 550 µs · decode 127 µs, G.722 encode 16 µs · decode 13 µs, G.711 encode 150 ns, SRTP protect 2.6 µs, conference mix-minus 3.7 µs at 50 participants; run in CI to catch breakage · dijalankan di CI |
 | CLI end-to-end · ujung ke ujung | `sip listen --echo` ↔ `sip call --dtmf 123 --pcap`: MOS 4.38, all DTMF received · semua DTMF diterima |
@@ -127,6 +127,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 | --- | --- |
 | IVR builder with AI dialog | ✅ |
 | Queue management, agent monitoring, supervisor listen/whisper | ✅ |
+| CRM connectors | ✅ | HubSpot, Salesforce, Dynamics 365 and Odoo over their public APIs (lookup by phone, recent tickets, open a ticket, add a note), covered by protocol tests; not verified against live tenants · empat konektor CRM dengan test protokol, belum diuji ke tenant asli |
 | Historical reports and CSV export | ✅ | finished queue calls are stored; `ReportAsync` summarises them per queue and interval (offered, answered, abandoned, waits, talk, service level) and `WorkforceReport.ToCsv` exports them · riwayat panggilan, ringkasan per interval, dan ekspor CSV |
 | Persistent queue and agent state | ✅ | `ICallCenterStore` with a SQL implementation over any ADO.NET provider: agent states shared between nodes, callbacks that survive a restart, and an atomic claim so two nodes never ring the same caller · state agent dan callback yang persisten dan dapat dibagi antar-node |
 | Callbacks and estimated wait time | ✅ | a caller keeps their place and hangs up; the service rings back when an agent is free and the callback has outwaited everyone still holding, with retries and an announcement · penelepon menyimpan posisinya lalu ditelepon balik, lengkap dengan percobaan ulang |
@@ -147,6 +148,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 
 ### Unreleased · Belum dirilis
 
+- CRM connectors for HubSpot, Salesforce, Dynamics 365 and Odoo: look a caller up by number, read their recent tickets, open one, and add a note — the four operations a voice agent needs. · Konektor CRM untuk HubSpot, Salesforce, Dynamics 365, dan Odoo.
 - Historical reporting: finished queue calls are stored, `ReportAsync` summarises them per queue and interval, and `WorkforceReport.ToCsv` exports them for a spreadsheet or a dashboard. · Laporan historis per antrean dan interval, lengkap dengan ekspor CSV.
 - Shared call centre state (`ICallCenterStore`, `SqlCallCenterStore`): agent states and owed callbacks live in SQL, so a restart resumes them and several nodes can share a queue without ringing a caller twice. · State call center bersama di SQL: state agent dan callback bertahan setelah restart dan bisa dibagi antar-node.
 - Benchmarks are compared with a committed baseline (`benchmarks/baseline.json`, refreshed with `build/bench-report.ps1 -Update`) and the table lands in the CI job summary, so a slow drift shows up instead of scrolling past in a log. · Benchmark dibandingkan dengan baseline yang tersimpan dan hasilnya tampil di ringkasan job CI.

@@ -186,6 +186,21 @@ var tools = CrmToolset.Create(new HubSpotConnector(...));
 var options = new VoiceAgentOptions { ChatOptions = new ChatOptions { Tools = [.. tools] } };
 ```
 
+Empat CRM sudah punya konektor bawaan, dan CRM lain cukup satu implementasi `ICrmConnector`:
+
+| CRM | Konektor | Autentikasi |
+| --- | --- | --- |
+| HubSpot | `HubSpotCrmConnector` (contact, ticket, note) | private app token |
+| Salesforce | `SalesforceCrmConnector` (contact, case, task) | OAuth access token dan instance URL |
+| Dynamics 365 | `DynamicsCrmConnector` (contact, incident, annotation) | OAuth access token Dataverse |
+| Odoo | `OdooCrmConnector` (partner, tiket helpdesk, chatter) | database, user id, dan API key |
+
+```csharp
+services.AddHubSpotCrm(o => o.AccessToken = configuration["HubSpot:Token"]!);
+```
+
+Pencarian menerima apa pun yang diberikan panggilan: `sip:+628123456@pbx` dipangkas menjadi
+`+628123456` sebelum dicari, dan nomor tetap maupun nomor seluler sama-sama diperiksa.
 `InMemoryCrmConnector` mencocokkan nomor telepon berdasarkan sembilan digit terakhir, sehingga `+62 812…`, `62812…`, dan `0812…` merujuk ke pelanggan yang sama.
 
 ## Analitik dengan AI

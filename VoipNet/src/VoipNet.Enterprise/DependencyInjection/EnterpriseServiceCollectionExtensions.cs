@@ -25,4 +25,46 @@ public static class EnterpriseServiceCollectionExtensions
         services.TryAddSingleton<ICrmConnector, InMemoryCrmConnector>();
         return services;
     }
+
+    /// <summary>Uses HubSpot as the CRM.</summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configure">Configures the account.</param>
+    public static IServiceCollection AddHubSpotCrm(this IServiceCollection services, Action<HubSpotOptions> configure) =>
+        AddCrm(services, configure, (options, http) => new HubSpotCrmConnector(options, http), "hubspot-crm");
+
+    /// <summary>Uses Salesforce as the CRM.</summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configure">Configures the org.</param>
+    public static IServiceCollection AddSalesforceCrm(this IServiceCollection services, Action<SalesforceOptions> configure) =>
+        AddCrm(services, configure, (options, http) => new SalesforceCrmConnector(options, http), "salesforce-crm");
+
+    /// <summary>Uses Dynamics 365 as the CRM.</summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configure">Configures the organisation.</param>
+    public static IServiceCollection AddDynamicsCrm(this IServiceCollection services, Action<DynamicsOptions> configure) =>
+        AddCrm(services, configure, (options, http) => new DynamicsCrmConnector(options, http), "dynamics-crm");
+
+    /// <summary>Uses Odoo as the CRM.</summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configure">Configures the server.</param>
+    public static IServiceCollection AddOdooCrm(this IServiceCollection services, Action<OdooOptions> configure) =>
+        AddCrm(services, configure, (options, http) => new OdooCrmConnector(options, http), "odoo-crm");
+
+    /// <summary>Registers a connector with its own named HTTP client, replacing the in-memory default.</summary>
+    private static IServiceCollection AddCrm<TOptions>(
+        IServiceCollection services,
+        Action<TOptions> configure,
+        Func<TOptions, HttpClient, ICrmConnector> create,
+        string clientName)
+        where TOptions : new()
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configure);
+        var options = new TOptions();
+        configure(options);
+        services.AddHttpClient(clientName);
+        services.AddSingleton<ICrmConnector>(sp =>
+            create(options, sp.GetRequiredService<IHttpClientFactory>().CreateClient(clientName)));
+        return services;
+    }
 }

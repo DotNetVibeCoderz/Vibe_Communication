@@ -162,11 +162,28 @@ public static class SpeechExtensions
                 break;
             }
 
-            var queued = call.SendAudio(chunk.Data.Span, chunk.SampleRate);
+            int queued;
+            try
+            {
+                queued = call.SendAudio(chunk.Data.Span, chunk.SampleRate);
+            }
+            catch (VoipException)
+            {
+                // The caller hung up between the check above and this frame. Nothing left to say.
+                break;
+            }
+
             while (queued > 1500 && call.IsActive && !cancellationToken.IsCancellationRequested)
             {
                 await Task.Delay(100, cancellationToken).ConfigureAwait(false);
-                queued = call.QueuedAudioMs;
+                try
+                {
+                    queued = call.QueuedAudioMs;
+                }
+                catch (VoipException)
+                {
+                    break;
+                }
             }
         }
     }
