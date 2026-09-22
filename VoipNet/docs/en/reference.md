@@ -21,6 +21,7 @@
 | `RegisterExpires` | `600` | Requested lifetime; refreshed at 85%. |
 | `UserAgent` | `Voip.NET/1.0 (Gravicode Studios)` | User-Agent / Server header. |
 | `AudioCodecs` | `opus, G722, PCMU, PCMA` | Preference order. Native: opus, G722, PCMU, PCMA, L16. |
+| `StreamDelayMs` | `0` | Audio device round trip for the echo canceller; `CallAudioBridge` measures its own devices. |
 | `DnsSrv`, `DnsServers` | `true`, — | Resolve SIP hosts through NAPTR/SRV (RFC 3263); `DnsServers` overrides the machine's resolvers. |
 | `SessionExpires`, `MinSessionExpires` | `1800`, `90` | Session timer (RFC 4028) in seconds; `0` leaves it out. The refresher re-INVITEs halfway through, and an unrefreshed call is hung up. |
 | `ReliableProvisional` | `true` | Answer callers that support 100rel with reliable provisionals (RFC 3262); callers that require it always get them. |
@@ -77,6 +78,7 @@
 | `SendEncoded(...)`, `EncodedReceived` | Pass-through payloads. |
 | `SendVideoFrame(...)`, `VideoFrameReceived`, `VideoCodec` | Whole video frames on the call's video stream. |
 | `RequestKeyframe(full)` | Asks the peer for a video keyframe (RTCP PLI or FIR). |
+| `SetAudioDelay(ms)` | Reports the speaker-to-microphone round trip to the echo canceller. |
 | `GetStatistics()`, `FinalStatistics` | Quality, including what the peer reports over RTCP (`RoundTripMs`, `RemoteLossPercent`, `RemoteJitterMs`, `RemoteMos`). |
 | `JoinConference(c)`, `LeaveConference()` | Conferencing. |
 | `Connected`, `Completion` | Tasks for linear async code. |

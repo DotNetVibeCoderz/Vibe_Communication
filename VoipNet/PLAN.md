@@ -16,7 +16,6 @@ SIP over TLS and WebSocket, DTLS-SRTP, the full ICE agent with trickle and resta
 ## 1.2 — Codecs and media · Codec dan media
 
 - G.729 (royalty-free since 2017) native implementation. · G.729 native.
-- Tune echo cancellation for device delays (the pipeline is in place; `set_stream_delay_ms` is not wired to the audio devices yet). · Penyetelan AEC untuk delay perangkat.
 - Track benchmark results over time (the numbers are printed in CI, but nothing compares them between runs yet). · Lacak hasil benchmark antar-run.
 
 ## 1.3 — 🎥 Video · Fitur video

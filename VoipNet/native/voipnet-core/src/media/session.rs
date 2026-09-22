@@ -3,7 +3,7 @@
 
 use std::collections::VecDeque;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -83,6 +83,8 @@ pub struct MediaConfig {
     pub opus_dtx: bool,
     /// Remove the echo of the audio this call plays out from the audio the application sends.
     pub echo_cancellation: bool,
+    /// Round trip through the audio device in milliseconds, for the echo canceller; 0 means unknown.
+    pub stream_delay_ms: u32,
     /// Suppress steady background noise in the audio the application sends.
     pub noise_suppression: bool,
     /// Even out the level of the audio the application sends.
@@ -109,6 +111,7 @@ impl Default for MediaConfig {
             dtls_identity: None,
             opus_dtx: false,
             echo_cancellation: false,
+            stream_delay_ms: 0,
             noise_suppression: false,
             auto_gain: false,
         }
@@ -276,6 +279,8 @@ struct Shared {
     /// Echo cancellation, noise suppression and gain control, when enabled.
     #[cfg(feature = "audio-processing")]
     enhancer: Mutex<Option<AudioEnhancer>>,
+    /// Device round trip the application told us about, kept here so it survives a codec change.
+    stream_delay_ms: AtomicU32,
     dtls: Mutex<Option<DtlsTransport>>,
     /// A client-role handshake waiting for ICE to find a path.
     dtls_start_pending: AtomicBool,
@@ -411,6 +416,7 @@ impl MediaSession {
             remote_quality: Mutex::new(RemoteQuality::default()),
             #[cfg(feature = "audio-processing")]
             enhancer: Mutex::new(None),
+            stream_delay_ms: AtomicU32::new(config.stream_delay_ms),
             dtls: Mutex::new(None),
             dtls_start_pending: AtomicBool::new(false),
             secure_required: AtomicBool::new(false),
@@ -527,12 +533,16 @@ impl MediaSession {
             let codec_rate = codec.as_ref().map_or(n.codec.clock_rate, |c| c.sample_rate());
             #[cfg(feature = "audio-processing")]
             if tx.codec_rate != codec_rate || sh.enhancer.lock().is_none() {
-                *sh.enhancer.lock() = AudioEnhancer::new(
+                let mut enhancer = AudioEnhancer::new(
                     codec_rate,
                     sh.config.echo_cancellation,
                     sh.config.noise_suppression,
                     sh.config.auto_gain,
                 );
+                if let Some(enhancer) = enhancer.as_mut() {
+                    enhancer.set_delay_ms(sh.stream_delay_ms.load(Ordering::Relaxed));
+                }
+                *sh.enhancer.lock() = enhancer;
             }
             tx.payload_type = n.codec.payload_type;
             tx.dtmf_pt = n.dtmf.as_ref().map(|d| d.payload_type);
@@ -732,6 +742,16 @@ impl MediaSession {
             track.fir_sequence
         };
         send_keyframe_request(&self.shared, full, sequence)
+    }
+
+    /// Tells the echo canceller how long audio takes to travel out of the speaker and back into the
+    /// microphone. Applications that know their device latency (see `CallAudioBridge`) report it here.
+    pub fn set_stream_delay_ms(&self, delay_ms: u32) {
+        self.shared.stream_delay_ms.store(delay_ms, Ordering::Relaxed);
+        #[cfg(feature = "audio-processing")]
+        if let Some(enhancer) = self.shared.enhancer.lock().as_mut() {
+            enhancer.set_delay_ms(delay_ms);
+        }
     }
 
     pub fn video_enabled(&self) -> bool {

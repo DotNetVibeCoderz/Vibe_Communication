@@ -119,6 +119,11 @@ public sealed class VoipClientOptions
     /// <summary>Audio codecs to offer, in preference order. Supported natively: opus (48 kHz, in-band FEC), G722, PCMU, PCMA, L16.</summary>
     public IList<string> AudioCodecs { get; set; } = ["opus", "G722", "PCMU", "PCMA"];
 
+    /// <summary>Round trip through the audio device in milliseconds, used by the echo canceller when
+    /// <see cref="EchoCancellation"/> is on. 0 means unknown; <c>VoipCall.SetAudioDelay</c> reports it
+    /// while a call runs.</summary>
+    public int StreamDelayMs { get; set; }
+
     /// <summary>Look SIP hosts up with NAPTR and SRV records (RFC 3263) when the address carries no port.
     /// Falls back to a plain address lookup for hosts that publish only an A record.</summary>
     public bool DnsSrv { get; set; } = true;

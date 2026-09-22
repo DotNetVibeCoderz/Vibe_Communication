@@ -46,7 +46,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | RTP/RTCP, adaptive jitter buffer, PLC | ✅ | |
 | RTCP sender/receiver reports (RFC 3550) | ✅ | report blocks, loss and jitter the peer sees, round-trip time; Opus adapts its bitrate and FEC to them · report block, loss dan jitter dari sisi lawan, RTT; Opus menyesuaikan bitrate dan FEC |
 | RTCP XR VoIP metrics (RFC 3611) | ✅ | sent every report and parsed from the peer: loss/discard rate, delays, R factor, MOS-LQ/CQ, jitter buffer · dikirim tiap report dan dibaca dari lawan |
-| Echo cancellation, noise suppression, gain control | ✅ | WebRTC AEC3/NS/AGC2 through the pure-Rust `sonora` port, `audio-processing` cargo feature; off unless `EchoCancellation`/`NoiseSuppression`/`AutoGain` are set · lewat port `sonora`, aktif bila opsi dinyalakan |
+| Echo cancellation, noise suppression, gain control | ✅ | WebRTC AEC3/NS/AGC2 through the pure-Rust `sonora` port, `audio-processing` cargo feature; off unless `EchoCancellation`/`NoiseSuppression`/`AutoGain` are set. `CallAudioBridge` reports its device round trip so AEC3 starts aligned (`StreamDelayMs`, `SetAudioDelay`) · lewat port `sonora`, aktif bila opsi dinyalakan; latensi perangkat dilaporkan ke AEC |
 | Opus (RFC 6716/7587) | ✅ | libopus (`opus` cargo feature, on by default): 48 kHz mono, 32 kbit/s, in-band FEC, FEC recovery from the next buffered packet, libopus PLC; verified with Edge and Firefox · diverifikasi dengan Edge dan Firefox |
 | G.711, G.722, L16 | ✅ | native |
 | G.729, SILK, Speex | 🟡 | negotiated, pass-through payloads · dinegosiasikan, payload pass-through |
@@ -138,6 +138,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 
 ### Unreleased · Belum dirilis
 
+- The echo canceller is told the audio device's round trip (`StreamDelayMs`, `VoipCall.SetAudioDelay`, measured automatically by `CallAudioBridge`), so it lines the two signals up from the first frame. · Pembatal gema kini diberi tahu latensi perangkat audio sehingga penyelarasan tepat sejak awal.
 - DNS SRV/NAPTR resolution (RFC 3263): a domain alone is enough to reach a provider, servers are tried in the order its records ask for, and one that stops answering is skipped for a minute. · Resolusi DNS SRV/NAPTR: cukup nama domain untuk menghubungi provider, server dicoba sesuai urutan record, dan yang tidak menjawab dilewati sementara.
 - SIP session timers (RFC 4028) and reliable provisional responses with PRACK (RFC 3262): calls are refreshed by re-INVITE and hung up when nobody refreshes them, and a 180 is resent until the caller acknowledges it. · Session timer SIP dan respons provisional reliable dengan PRACK: panggilan diperbarui lewat re-INVITE dan ditutup bila tidak ada yang memperbaruinya.
 - RTCP sender and receiver reports with report blocks: `CallStatistics` gains `RoundTripMs`, `RemoteLossPercent` and `RemoteJitterMs`, and the CLI shows them. · Report RTCP dengan report block; statistik panggilan menampilkan RTT dan laporan dari lawan.

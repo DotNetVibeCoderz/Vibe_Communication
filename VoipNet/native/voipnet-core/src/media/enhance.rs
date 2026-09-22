@@ -17,6 +17,9 @@ pub struct AudioEnhancer {
     /// Samples in one 10 ms frame, the unit the pipeline works in.
     frame: usize,
     scratch: Vec<i16>,
+    /// Device round trip in milliseconds, re-applied before every capture frame because the pipeline
+    /// treats it as per-frame stream state.
+    delay_ms: Option<i32>,
 }
 
 impl AudioEnhancer {
@@ -37,7 +40,7 @@ impl AudioEnhancer {
         let stream = StreamConfig::new(rate, 1);
         let apm = AudioProcessing::builder().config(config).capture_config(stream).render_config(stream).build();
         let frame = rate as usize / 100;
-        Some(Self { apm, frame, scratch: vec![0; frame] })
+        Some(Self { apm, frame, scratch: vec![0; frame], delay_ms: None })
     }
 
     /// Feeds the far-end signal (what the user hears) so the echo canceller knows what to remove.
@@ -47,8 +50,18 @@ impl AudioEnhancer {
         }
     }
 
+    /// How long it takes for audio handed to `render` to come back through the microphone: the sum of
+    /// the playback and capture buffers. AEC3 estimates the delay itself, but starting from the device's
+    /// real latency makes it converge sooner and hold on to the alignment.
+    pub fn set_delay_ms(&mut self, delay_ms: u32) {
+        self.delay_ms = (delay_ms > 0).then_some(delay_ms.min(5000) as i32);
+    }
+
     /// Cleans the near-end signal (what the user says) in place.
     pub fn capture(&mut self, pcm: &mut [i16]) {
+        if let Some(delay) = self.delay_ms {
+            let _ = self.apm.set_stream_delay_ms(delay);
+        }
         for chunk in pcm.chunks_exact_mut(self.frame) {
             if self.apm.process_capture_i16(chunk, &mut self.scratch).is_ok() {
                 chunk.copy_from_slice(&self.scratch);
@@ -94,6 +107,9 @@ mod tests {
     fn echo_canceller_removes_what_was_played() {
         let rate = 16000;
         let mut enhancer = AudioEnhancer::new(rate, true, false, false).unwrap();
+        // The microphone below lags the loudspeaker by two 10 ms frames, which is what a device would
+        // report; telling the canceller about it is where `set_delay_ms` comes in.
+        enhancer.set_delay_ms(20);
         let frame = rate as usize / 100;
         // Broadband noise stands in for far-end speech: AEC3 needs a rich signal to model the path.
         let mut seed = 987u32;

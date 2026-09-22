@@ -377,6 +377,9 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
         }
     }
 
+    internal void SetStreamDelay(ulong id, int delayMs) =>
+        Check(NativeMethods.SetStreamDelay(_handle, id, (uint)Math.Clamp(delayMs, 0, 5000)), "report the audio delay");
+
     internal void RequestKeyframe(ulong id, bool full) =>
         Check(NativeMethods.RequestKeyframe(_handle, id, full ? 1 : 0), "request a keyframe");
 

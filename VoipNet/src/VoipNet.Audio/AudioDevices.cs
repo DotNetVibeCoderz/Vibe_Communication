@@ -91,6 +91,7 @@ public sealed class MicrophoneStream : IDisposable
     {
         SampleRate = sampleRate;
         _frameSamples = sampleRate * frameMs / 1000;
+        FrameMs = frameMs;
         _alc = ALContext.GetApi(soft: true);
         unsafe
         {
@@ -110,6 +111,9 @@ public sealed class MicrophoneStream : IDisposable
 
     /// <summary>Capture sample rate.</summary>
     public int SampleRate { get; }
+
+    /// <summary>Length of each captured frame in milliseconds, which is also the capture latency.</summary>
+    public int FrameMs { get; }
 
     /// <summary>Set to true to deliver silence instead of the microphone signal.</summary>
     public bool IsMuted { get; set; }
@@ -179,6 +183,8 @@ public sealed class SpeakerStream : IDisposable
     private readonly uint[] _buffers = new uint[BufferCount];
     private readonly Queue<uint> _free = new();
     private volatile bool _running;
+    /// Samples handed to the device or waiting for it, which is the playback latency.
+    private int _queuedSamples;
     private unsafe Device* _device;
     private unsafe Context* _context;
 
@@ -246,6 +252,19 @@ public sealed class SpeakerStream : IDisposable
             }
 
             _pending.Enqueue(samples.ToArray());
+            _queuedSamples += samples.Length;
+        }
+    }
+
+    /// <summary>How much audio is queued for playback, in milliseconds.</summary>
+    public int QueuedMs
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _queuedSamples * 1000 / Math.Max(SampleRate, 1);
+            }
         }
     }
 
@@ -255,6 +274,7 @@ public sealed class SpeakerStream : IDisposable
         lock (_gate)
         {
             _pending.Clear();
+            _queuedSamples = 0;
         }
     }
 
@@ -267,7 +287,12 @@ public sealed class SpeakerStream : IDisposable
             {
                 uint done;
                 _al.SourceUnqueueBuffers(_source, 1, &done);
+                _al.GetBufferProperty(done, GetBufferInteger.Size, out var bytes);
                 _free.Enqueue(done);
+                lock (_gate)
+                {
+                    _queuedSamples = Math.Max(0, _queuedSamples - (bytes / sizeof(short)));
+                }
             }
 
             short[]? block = null;
@@ -336,6 +361,7 @@ public sealed class CallAudioBridge : IDisposable
     private readonly ILogger _logger;
     private readonly List<short> _scratch = new(2048);
     private AudioResampler? _toSpeaker;
+    private int _reportedDelayMs = -1;
     private bool _disposed;
 
     private CallAudioBridge(VoipCall call, MicrophoneStream? microphone, SpeakerStream? speaker, ILogger logger)
@@ -413,6 +439,35 @@ public sealed class CallAudioBridge : IDisposable
         }
     }
 
+    /// <summary>
+    /// Tells the engine how far the microphone lags the speaker, which is what the echo canceller
+    /// needs to line the two up: the audio still queued for playback plus one captured frame.
+    /// Reported only when it moves, since it changes slowly and every call crosses into native code.
+    /// </summary>
+    private void ReportDelay()
+    {
+        if (_speaker is null)
+        {
+            return;
+        }
+
+        var delay = _speaker.QueuedMs + (_microphone?.FrameMs ?? 20);
+        if (Math.Abs(delay - _reportedDelayMs) < 10)
+        {
+            return;
+        }
+
+        _reportedDelayMs = delay;
+        try
+        {
+            _call.SetAudioDelay(delay);
+        }
+        catch (VoipException)
+        {
+            // The call ended between the frame and this report; the next call reports again.
+        }
+    }
+
     private void OnMicrophoneFrame(ReadOnlySpan<short> samples, int sampleRate)
     {
         if (_disposed || !_call.IsActive)
@@ -424,6 +479,7 @@ public sealed class CallAudioBridge : IDisposable
         {
             // The engine resamples on its own, so send the microphone rate straight through.
             _call.SendAudio(samples, sampleRate);
+            ReportDelay();
         }
         catch (VoipException ex)
         {

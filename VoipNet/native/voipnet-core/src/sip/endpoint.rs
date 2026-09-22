@@ -80,6 +80,9 @@ pub struct EndpointConfig {
     pub register_on_start: bool,
     pub register_expires: u32,
     pub user_agent: String,
+    /// Round trip through the audio device in milliseconds, used by the echo canceller; 0 means the
+    /// application has not measured it. `VoipCall.SetAudioDelay` can report it while a call runs.
+    pub stream_delay_ms: u32,
     /// Look SIP hosts up with NAPTR and SRV (RFC 3263) when the address has no port of its own.
     pub dns_srv: bool,
     /// Resolvers to ask, as `host[:port]`. Empty uses the ones this machine is configured with.
@@ -150,6 +153,7 @@ impl Default for EndpointConfig {
             register_on_start: false,
             register_expires: 600,
             user_agent: format!("Voip.NET/{}", env!("CARGO_PKG_VERSION")),
+            stream_delay_ms: 0,
             dns_srv: true,
             dns_servers: Vec::new(),
             reliable_provisional: true,
@@ -516,6 +520,7 @@ impl Endpoint {
             symmetric_rtp: true,
             opus_dtx: cfg.opus_dtx,
             echo_cancellation: cfg.echo_cancellation,
+            stream_delay_ms: cfg.stream_delay_ms,
             noise_suppression: cfg.noise_suppression,
             auto_gain: cfg.auto_gain,
             dtls_identity: Some(DtlsIdentity::generate().map_err(EndpointError::InvalidArgument)?),
@@ -702,6 +707,12 @@ impl Endpoint {
 
     /// Sends one encoded video frame on the call's video stream. `timestamp` is in the 90 kHz video
     /// clock; the frame is split into as many RTP packets as it needs.
+    /// Reports the audio device's round trip so the echo canceller can start from the right alignment.
+    pub fn set_stream_delay(&self, call_id: u64, delay_ms: u32) -> Result<()> {
+        self.inner.media_of(call_id)?.set_stream_delay_ms(delay_ms);
+        Ok(())
+    }
+
     pub fn send_video_frame(&self, call_id: u64, timestamp: u32, frame: &[u8]) -> Result<()> {
         let st = self.inner.state.lock();
         let video = st.calls.get(&call_id).ok_or(EndpointError::NotFound)?.video.clone();

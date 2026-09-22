@@ -20,6 +20,7 @@
 | `RegisterOnStart` | `false` | Registrasi saat `StartAsync` dan tunggu hasilnya. |
 | `RegisterExpires` | `600` | Masa berlaku yang diminta; di-refresh pada 85%. |
 | `UserAgent` | `Voip.NET/1.0 (Gravicode Studios)` | Header User-Agent / Server. |
+| `StreamDelayMs` | `0` | Waktu tempuh perangkat audio untuk pembatal gema; `CallAudioBridge` mengukur perangkatnya sendiri. |
 | `DnsSrv`, `DnsServers` | `true`, — | Mencari host SIP lewat NAPTR/SRV (RFC 3263); `DnsServers` menggantikan resolver bawaan mesin. |
 | `SessionExpires`, `MinSessionExpires` | `1800`, `90` | Session timer (RFC 4028) dalam detik; `0` berarti tidak dipakai. Pihak refresher mengirim re-INVITE di tengah interval, dan panggilan yang tidak diperbarui akan ditutup. |
 | `ReliableProvisional` | `true` | Mengirim respons provisional secara reliable (RFC 3262) ke pemanggil yang mendukung 100rel; yang mewajibkannya selalu dilayani reliable. |
@@ -77,6 +78,7 @@
 | `SendEncoded(...)`, `EncodedReceived` | Payload pass-through. |
 | `SendVideoFrame(...)`, `VideoFrameReceived`, `VideoCodec` | Frame video utuh pada stream video panggilan. |
 | `RequestKeyframe(full)` | Meminta keyframe video ke lawan (RTCP PLI atau FIR). |
+| `SetAudioDelay(ms)` | Melaporkan waktu tempuh speaker ke mikrofon kepada pembatal gema. |
 | `GetStatistics()`, `FinalStatistics` | Kualitas, termasuk laporan lawan lewat RTCP (`RoundTripMs`, `RemoteLossPercent`, `RemoteJitterMs`, `RemoteMos`). |
 | `JoinConference(c)`, `LeaveConference()` | Konferensi. |
 | `Connected`, `Completion` | Task untuk kode async yang linear. |

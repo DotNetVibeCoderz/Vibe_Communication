@@ -218,6 +218,12 @@ public sealed class VoipCall
     /// <param name="frame">The encoded frame; it is split across as many RTP packets as it needs.</param>
     public void SendVideoFrame(uint timestamp, ReadOnlySpan<byte> frame) => _client.SendVideoFrame(Id, timestamp, frame);
 
+    /// <summary>Reports how long audio takes to travel from the speaker back into the microphone, so the
+    /// echo canceller starts from the right alignment. <c>CallAudioBridge</c> reports its own devices;
+    /// call this when you drive the audio yourself and know the latency.</summary>
+    /// <param name="milliseconds">Playback plus capture buffering, 0 when unknown.</param>
+    public void SetAudioDelay(int milliseconds) => _client.SetStreamDelay(Id, milliseconds);
+
     /// <summary>Asks the peer for a keyframe. The engine already does this when a frame arrives with packets
     /// missing; call it yourself when a decoder loses its state. Requests arrive as a
     /// <c>keyframe-request</c> media notification.</summary>

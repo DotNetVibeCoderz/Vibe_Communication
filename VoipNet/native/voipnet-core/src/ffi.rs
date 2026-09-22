@@ -371,6 +371,15 @@ pub unsafe extern "C" fn voipnet_send_video_frame(
     }
 }
 
+/// Reports the audio device's round trip in milliseconds to the echo canceller.
+///
+/// # Safety
+/// `handle` must be a live endpoint handle.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_set_stream_delay(handle: *mut c_void, call_id: u64, delay_ms: u32) -> c_int {
+    with_endpoint!(handle, ep => ep.set_stream_delay(call_id, delay_ms))
+}
+
 /// Asks the peer for a video keyframe: a Full Intra Request when `full` is non-zero, otherwise a
 /// Picture Loss Indication.
 ///

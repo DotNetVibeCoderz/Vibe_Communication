@@ -145,6 +145,9 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "voipnet_send_video_frame")]
     internal static partial int SendVideoFrame(nint handle, ulong callId, uint timestamp, byte* data, int length);
 
+    [LibraryImport(Library, EntryPoint = "voipnet_set_stream_delay")]
+    internal static partial int SetStreamDelay(nint handle, ulong callId, uint delayMs);
+
     [LibraryImport(Library, EntryPoint = "voipnet_request_keyframe")]
     internal static partial int RequestKeyframe(nint handle, ulong callId, int full);
 
