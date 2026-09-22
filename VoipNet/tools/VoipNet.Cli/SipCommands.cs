@@ -198,7 +198,7 @@ internal static class SipCommands
         var duration = new Option<int>("--duration") { Description = "Seconds to stay connected.", DefaultValueFactory = _ => 10 };
         var tone = new Option<int>("--tone") { Description = "Send a test tone at this frequency (Hz). 0 sends nothing.", DefaultValueFactory = _ => 440 };
         var dtmf = new Option<string?>("--dtmf") { Description = "DTMF digits to send after answer." };
-        var record = new Option<string?>("--record") { Description = "Record the call to a WAV file." };
+        var record = new Option<string?>("--record") { Description = "Record the call; the extension picks the format (.wav, .mp3, .avi with video)." };
         var register = new Option<bool>("--register") { Description = "Register before calling." };
         var command = new Command("call", "Place a test call and report media quality.") { target, duration, tone, dtmf, record, register };
         account.AddTo(command);
@@ -235,7 +235,15 @@ internal static class SipCommands
             }
 
             AnsiConsole.MarkupLine($"[green]Connected[/] codec [bold]{call.Codec}[/] @ {call.SampleRate} Hz");
-            using var recorder = result.GetValue(record) is { } file ? CallRecorder.Start(call, file, RecordingFormat.Wav) : null;
+            // The extension says what to write: WAV, MP3, or AVI when the call carries video.
+            using var recorder = result.GetValue(record) is { } file
+                ? CallRecorder.Start(call, file, System.IO.Path.GetExtension(file).ToLowerInvariant() switch
+                {
+                    ".mp3" => RecordingFormat.Mp3,
+                    ".avi" => RecordingFormat.Avi,
+                    _ => RecordingFormat.Wav,
+                })
+                : null;
 
             if (result.GetValue(tone) is > 0 and var frequency)
             {

@@ -12,6 +12,10 @@ public enum RecordingFormat
 
     /// <summary>MP3 at 64 kbit/s per channel. Falls back to WAV when the encoder is unavailable.</summary>
     Mp3,
+
+    /// <summary>Audio and video in an AVI container: PCM audio next to the call's own video frames,
+    /// stored exactly as they arrived. Falls back to WAV on a call without video.</summary>
+    Avi,
 }
 
 /// <summary>How the two directions of a call are stored.</summary>
@@ -192,6 +196,7 @@ public sealed class CallRecorder : IDisposable
     private IDisposable? _mp3Writer;
     private WavWriter? _wav;
     private int _sampleRate;
+    private AviWriter? _avi;
     private bool _disposed;
 
     private CallRecorder(VoipCall call, string path, RecordingFormat format, RecordingLayout layout, ILogger? logger)
@@ -202,6 +207,21 @@ public sealed class CallRecorder : IDisposable
         Path = path;
         Format = format;
         _sampleRate = call.SampleRate > 0 ? call.SampleRate : 8000;
+
+        // Video is recorded as it arrives; a call without a video stream has nothing to put in an AVI.
+        if (format == RecordingFormat.Avi)
+        {
+            if (call.VideoCodec is { Length: > 0 } videoCodec)
+            {
+                _avi = new AviWriter(path, videoCodec == "VP8" ? "VP80" : videoCodec, _sampleRate, layout == RecordingLayout.Stereo ? 2 : 1);
+            }
+            else
+            {
+                _logger.LogInformation("The call carries no video; recording {Path} as WAV", path);
+                Format = RecordingFormat.Wav;
+                Path = System.IO.Path.ChangeExtension(path, ".wav");
+            }
+        }
 
         // The bundled LAME encoder only ships Windows binaries. On other platforms it can fail later,
         // inside the audio callback, so fall back to WAV up front instead of producing an empty file.
@@ -237,6 +257,10 @@ public sealed class CallRecorder : IDisposable
 
         call.AudioReceived += OnAudio;
         call.StateChanged += OnStateChanged;
+        if (_avi is not null)
+        {
+            call.VideoFrameReceived += OnVideoFrame;
+        }
     }
 
     /// <summary>Starts recording a call.</summary>
@@ -271,6 +295,17 @@ public sealed class CallRecorder : IDisposable
         if (e.State == CallState.Terminated)
         {
             Dispose();
+        }
+    }
+
+    private void OnVideoFrame(VoipCall call, uint timestamp, bool keyframe, ReadOnlySpan<byte> frame)
+    {
+        lock (_gate)
+        {
+            if (!_disposed)
+            {
+                _avi?.WriteVideo(frame, keyframe);
+            }
         }
     }
 
@@ -337,7 +372,11 @@ public sealed class CallRecorder : IDisposable
             }
         }
 
-        if (_mp3Writer is not null)
+        if (_avi is not null)
+        {
+            _avi.WriteAudio(buffer);
+        }
+        else if (_mp3Writer is not null)
         {
             Mp3Encoder.Write(_mp3Writer, buffer);
         }
@@ -362,6 +401,8 @@ public sealed class CallRecorder : IDisposable
             _disposed = true;
             _call.AudioReceived -= OnAudio;
             _call.StateChanged -= OnStateChanged;
+            _call.VideoFrameReceived -= OnVideoFrame;
+            _avi?.Dispose();
             _wav?.Dispose();
             _mp3Writer?.Dispose();
             _mp3Stream?.Dispose();

@@ -153,6 +153,17 @@ using var recorder = CallRecorder.Start(call, "call.mp3", RecordingFormat.Mp3, R
 
 Stereo puts the remote party on the left and this endpoint on the right. MP3 encoding uses the bundled LAME encoder, which is Windows-only; on Linux and macOS the recorder writes WAV and reports the new path in `recorder.Path`.
 
+A video call records to AVI, with the video stored exactly as the peer encoded it next to PCM audio —
+nothing is re-encoded, so recording costs almost no CPU:
+
+```csharp
+using var recorder = CallRecorder.Start(call, "call.avi", RecordingFormat.Avi);
+```
+
+The frame rate is measured from the call and written into the header when the file is closed. A call
+without video falls back to WAV. MP4 with AAC audio would need an AAC encoder this SDK does not carry
+(see [PLAN 1.3](../../PLAN.md#13---video--fitur-video)).
+
 ## Security
 
 ```csharp

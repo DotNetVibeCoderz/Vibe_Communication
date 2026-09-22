@@ -156,6 +156,17 @@ using var recorder = CallRecorder.Start(call, "call.mp3", RecordingFormat.Mp3, R
 
 Stereo menaruh pihak lawan di kanal kiri dan endpoint ini di kanal kanan. Encoding MP3 memakai encoder LAME bawaan yang hanya tersedia di Windows; di Linux dan macOS recorder menulis WAV dan melaporkan path barunya di `recorder.Path`.
 
+Panggilan video direkam ke AVI: video disimpan persis seperti yang dikirim lawan, berdampingan dengan
+audio PCM — tidak ada proses encode ulang, sehingga perekaman nyaris tidak memakai CPU:
+
+```csharp
+using var recorder = CallRecorder.Start(call, "call.avi", RecordingFormat.Avi);
+```
+
+Laju frame diukur dari panggilan dan ditulis ke header saat file ditutup. Panggilan tanpa video
+otomatis direkam sebagai WAV. MP4 dengan audio AAC memerlukan encoder AAC yang belum ada di SDK ini
+(lihat [PLAN 1.3](../../PLAN.md#13---video--fitur-video)).
+
 ## Keamanan
 
 ```csharp
