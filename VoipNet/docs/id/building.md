@@ -120,3 +120,16 @@ Simpan API key di luar repositori (secret CI atau file kredensial).
 - Callback audio memberikan pointer ke buffer engine: handler menerima `ReadOnlySpan<short>` tanpa alokasi. Salin hanya yang perlu disimpan.
 - Jalur penerimaan memakai ulang buffer; jitter buffer mem-pool vektor payload; G.711 memakai tabel lookup; codec berjalan dalam loop yang divektorisasi compiler.
 - `ReadAudioAsync` mengalokasikan satu array per frame demi kemudahan; gunakan `AudioReceived` di jalur panas.
+
+### Benchmark
+
+```bash
+cd native && cargo bench --bench media
+pwsh build/bench-report.ps1            # tabel, dibandingkan dengan benchmarks/baseline.json
+pwsh build/bench-report.ps1 -Update    # jadikan angka saat ini sebagai baseline
+```
+
+CI menjalankan benchmark pada setiap build dan menampilkan perbandingannya di ringkasan job. Hasil yang
+lebih dari 50% lebih lambat dari baseline hanya diberi peringatan, bukan menggagalkan build: runner
+bersama cukup berisik sehingga ambang yang lebih ketat akan sering salah alarm. Perbarui baseline secara
+sengaja, di mesin yang sedang senggang, ketika suatu perubahan memang dimaksudkan mengubah angkanya.

@@ -120,3 +120,16 @@ Keep the key outside the repository (a CI secret or a credentials file).
 - Audio callbacks pass a pointer into engine buffers: handlers see a `ReadOnlySpan<short>` with no allocation. Copy only what you keep.
 - The receive path reuses buffers; the jitter buffer pools payload vectors; G.711 uses lookup tables; codecs run in loops the compiler vectorises.
 - `ReadAudioAsync` allocates one array per frame for convenience; prefer `AudioReceived` on hot paths.
+
+### Benchmarks
+
+```bash
+cd native && cargo bench --bench media
+pwsh build/bench-report.ps1            # table, compared with benchmarks/baseline.json
+pwsh build/bench-report.ps1 -Update    # adopt the current numbers as the baseline
+```
+
+CI runs the benchmarks on every build and prints the comparison in the job summary. A result more than
+50% slower than the baseline is warned about rather than failed: shared runners are noisy enough that a
+tighter threshold would cry wolf. Refresh the baseline deliberately, on an idle machine, when a change
+is meant to move the numbers.

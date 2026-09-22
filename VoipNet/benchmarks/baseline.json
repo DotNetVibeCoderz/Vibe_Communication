@@ -1,0 +1,18 @@
+﻿{
+    "measured":  "2026-09-22",
+    "machine":  "Win32NT 8 cores",
+    "note":  "Median nanoseconds per iteration. Refresh with build/bench-report.ps1 -Update on an idle machine.",
+    "results":  {
+                    "codec 20 ms frame/g722 decode":  14468.5,
+                    "codec 20 ms frame/g722 encode":  17536.2,
+                    "codec 20 ms frame/opus decode":  142579.0,
+                    "codec 20 ms frame/opus encode":  601832.7,
+                    "codec 20 ms frame/pcmu decode":  103.2,
+                    "codec 20 ms frame/pcmu encode":  168.1,
+                    "conference mix-minus 20 ms/10 participants":  704.9,
+                    "conference mix-minus 20 ms/3 participants":  206.8,
+                    "conference mix-minus 20 ms/50 participants":  3527.4,
+                    "srtp 20 ms packet/protect":  2809.6,
+                    "srtp 20 ms packet/unprotect":  92.1
+                }
+}

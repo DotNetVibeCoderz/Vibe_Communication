@@ -145,6 +145,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 
 ### Unreleased · Belum dirilis
 
+- Benchmarks are compared with a committed baseline (`benchmarks/baseline.json`, refreshed with `build/bench-report.ps1 -Update`) and the table lands in the CI job summary, so a slow drift shows up instead of scrolling past in a log. · Benchmark dibandingkan dengan baseline yang tersimpan dan hasilnya tampil di ringkasan job CI.
 - ICE calls no longer wait for the STUN server: the probe goes out without blocking the call and the reflexive candidate is trickled to the peer in an INFO when it arrives (RFC 8838). Calls without ICE still resolve it before the offer, because there it is the address in the SDP. · Panggilan ICE tidak lagi menunggu server STUN; kandidat reflexive dikirim belakangan lewat INFO.
 - A live verification suite that runs a speak-and-listen round trip against every speech provider whose key is present, and skips the rest. · Uji langsung untuk setiap provider suara yang kuncinya tersedia.
 - Semantic turn detection: the agent can ask a small model whether the caller has finished speaking instead of trusting silence, joining "my number is…" and what follows into one question. · Deteksi akhir ucapan berbasis model, bukan sekadar jeda.

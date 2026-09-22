@@ -67,11 +67,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: VoipNet/native
-      # Short runs: shared runners are too noisy for regression thresholds, but this keeps the
-      # benchmarks compiling and prints the numbers in the log for comparison over time.
+      # Short runs: shared runners are too noisy for tight regression thresholds, but they keep the
+      # benchmarks compiling and produce numbers to compare with the committed baseline.
       - name: cargo bench
         working-directory: VoipNet/native
         run: cargo bench --bench media -- --warm-up-time 1 --measurement-time 3
+      # The table lands in the job summary; anything markedly slower than the baseline is warned about
+      # rather than failed, because a busy runner is not a regression.
+      - name: Compare with the baseline
+        shell: pwsh
+        run: ./VoipNet/build/bench-report.ps1
 
   dotnet:
     name: .NET tests (${{ matrix.os }})
