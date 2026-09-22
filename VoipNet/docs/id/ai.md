@@ -151,6 +151,38 @@ agent.ErrorReceived += (_, error) => Console.WriteLine($"error provider: {error}
 
 Secara bawaan agen memakai protokol realtime GA (`session.type = "realtime"`, pengaturan audio di `audio.input` dan `audio.output`); set `Protocol = RealtimeProtocol.Beta` untuk endpoint yang masih memerlukan `OpenAI-Beta: realtime=v1`. Di Azure, transkripsi penelepon memerlukan deployment tersendiri: isi `InputTranscriptionModel` untuk mengaktifkan `CallerSaid`.
 
+## Analitik pasca-panggilan
+
+`CallAnalyzer` mengubah panggilan yang sudah selesai menjadi laporan yang bisa dibaca supervisor:
+ringkasan, sentimen penelepon, topik, hal yang masih terbuka, dan skor terhadap checklist pilihan Anda.
+
+```csharp
+var analyzer = new CallAnalyzer(chat, speechToText, new CallAnalyzerOptions
+{
+    Language = "Indonesian",
+    QualityChecklist = { "menawarkan promo sebelum menutup" },   // ditambahkan ke daftar bawaan
+});
+
+recordings.RecordingSaved += async (_, info) =>
+{
+    var analysis = await analyzer.AnalyzeRecordingAsync(info.Path);
+    Console.WriteLine($"{analysis.Sentiment} {analysis.QualityScore}/100 — {analysis.Summary}");
+    foreach (var item in analysis.ActionItems)
+    {
+        Console.WriteLine($"  todo: {item}");
+    }
+};
+```
+
+Rekaman ditranskripsikan lebih dulu, jadi analyser memerlukan provider suara; panggilan yang sudah
+ditangani agent tidak perlu, karena agent menyimpan percakapannya: `analyzer.AnalyzeAsync(agent.Turns)`.
+Rekaman dibaca sebagai WAV, jadi setel `RecordingOptions.Format = RecordingFormat.Wav` bila ingin
+menganalisisnya.
+
+Model diminta menjawab dalam JSON dan jawabannya dibaca secara longgar: blok berpagar, kalimat pembuka,
+atau skor yang ditulis sebagai teks tetap menghasilkan analisis yang bisa dipakai, dan field yang tidak
+diisi model memakai nilai bawaan alih-alih menggagalkan laporan.
+
 ## Memilih pendekatan
 
 | Kebutuhan | Gunakan |

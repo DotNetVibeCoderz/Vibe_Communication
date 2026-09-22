@@ -11,7 +11,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | Suite | Result · Hasil |
 | --- | --- |
 | Rust engine `cargo test --lib` | **103 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
-| .NET `tests/VoipNet.Tests` | **48 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
+| .NET `tests/VoipNet.Tests` | **53 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
 | `dotnet build Voip.Net.slnx -c Release` | 14 projects · proyek, **0 warnings, 0 errors** |
 | Benchmarks · Benchmark | `cargo bench --bench media` on a laptop (20 ms frame): opus encode 550 µs · decode 127 µs, G.722 encode 16 µs · decode 13 µs, G.711 encode 150 ns, SRTP protect 2.6 µs, conference mix-minus 3.7 µs at 50 participants; run in CI to catch breakage · dijalankan di CI |
 | CLI end-to-end · ujung ke ujung | `sip listen --echo` ↔ `sip call --dtmf 123 --pcap`: MOS 4.38, all DTMF received · semua DTMF diterima |
@@ -88,6 +88,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 | Kernel / AI functions (Semantic Kernel, Microsoft.Extensions.AI) | ✅ | call-control tools, CRM tools |
 | audio → STT → LLM → TTS → RTP loop, barge-in | ✅ | `VoiceAgent` |
 | Context persistence, hand-off | ✅ | conversation stores, `HandOffAsync`, `transfer_call` |
+| Post-call analytics | ✅ | `CallAnalyzer`: summary, caller sentiment, topics, action items and a QA score against a configurable checklist, from a recording (transcribed first), a transcript, or an agent's turns; verified live with Azure OpenAI · dari rekaman, transkrip, atau percakapan agent; diuji langsung |
 
 ## STT / TTS
 
@@ -139,6 +140,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 
 ### Unreleased · Belum dirilis
 
+- Post-call analytics (`CallAnalyzer`): summary, caller sentiment, topics, open action items and a QA score against a checklist, from a recording, a transcript or an agent's own turns. Verified live against Azure OpenAI. · Analitik pasca-panggilan: ringkasan, sentimen, topik, tindak lanjut, dan skor QA; diuji langsung dengan Azure OpenAI.
 - Video calls record to AVI (`RecordingFormat.Avi`, `voipnet sip call --record out.avi`): the peer's own frames next to PCM audio, with the frame rate measured from the call. · Panggilan video bisa direkam ke AVI beserta audio PCM, tanpa encode ulang.
 - `voipnet load` places calls at a chosen rate and concurrency and reports setup-time percentiles, failures by SIP code and the media quality it heard; it exits non-zero when any call failed. · `voipnet load` menguji beban dengan laju dan konkurensi tertentu lalu melaporkan waktu setup, kegagalan per kode SIP, dan kualitas media.
 - OpenTelemetry tracing: every call is a span carrying its direction, codec and final quality, agent turns are child spans, and an outbound call continues the activity that placed it. · Tracing OpenTelemetry: setiap panggilan menjadi span dengan arah, codec, dan kualitas akhir; giliran agen menjadi span anak.

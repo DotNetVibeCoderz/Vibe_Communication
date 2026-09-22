@@ -151,6 +151,37 @@ agent.ErrorReceived += (_, error) => Console.WriteLine($"provider error: {error}
 
 The agent speaks the generally available realtime protocol by default (`session.type = "realtime"`, audio settings under `audio.input` and `audio.output`); set `Protocol = RealtimeProtocol.Beta` for endpoints that still expect `OpenAI-Beta: realtime=v1`. On Azure, caller transcription needs its own deployment: set `InputTranscriptionModel` to enable `CallerSaid`.
 
+## Post-call analytics
+
+`CallAnalyzer` turns a finished call into something a supervisor can read: a summary, the caller's
+sentiment, the topics, what is still open, and a score against a checklist you choose.
+
+```csharp
+var analyzer = new CallAnalyzer(chat, speechToText, new CallAnalyzerOptions
+{
+    Language = "Indonesian",
+    QualityChecklist = { "offered the promo before closing" },   // added to the default list
+});
+
+recordings.RecordingSaved += async (_, info) =>
+{
+    var analysis = await analyzer.AnalyzeRecordingAsync(info.Path);
+    Console.WriteLine($"{analysis.Sentiment} {analysis.QualityScore}/100 — {analysis.Summary}");
+    foreach (var item in analysis.ActionItems)
+    {
+        Console.WriteLine($"  todo: {item}");
+    }
+};
+```
+
+A recording is transcribed first, so the analyser needs a speech provider; a call an agent already
+handled needs none, because the agent kept the turns: `analyzer.AnalyzeAsync(agent.Turns)`. Recordings
+are read as WAV, so set `RecordingOptions.Format = RecordingFormat.Wav` when you plan to analyse them.
+
+The model is asked for JSON and the answer is read leniently: a fenced block, a sentence before it or
+a score written as text all still produce a usable analysis, and a field the model leaves out keeps its
+default instead of failing the report.
+
 ## Choosing an approach
 
 | Need | Use |

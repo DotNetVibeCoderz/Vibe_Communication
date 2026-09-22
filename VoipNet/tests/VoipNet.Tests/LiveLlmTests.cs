@@ -44,6 +44,35 @@ public sealed class LiveLlmTests
     }
 
     [Fact]
+    public async Task PostCallAnalyticsSummarisesAnIndonesianCall()
+    {
+        var chat = Azure();
+        Assert.SkipWhen(chat is null, "No Azure OpenAI key available.");
+        using var _ = chat;
+
+        var analyzer = new VoipNet.AI.Analytics.CallAnalyzer(chat!, options: new VoipNet.AI.Analytics.CallAnalyzerOptions
+        {
+            Language = "Indonesian",
+        });
+        var transcript = """
+            Caller: Halo, saya sudah tiga kali menelepon soal tagihan yang salah dan belum ada yang membantu.
+            Agent: Mohon maaf atas ketidaknyamanannya, Pak. Boleh saya cek nomor pelanggannya?
+            Caller: 8890123. Saya ditagih dua kali bulan ini.
+            Agent: Betul, ada dobel tagih. Saya ajukan pengembalian dana, masuk dalam tiga hari kerja.
+            Caller: Baik, tolong dipastikan ya.
+            """;
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        var analysis = await analyzer.AnalyzeTranscriptAsync(transcript, timeout.Token);
+
+        Assert.False(string.IsNullOrWhiteSpace(analysis.Summary));
+        Assert.Equal("negative", analysis.Sentiment);
+        Assert.NotEmpty(analysis.Topics);
+        Assert.InRange(analysis.QualityScore, 1, 100);
+        Assert.True(analysis.ActionItems.Count > 0 || analysis.FollowUpNeeded, "a refund was promised, so something is still open");
+    }
+
+    [Fact]
     public async Task AzureOpenAiAnswersInIndonesian()
     {
         using var client = Azure();
