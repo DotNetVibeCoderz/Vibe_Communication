@@ -84,6 +84,36 @@ centre.Monitor(callerCallId, supervisor, whisper: false);   // hanya mendengar
 
 Mode hanya-mendengar membuat leg ke supervisor menjadi send-only: supervisor mendengar percakapan, tetapi suaranya tidak masuk ke jembatan.
 
+### Callback dan estimasi waktu tunggu
+
+Penelepon yang tidak ingin menunggu di telepon bisa menyimpan posisinya lalu menutup panggilan:
+
+```csharp
+centre.CallQueued += async (_, queued) =>
+{
+    var wait = centre.EstimatedWait(queued.QueueName, queued.Position);
+    if (wait > TimeSpan.FromMinutes(2) && await OffersCallbackAsync(queued.Call, wait))
+    {
+        centre.RequestCallback(queued);      // bawaannya nomor penelepon sendiri
+    }
+};
+
+centre.CallbackCompleted += (_, request) => log.Info($"{request.Destination}: {request.Outcome}");
+```
+
+`EnqueueAsync` lalu mengembalikan `QueueOutcome.CallbackScheduled` sehingga aplikasi bisa berterima
+kasih dan menutup panggilan. Saat ada agent bebas dan callback itu sudah menunggu lebih lama daripada
+penelepon yang masih memegang saluran, layanan memesan agent tersebut, menelepon balik pelanggan,
+memutar `CallbackOptions.Announcement`, lalu menyambungkan keduanya. Pelanggan yang tidak mengangkat
+dicoba lagi setelah `RetryAfter` sampai `MaxAttempts`, lalu permintaannya berakhir sebagai `NoAnswer`.
+`PendingCallbacks(queue)` menampilkan yang masih tertunda dan `CancelCallback(id)` membatalkan satu.
+
+`EstimatedWait(queue, position)` membagi rata-rata waktu penanganan (bicara plus wrap-up, tiga menit
+selama antrean belum punya riwayat) ke jumlah agent yang sedang login untuk antrean itu. Hasilnya
+`TimeSpan.Zero` bila ada agent bebas, dan `TimeSpan.MaxValue` bila tidak ada agent sama sekali — saat
+itu tidak ada estimasi yang jujur untuk diberikan, dan lebih baik mengatakannya daripada mengarang
+angka.
+
 ### Metrik
 
 ```csharp

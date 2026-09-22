@@ -11,7 +11,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | Suite | Result · Hasil |
 | --- | --- |
 | Rust engine `cargo test --lib` | **103 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
-| .NET `tests/VoipNet.Tests` | **63 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
+| .NET `tests/VoipNet.Tests` | **65 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
 | `dotnet build Voip.Net.slnx -c Release` | 14 projects · proyek, **0 warnings, 0 errors** |
 | Benchmarks · Benchmark | `cargo bench --bench media` on a laptop (20 ms frame): opus encode 550 µs · decode 127 µs, G.722 encode 16 µs · decode 13 µs, G.711 encode 150 ns, SRTP protect 2.6 µs, conference mix-minus 3.7 µs at 50 participants; run in CI to catch breakage · dijalankan di CI |
 | CLI end-to-end · ujung ke ujung | `sip listen --echo` ↔ `sip call --dtmf 123 --pcap`: MOS 4.38, all DTMF received · semua DTMF diterima |
@@ -126,6 +126,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 | --- | --- |
 | IVR builder with AI dialog | ✅ |
 | Queue management, agent monitoring, supervisor listen/whisper | ✅ |
+| Callbacks and estimated wait time | ✅ | a caller keeps their place and hangs up; the service rings back when an agent is free and the callback has outwaited everyone still holding, with retries and an announcement · penelepon menyimpan posisinya lalu ditelepon balik, lengkap dengan percobaan ulang |
 | Recording WAV/MP3 (MP3 on Windows; WAV elsewhere · MP3 di Windows, WAV di platform lain), analytics dashboards | ✅ |
 | TLS, SRTP, ZRTP, end-to-end encryption | 🟡 SRTP ✅ · DTLS-SRTP ✅ · TLS ✅ · ZRTP ⏳ |
 | CRM integration via AI functions | ✅ |
@@ -143,6 +144,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 
 ### Unreleased · Belum dirilis
 
+- Queue callbacks and estimated wait time: a caller can keep their place and hang up, and the service rings them back when their turn comes and an agent is free (`RequestCallback`, `PendingCallbacks`, `EstimatedWait`). · Callback antrean dan estimasi waktu tunggu.
 - Azure AI Speech (recognition and neural voices), Cartesia and Deepgram Aura (synthesis) join the speech providers, with `AddAzureSpeech` and `AddCartesiaTextToSpeech` for dependency injection. · Azure AI Speech dan Cartesia ditambahkan sebagai provider suara.
 - Agent assist (`AgentAssist`): a live transcript plus suggested replies for a human agent, offered after each caller sentence and never sent to the caller. · Agent assist: transkrip langsung dan saran balasan untuk agent manusia.
 - Post-call analytics (`CallAnalyzer`): summary, caller sentiment, topics, open action items and a QA score against a checklist, from a recording, a transcript or an agent's own turns. Verified live against Azure OpenAI. · Analitik pasca-panggilan: ringkasan, sentimen, topik, tindak lanjut, dan skor QA; diuji langsung dengan Azure OpenAI.

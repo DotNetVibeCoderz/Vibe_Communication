@@ -177,6 +177,91 @@ public sealed class EnterpriseTests
     }
 
     [Fact]
+    public async Task ACallerWhoAsksForACallbackIsRungBackAndBridged()
+    {
+        // The customer's phone answers whatever comes in, which is what the callback rings.
+        await using var customer = new VoipClient(TestHelpers.LoopbackOptions("customer"));
+        await using var agentPhone = new VoipClient(TestHelpers.LoopbackOptions("agent"));
+        await using var pbx = new VoipClient(TestHelpers.LoopbackOptions("pbx"));
+        await customer.StartAsync();
+        await agentPhone.StartAsync();
+        await pbx.StartAsync();
+
+        VoipCall? calledBack = null;
+        customer.IncomingCall += (_, e) => { calledBack = e.Call; _ = e.Call.AnswerAsync(); };
+        agentPhone.IncomingCall += (_, e) => _ = e.Call.AnswerAsync();
+        VoipCall? inbound = null;
+        pbx.IncomingCall += (_, e) => { inbound = e.Call; _ = e.Call.AnswerAsync(); };
+
+        await using var center = new CallCenterService(pbx);
+        center.AddQueue(new CallQueueOptions
+        {
+            Name = "support",
+            AnnouncePosition = false,
+            WrapupTime = TimeSpan.FromMilliseconds(200),
+            Callbacks = new CallbackOptions { Announcement = null, RingTimeout = TimeSpan.FromSeconds(10) },
+        });
+        center.AddAgent(new Agent { Id = "a1", Name = "Sari", Uri = $"sip:agent@{agentPhone.LocalAddress}" });
+
+        var customerCall = await customer.CallAsync($"sip:pbx@{pbx.LocalAddress}");
+        var pbxLeg = await TestHelpers.WaitAsync(() => inbound, TimeSpan.FromSeconds(10), "pbx leg");
+        await pbxLeg.Connected.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Nobody is signed in yet, so there is no honest estimate to give.
+        Assert.Equal(TimeSpan.MaxValue, center.EstimatedWait("support"));
+
+        var wait = center.EnqueueAsync(pbxLeg, "support");
+        var queued = await TestHelpers.WaitAsync(
+            () => center.Waiting("support").FirstOrDefault(),
+            TimeSpan.FromSeconds(5),
+            "queued caller");
+
+        CallbackRequest? completed = null;
+        center.CallbackCompleted += (_, request) => completed = request;
+        var callback = center.RequestCallback(queued, $"sip:customer@{customer.LocalAddress}");
+        Assert.Single(center.PendingCallbacks("support"));
+
+        // The caller hangs up; their place is kept.
+        var result = await wait.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(QueueOutcome.CallbackScheduled, result.Outcome);
+        await customerCall.HangupAsync();
+
+        // An agent signs in, and the service rings the customer back.
+        center.SetAgentState("a1", AgentState.Available);
+        await TestHelpers.WaitUntilAsync(() => completed is not null, TimeSpan.FromSeconds(20), "callback made");
+
+        Assert.Equal(CallbackOutcome.Connected, completed!.Outcome);
+        Assert.Equal(callback.Id, completed.Id);
+        Assert.NotNull(calledBack);
+        Assert.True(calledBack!.IsActive, "the customer is on the call the service placed");
+        Assert.Equal(AgentState.OnCall, center.Agents.Single().State);
+        Assert.Empty(center.PendingCallbacks("support"));
+    }
+
+    [Fact]
+    public async Task EstimatedWaitGrowsWithTheQueueAndShrinksWithAgents()
+    {
+        await using var pbx = new VoipClient(TestHelpers.LoopbackOptions("pbx"));
+        await pbx.StartAsync();
+        await using var center = new CallCenterService(pbx);
+        center.AddQueue(new CallQueueOptions { Name = "sales", AnnouncePosition = false, WrapupTime = TimeSpan.Zero });
+
+        center.AddAgent(new Agent { Id = "a1", Name = "Sari", Uri = "sip:a1@localhost" });
+        center.SetAgentState("a1", AgentState.OnCall);
+        // No history yet, so the estimate uses the three minute fallback: one caller ahead, one agent.
+        Assert.Equal(TimeSpan.FromMinutes(3), center.EstimatedWait("sales", position: 1));
+        Assert.Equal(TimeSpan.FromMinutes(9), center.EstimatedWait("sales", position: 3));
+
+        center.AddAgent(new Agent { Id = "a2", Name = "Budi", Uri = "sip:a2@localhost" });
+        center.SetAgentState("a2", AgentState.OnCall);
+        Assert.Equal(TimeSpan.FromMinutes(4.5), center.EstimatedWait("sales", position: 3));
+
+        // An agent who is free takes the next caller straight away.
+        center.SetAgentState("a2", AgentState.Available);
+        Assert.Equal(TimeSpan.Zero, center.EstimatedWait("sales", position: 1));
+    }
+
+    [Fact]
     public async Task RecordingServiceIndexesCalls()
     {
         var dir = Path.Combine(Path.GetTempPath(), $"voipnet-recs-{Guid.NewGuid():N}");

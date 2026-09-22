@@ -84,6 +84,35 @@ centre.Monitor(callerCallId, supervisor, whisper: false);   // listen only
 
 Listen-only mode makes the leg to the supervisor send-only: they hear the conversation, but their audio never enters the bridge.
 
+### Callbacks and estimated wait
+
+A caller who does not want to hold can keep their place and put the phone down:
+
+```csharp
+centre.CallQueued += async (_, queued) =>
+{
+    var wait = centre.EstimatedWait(queued.QueueName, queued.Position);
+    if (wait > TimeSpan.FromMinutes(2) && await OffersCallbackAsync(queued.Call, wait))
+    {
+        centre.RequestCallback(queued);      // defaults to the caller's own number
+    }
+};
+
+centre.CallbackCompleted += (_, request) => log.Info($"{request.Destination}: {request.Outcome}");
+```
+
+`EnqueueAsync` then returns `QueueOutcome.CallbackScheduled` so the application can thank the caller and
+hang up. When an agent is free and the callback has waited longer than anyone still holding the line,
+the service reserves that agent, rings the caller, plays `CallbackOptions.Announcement`, and bridges the
+two. A caller who does not pick up is tried again after `RetryAfter`, up to `MaxAttempts`, and the
+request then ends as `NoAnswer`. `PendingCallbacks(queue)` lists what is still owed, and
+`CancelCallback(id)` drops one.
+
+`EstimatedWait(queue, position)` spreads the average handling time (talk plus wrap-up, three minutes
+until the queue has history) across the agents signed in for that queue. It returns `TimeSpan.Zero`
+when an agent is free, and `TimeSpan.MaxValue` when nobody is signed in at all — there is no honest
+estimate to give then, and it is better to say so than to invent a number.
+
 ### Metrics
 
 ```csharp

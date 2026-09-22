@@ -19,6 +19,9 @@ public sealed class CallCenterService(VoipClient client, ITextToSpeech? textToSp
     private readonly ConcurrentDictionary<string, CallQueueOptions> _queues = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, List<QueuedCall>> _waiting = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<ulong, VoipConference> _bridges = new();
+    private readonly ConcurrentDictionary<string, List<CallbackRequest>> _callbacks = new(StringComparer.OrdinalIgnoreCase);
+    private readonly CancellationTokenSource _shutdown = new();
+    private Task? _callbackPump;
     private readonly ILogger _logger = logger ?? NullLogger<CallCenterService>.Instance;
     private readonly Lock _gate = new();
     private int _roundRobin;
@@ -41,6 +44,12 @@ public sealed class CallCenterService(VoipClient client, ITextToSpeech? textToSp
 
     /// <summary>Raised when a caller leaves a queue, for any reason.</summary>
     public event EventHandler<(QueuedCall Call, QueueResult Result)>? CallDequeued;
+
+    /// <summary>Raised when a caller asks to be called back instead of waiting.</summary>
+    public event EventHandler<CallbackRequest>? CallbackScheduled;
+
+    /// <summary>Raised when a callback is made, or given up on.</summary>
+    public event EventHandler<CallbackRequest>? CallbackCompleted;
 
     /// <summary>Adds a queue.</summary>
     /// <param name="options">Queue settings.</param>
@@ -80,6 +89,110 @@ public sealed class CallCenterService(VoipClient client, ITextToSpeech? textToSp
     /// <param name="queueName">Queue to inspect.</param>
     public IReadOnlyList<QueuedCall> Waiting(string queueName) =>
         _waiting.TryGetValue(queueName, out var list) ? Snapshot(list) : [];
+
+    /// <summary>Callbacks still to be made for a queue, in the order they will be made.</summary>
+    /// <param name="queueName">Queue to inspect.</param>
+    public IReadOnlyList<CallbackRequest> PendingCallbacks(string queueName)
+    {
+        if (!_callbacks.TryGetValue(queueName, out var list))
+        {
+            return [];
+        }
+
+        lock (_gate)
+        {
+            return list.Where(c => c.IsPending).OrderByDescending(c => c.Priority).ThenBy(c => c.RequestedAt).ToArray();
+        }
+    }
+
+    /// <summary>
+    /// How long a caller joining now is likely to wait: the average handling time spread across the
+    /// agents who can take this queue, multiplied by the callers ahead of them. Falls back to three
+    /// minutes of handling time until the queue has answered enough calls to know better.
+    /// </summary>
+    /// <param name="queueName">Queue to estimate for.</param>
+    /// <param name="position">Position to estimate for; 0 means "joining at the back".</param>
+    public TimeSpan EstimatedWait(string queueName, int position = 0)
+    {
+        if (!_queues.TryGetValue(queueName, out var options))
+        {
+            return TimeSpan.Zero;
+        }
+
+        var snapshot = Metrics.Snapshot(queueName);
+        var handling = snapshot.AverageTalk > TimeSpan.Zero ? snapshot.AverageTalk : TimeSpan.FromMinutes(3);
+        handling += options.WrapupTime;
+
+        var staffed = _agents.Values.Count(a => a.HasSkill(options.RequiredSkill) && a.State is AgentState.Available or AgentState.OnCall or AgentState.Wrapup or AgentState.Ringing);
+        if (staffed == 0)
+        {
+            // Nobody is signed in: an estimate would be a guess dressed up as a promise.
+            return TimeSpan.MaxValue;
+        }
+
+        if (position <= 0)
+        {
+            position = Waiting(queueName).Count + PendingCallbacks(queueName).Count + 1;
+        }
+
+        var free = _agents.Values.Count(a => a.IsAvailable && a.HasSkill(options.RequiredSkill));
+        var ahead = Math.Max(position - free, 0);
+        return ahead == 0 ? TimeSpan.Zero : handling * ahead / staffed;
+    }
+
+    /// <summary>
+    /// Takes a caller out of the queue but keeps their place: the service rings them back when their
+    /// turn comes and an agent is free. The caller's line is theirs to hang up once this returns.
+    /// </summary>
+    /// <param name="entry">The waiting caller, as handed to <c>CallQueued</c>.</param>
+    /// <param name="destination">Where to ring; defaults to the caller's own address.</param>
+    /// <param name="notBefore">Earliest time to ring, for a caller who asked for later.</param>
+    public CallbackRequest RequestCallback(QueuedCall entry, string? destination = null, DateTimeOffset? notBefore = null)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        var request = new CallbackRequest
+        {
+            Id = Guid.NewGuid().ToString("N")[..8],
+            QueueName = entry.QueueName,
+            Destination = destination ?? entry.Call.RemoteUri,
+            Priority = entry.Priority,
+            NotBefore = notBefore ?? DateTimeOffset.UtcNow,
+            AlreadyWaited = entry.Waiting,
+            Context = entry.Context,
+        };
+
+        var list = _callbacks.GetOrAdd(entry.QueueName, _ => []);
+        lock (_gate)
+        {
+            list.Add(request);
+        }
+
+        entry.Callback = request;
+        StartCallbackPump();
+        CallbackScheduled?.Invoke(this, request);
+        _logger.LogInformation("Caller {Caller} asked for a callback on {Destination} in queue {Queue}", entry.Call.RemoteUri, request.Destination, entry.QueueName);
+        return request;
+    }
+
+    /// <summary>Drops a callback that is no longer wanted.</summary>
+    /// <param name="id">Identifier from <see cref="RequestCallback"/>.</param>
+    public bool CancelCallback(string id)
+    {
+        lock (_gate)
+        {
+            foreach (var request in _callbacks.Values.SelectMany(list => list))
+            {
+                if (request.Id == id && request.IsPending)
+                {
+                    request.Outcome = CallbackOutcome.Cancelled;
+                    CallbackCompleted?.Invoke(this, request);
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Puts a caller in a queue and waits until an agent answers, the caller gives up, or the
@@ -148,6 +261,12 @@ public sealed class CallCenterService(VoipClient client, ITextToSpeech? textToSp
 
         while (!cancellationToken.IsCancellationRequested)
         {
+            if (entry.Callback is not null)
+            {
+                // The caller keeps their place and hangs up; the pump rings them back.
+                return new QueueResult(QueueOutcome.CallbackScheduled, null, entry.Waiting);
+            }
+
             if (!entry.Call.IsActive)
             {
                 return new QueueResult(QueueOutcome.Abandoned, null, entry.Waiting);
@@ -195,6 +314,143 @@ public sealed class CallCenterService(VoipClient client, ITextToSpeech? textToSp
         }
 
         return new QueueResult(QueueOutcome.Cancelled, null, entry.Waiting);
+    }
+
+    /// <summary>Starts the loop that rings callers back, once there is something to ring.</summary>
+    private void StartCallbackPump()
+    {
+        if (_callbackPump is not null || _disposed)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            _callbackPump ??= Task.Run(() => PumpCallbacksAsync(_shutdown.Token));
+        }
+    }
+
+    private async Task PumpCallbacksAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+                foreach (var (queueName, options) in _queues.ToArray())
+                {
+                    var due = NextCallback(queueName);
+                    if (due is null)
+                    {
+                        continue;
+                    }
+
+                    var agent = TryReserveAgent(options);
+                    if (agent is null)
+                    {
+                        continue;
+                    }
+
+                    await MakeCallbackAsync(due, agent, options, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex) when (ex is VoipException or InvalidOperationException)
+            {
+                _logger.LogWarning(ex, "A callback attempt failed; the caller stays in the list");
+            }
+        }
+    }
+
+    /// <summary>
+    /// The callback to make next, if any. A callback waits its turn: it only goes ahead of a caller
+    /// still holding the line when it has been waiting longer than that caller.
+    /// </summary>
+    private CallbackRequest? NextCallback(string queueName)
+    {
+        var pending = PendingCallbacks(queueName)
+            .Where(c => c.NotBefore <= DateTimeOffset.UtcNow)
+            .Where(c => c.LastAttempt is null || DateTimeOffset.UtcNow - c.LastAttempt > _queues[queueName].Callbacks.RetryAfter)
+            .ToArray();
+        if (pending.Length == 0)
+        {
+            return null;
+        }
+
+        var candidate = pending[0];
+        var waited = candidate.AlreadyWaited + (DateTimeOffset.UtcNow - candidate.RequestedAt);
+        var longestLiveWait = Waiting(queueName).Select(w => w.Waiting).DefaultIfEmpty(TimeSpan.Zero).Max();
+        return waited >= longestLiveWait ? candidate : null;
+    }
+
+    private async Task MakeCallbackAsync(CallbackRequest request, Agent agent, CallQueueOptions options, CancellationToken cancellationToken)
+    {
+        request.Attempts++;
+        request.LastAttempt = DateTimeOffset.UtcNow;
+        AgentStateChanged?.Invoke(this, agent);
+        _logger.LogInformation("Calling {Destination} back for queue {Queue} (attempt {Attempt})", request.Destination, request.QueueName, request.Attempts);
+
+        VoipCall? call = null;
+        try
+        {
+            using var ring = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            ring.CancelAfter(options.Callbacks.RingTimeout);
+            call = await client.CallAsync(request.Destination, ring.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or VoipException)
+        {
+            call?.Hangup();
+            SetAgentState(agent.Id, AgentState.Available);
+            if (request.Attempts >= options.Callbacks.MaxAttempts)
+            {
+                request.Outcome = CallbackOutcome.NoAnswer;
+                CallbackCompleted?.Invoke(this, request);
+                _logger.LogInformation("Gave up calling {Destination} back after {Attempts} attempts", request.Destination, request.Attempts);
+            }
+
+            return;
+        }
+
+        // The caller picked up: say why they are being rung before an agent joins.
+        if (textToSpeech is not null && options.Callbacks.Announcement is { Length: > 0 } announcement)
+        {
+            try
+            {
+                await textToSpeech.SpeakAsync(call, announcement, null, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is VoipException or HttpRequestException)
+            {
+                _logger.LogWarning(ex, "Could not play the callback announcement");
+            }
+        }
+
+        var entry = new QueuedCall
+        {
+            Call = call,
+            QueueName = request.QueueName,
+            Priority = request.Priority,
+            Context = request.Context,
+        };
+
+        Metrics.RecordOffered(request.QueueName);
+        if (await OfferAsync(entry, agent, options, cancellationToken).ConfigureAwait(false))
+        {
+            request.Outcome = CallbackOutcome.Connected;
+            Metrics.RecordOutcome(request.QueueName, new QueueResult(QueueOutcome.Answered, agent, request.AlreadyWaited), options.ServiceLevelTarget);
+        }
+        else
+        {
+            request.Outcome = CallbackOutcome.AgentLost;
+            if (call.IsActive)
+            {
+                call.Hangup();
+            }
+        }
+
+        CallbackCompleted?.Invoke(this, request);
     }
 
     private Agent? TryReserveAgent(CallQueueOptions options)
@@ -372,12 +628,19 @@ public sealed class CallCenterService(VoipClient client, ITextToSpeech? textToSp
         }
 
         _disposed = true;
+        _shutdown.Cancel();
+        foreach (var request in _callbacks.Values.SelectMany(list => list).Where(c => c.IsPending))
+        {
+            request.Outcome = CallbackOutcome.Cancelled;
+        }
+
         foreach (var bridge in _bridges.Values)
         {
             bridge.Dispose();
         }
 
         _bridges.Clear();
+        _shutdown.Dispose();
         return ValueTask.CompletedTask;
     }
 }

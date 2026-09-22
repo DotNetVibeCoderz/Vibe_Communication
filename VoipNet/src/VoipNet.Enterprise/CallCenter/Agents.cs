@@ -117,6 +117,9 @@ public sealed class CallQueueOptions
 
     /// <summary>A 16-bit WAV file played on loop while callers wait.</summary>
     public string? MusicOnHoldFile { get; init; }
+
+    /// <summary>How callbacks are made for this queue.</summary>
+    public CallbackOptions Callbacks { get; init; } = new();
 }
 
 /// <summary>A caller waiting in a queue.</summary>
@@ -142,6 +145,9 @@ public sealed class QueuedCall
 
     /// <summary>Anything the IVR collected, carried to the agent's screen.</summary>
     public IReadOnlyDictionary<string, string> Context { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>The callback this caller asked for, once they have.</summary>
+    public CallbackRequest? Callback { get; internal set; }
 }
 
 /// <summary>How a queued call ended.</summary>
@@ -158,6 +164,9 @@ public enum QueueOutcome
 
     /// <summary>The queue was shut down.</summary>
     Cancelled,
+
+    /// <summary>The caller asked to be called back and hung up, keeping their place.</summary>
+    CallbackScheduled,
 }
 
 /// <summary>Result of waiting in a queue.</summary>
