@@ -63,6 +63,11 @@ await client.StartAsync();
 var call = await client.CallAsync("1002");   // ekstensi → sip:1002@pbx.contoh.co.id
 ```
 
+Domain tanpa port diselesaikan sesuai RFC 3263: NAPTR untuk memilih transport, SRV untuk host dan port
+di balik domain (dicoba sesuai urutan record), lalu A/AAAA. Itu sudah cukup untuk sebagian besar
+provider — tidak perlu menyalin host dan port dari halaman dokumentasi mereka. Tambahkan port, atau
+setel `DnsSrv = false`, bila ingin langsung memakai pencarian alamat biasa.
+
 Di balik NAT, client mempelajari alamat publiknya dari `received`/`rport` dan melakukan registrasi ulang otomatis. Isi `StunServer` untuk media, `PublicAddress` untuk NAT statis, atau `OutboundProxy` bila provider mewajibkannya.
 
 ## 4. Bicara lewat mikrofon

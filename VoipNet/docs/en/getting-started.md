@@ -63,6 +63,11 @@ await client.StartAsync();
 var call = await client.CallAsync("1002");   // extension → sip:1002@pbx.example.com
 ```
 
+A domain without a port is resolved the way RFC 3263 says: NAPTR to pick the transport, SRV for the
+hosts and ports behind the domain (tried in the order the records ask for), then A/AAAA. That is all
+most providers need — no host and port to copy from a support page. Add a port, or set `DnsSrv = false`,
+to go straight to the address lookup instead.
+
 Behind NAT, the client learns its public address from `received`/`rport` and re-registers automatically. Set `StunServer` for media, `PublicAddress` for static NAT, or `OutboundProxy` when your provider requires one.
 
 ## 4. Talk through your microphone

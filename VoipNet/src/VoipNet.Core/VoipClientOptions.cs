@@ -119,6 +119,13 @@ public sealed class VoipClientOptions
     /// <summary>Audio codecs to offer, in preference order. Supported natively: opus (48 kHz, in-band FEC), G722, PCMU, PCMA, L16.</summary>
     public IList<string> AudioCodecs { get; set; } = ["opus", "G722", "PCMU", "PCMA"];
 
+    /// <summary>Look SIP hosts up with NAPTR and SRV records (RFC 3263) when the address carries no port.
+    /// Falls back to a plain address lookup for hosts that publish only an A record.</summary>
+    public bool DnsSrv { get; set; } = true;
+
+    /// <summary>Resolvers to ask, as <c>host[:port]</c>. Empty uses the ones this machine is configured with.</summary>
+    public IList<string> DnsServers { get; set; } = [];
+
     /// <summary>Send provisional responses reliably (RFC 3262) to callers that support it. Callers that
     /// require it always get them reliably.</summary>
     public bool ReliableProvisional { get; set; } = true;

@@ -43,3 +43,6 @@ harness = false
 default = ["opus", "audio-processing"]
 # Echo cancellation, noise suppression and gain control (WebRTC APM port).
 audio-processing = ["dep:sonora"]
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }

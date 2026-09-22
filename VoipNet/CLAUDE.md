@@ -33,6 +33,7 @@ dotnet run --project tests/VoipNet.Tests -- -class VoipNet.Tests.EnterpriseTests
 ## Architecture (big picture)
 
 **Native engine** (`native/voipnet-core/src`):
+- `sip/dns.rs`: a small DNS client (queries, name compression, NAPTR/SRV/A) plus RFC 3263 resolution with a 60 s cache and a penalty list, so a server that stops answering goes last. `endpoint.rs` uses it from `resolve_addresses`; an explicit port or a numeric host skips it.
 - `sip/endpoint.rs` is the user agent: transactions keyed by `branch|METHOD`, dialogs, digest auth, registration refresh, re-INVITE hold, REFER/NOTIFY, a 50 ms timer thread. State is behind one mutex; events go through an mpsc channel to a dispatcher thread, so callbacks never run while the state lock is held. Keep that invariant (callbacks into .NET may re-enter the engine).
 - `media/session.rs`: per call a UDP socket plus receive and playout threads. Outbound audio is queued and paced one frame per ptime; `send_audio` resamples to the codec rate. Sink callbacks must also be invoked outside rx/tx locks.
 - `sip/transport.rs`: UDP plus one stream model for TCP/TLS/WS/WSS (a `Conn` = TCP or rustls byte stream, optionally WebSocket-framed, one reader thread each; the rustls lock is never held across a blocking read). `sip/tls.rs` builds rustls configs (ring provider, Mozilla roots, CA file, SHA-256 pinning). A send failure on a stream transport marks the client transaction `transport_failed` → 503 on the next timer tick.

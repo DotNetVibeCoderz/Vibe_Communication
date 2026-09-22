@@ -21,6 +21,7 @@
 | `RegisterExpires` | `600` | Requested lifetime; refreshed at 85%. |
 | `UserAgent` | `Voip.NET/1.0 (Gravicode Studios)` | User-Agent / Server header. |
 | `AudioCodecs` | `opus, G722, PCMU, PCMA` | Preference order. Native: opus, G722, PCMU, PCMA, L16. |
+| `DnsSrv`, `DnsServers` | `true`, — | Resolve SIP hosts through NAPTR/SRV (RFC 3263); `DnsServers` overrides the machine's resolvers. |
 | `SessionExpires`, `MinSessionExpires` | `1800`, `90` | Session timer (RFC 4028) in seconds; `0` leaves it out. The refresher re-INVITEs halfway through, and an unrefreshed call is hung up. |
 | `ReliableProvisional` | `true` | Answer callers that support 100rel with reliable provisionals (RFC 3262); callers that require it always get them. |
 | `Video`, `VideoCodecs` | `false`, `H264, VP8` | Offer an `m=video` stream next to audio; the application encodes the frames. |

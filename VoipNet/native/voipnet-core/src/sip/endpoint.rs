@@ -19,6 +19,7 @@ use super::uri::{NameAddr, SipUri};
 use crate::codec::CodecKind;
 use crate::media::conference::Conference;
 use crate::media::dtls::{DtlsIdentity, DtlsRole};
+use super::dns::{DnsTransport, Resolver};
 use crate::media::{AudioDirection, DtmfMode, DtmfSource, MediaConfig, MediaSession, MediaSink, MediaStats, NegotiatedMedia};
 use crate::net;
 use crate::sdp::{negotiate, CryptoAttr, Direction, MediaDescription, RtpMap, SessionDescription};
@@ -79,6 +80,10 @@ pub struct EndpointConfig {
     pub register_on_start: bool,
     pub register_expires: u32,
     pub user_agent: String,
+    /// Look SIP hosts up with NAPTR and SRV (RFC 3263) when the address has no port of its own.
+    pub dns_srv: bool,
+    /// Resolvers to ask, as `host[:port]`. Empty uses the ones this machine is configured with.
+    pub dns_servers: Vec<String>,
     /// Send provisional responses reliably (RFC 3262) to callers that support it. Callers that
     /// require it are always answered reliably.
     pub reliable_provisional: bool,
@@ -145,6 +150,8 @@ impl Default for EndpointConfig {
             register_on_start: false,
             register_expires: 600,
             user_agent: format!("Voip.NET/{}", env!("CARGO_PKG_VERSION")),
+            dns_srv: true,
+            dns_servers: Vec::new(),
             reliable_provisional: true,
             session_expires: 1800,
             min_session_expires: 90,
@@ -433,6 +440,7 @@ struct Inner {
     threads: Mutex<Vec<JoinHandle<()>>>,
     media_cfg: MediaConfig,
     conferences: Mutex<HashMap<u64, Arc<Conference>>>,
+    resolver: Resolver,
     supported_audio: Vec<RtpMap>,
     supported_video: Vec<RtpMap>,
 }
@@ -538,6 +546,7 @@ impl Endpoint {
 
         let (tx, rx) = mpsc::channel::<Dispatch>();
         let sink = Arc::new(SinkAdapter { handler: handler.clone(), tx: Mutex::new(tx.clone()) });
+        let resolver = Resolver::new(cfg.dns_servers.iter().filter_map(|s| resolve_hostport(s, 53)).collect());
         let inner = Arc::new(Inner {
             cfg,
             transport: transport.clone(),
@@ -550,6 +559,7 @@ impl Endpoint {
             threads: Mutex::new(Vec::new()),
             media_cfg,
             conferences: Mutex::new(HashMap::new()),
+            resolver,
             supported_audio,
             supported_video,
         });
@@ -964,16 +974,42 @@ impl Inner {
     fn resolve_host(&self, s: &str) -> Option<SocketAddr> {
         let s = s.trim().trim_start_matches("sips:").trim_start_matches("sip:");
         let (host, port) = super::uri::split_host_port(s)?;
-        let addr = net::resolve(&host, port.unwrap_or(self.cfg.transport.default_port()))?;
+        let addr = self.resolve_addresses(&host, port, false).into_iter().next()?;
         self.transport.note_server_name(addr, &host);
         Some(addr)
     }
 
     fn resolve_uri(&self, uri: &SipUri) -> Option<SocketAddr> {
-        let port = uri.port.unwrap_or(if uri.secure { 5061 } else { self.cfg.transport.default_port() });
-        let addr = net::resolve(&uri.host, port)?;
+        let addr = self.resolve_addresses(&uri.host, uri.port, uri.secure).into_iter().next()?;
         self.transport.note_server_name(addr, &uri.host);
         Some(addr)
+    }
+
+    /// The DNS service that matches the configured transport.
+    fn dns_transport(&self, secure: bool) -> DnsTransport {
+        match self.cfg.transport {
+            TransportKind::Udp => DnsTransport::Udp,
+            TransportKind::Tcp => DnsTransport::Tcp,
+            TransportKind::Tls => DnsTransport::Tls,
+            TransportKind::Ws => DnsTransport::Ws,
+            TransportKind::Wss => DnsTransport::Wss,
+        }
+        .max_secure(secure)
+    }
+
+    /// SIP server resolution (RFC 3263), best first, with the plain address lookup as a fallback for
+    /// hosts that publish nothing but an A record.
+    fn resolve_addresses(&self, host: &str, port: Option<u16>, secure: bool) -> Vec<SocketAddr> {
+        let mut addresses = if self.cfg.dns_srv {
+            self.resolver.resolve(host, port, self.dns_transport(secure))
+        } else {
+            Vec::new()
+        };
+        if addresses.is_empty() {
+            let fallback = port.unwrap_or(if secure { 5061 } else { self.cfg.transport.default_port() });
+            addresses = net::resolve(host, fallback).into_iter().collect();
+        }
+        addresses
     }
 
     fn destination_for(&self, uri: &SipUri, routes: &[String]) -> Option<SocketAddr> {
@@ -2814,11 +2850,11 @@ impl Inner {
                     return now.duration_since(done) < TX_TIMEOUT;
                 }
                 if tx.transport_failed {
-                    timed_out.push((503, "transport error", tx.purpose.clone()));
+                    timed_out.push((503, "transport error", tx.purpose.clone(), tx.dest));
                     return false;
                 }
                 if now.duration_since(tx.started) >= TX_TIMEOUT {
-                    timed_out.push((408, "request timeout", tx.purpose.clone()));
+                    timed_out.push((408, "request timeout", tx.purpose.clone(), tx.dest));
                     return false;
                 }
                 let is_invite = tx.request.method() == Some(&Method::Invite);
@@ -2829,8 +2865,10 @@ impl Inner {
                 }
                 true
             });
-            for (code, reason, purpose) in timed_out {
+            for (code, reason, purpose, dest) in timed_out {
                 let title = if code == 408 { "Request Timeout" } else { "Service Unavailable" };
+                // The server we picked is not answering; the next lookup prefers another one.
+                self.resolver.penalize(dest);
                 match purpose {
                     Purpose::Invite(id) => self.terminate(st, id, code, reason, &mut events, &mut stop),
                     Purpose::Register => {
@@ -3318,6 +3356,48 @@ m=audio {} RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n",
         );
         a.hangup(a_call).unwrap();
         ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("terminated");
+    }
+
+    #[test]
+    fn registration_follows_srv_records() {
+        // A registrar on a port nobody could guess, published only through SRV.
+        let registrar = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let registrar_port = registrar.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            if let Ok((n, from)) = registrar.recv_from(&mut buf) {
+                let (req, _) = SipMessage::parse(&buf[..n]).unwrap();
+                let mut resp = SipMessage::response(200, None);
+                for h in ["Via", "From", "To", "Call-ID", "CSeq", "Contact"] {
+                    if let Some(v) = req.header(h) {
+                        resp.add_header(h, v);
+                    }
+                }
+                let _ = registrar.send_to(&resp.to_bytes(), from);
+            }
+        });
+        let dns = crate::sip::dns::testing::start_server(vec![
+            (
+                "_sip._udp.provider.test".into(),
+                crate::sip::dns::TYPE_SRV,
+                crate::sip::dns::testing::srv_rdata(10, 10, registrar_port, "sip1.provider.test"),
+            ),
+            ("sip1.provider.test".into(), crate::sip::dns::TYPE_A, vec![127, 0, 0, 1]),
+        ]);
+
+        let rec = Arc::new(Recorder::default());
+        let ep = Endpoint::start(
+            EndpointConfig {
+                domain: "provider.test".into(),
+                dns_servers: vec![format!("127.0.0.1:{dns}")],
+                ..cfg("dave")
+            },
+            rec.clone(),
+        )
+        .unwrap();
+        ep.register().unwrap();
+        let ev = rec.wait_for(5000, |e| matches!(e, Event::RegistrationChanged { .. })).expect("registration result");
+        assert!(matches!(ev, Event::RegistrationChanged { state: "registered", code: 200, .. }), "{ev:?}");
     }
 
     #[test]
