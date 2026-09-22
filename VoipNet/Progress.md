@@ -11,7 +11,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | Suite | Result · Hasil |
 | --- | --- |
 | Rust engine `cargo test --lib` | **103 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
-| .NET `tests/VoipNet.Tests` | **44 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
+| .NET `tests/VoipNet.Tests` | **45 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
 | `dotnet build Voip.Net.slnx -c Release` | 14 projects · proyek, **0 warnings, 0 errors** |
 | Benchmarks · Benchmark | `cargo bench --bench media` on a laptop (20 ms frame): opus encode 550 µs · decode 127 µs, G.722 encode 16 µs · decode 13 µs, G.711 encode 150 ns, SRTP protect 2.6 µs, conference mix-minus 3.7 µs at 50 participants; run in CI to catch breakage · dijalankan di CI |
 | CLI end-to-end · ujung ke ujung | `sip listen --echo` ↔ `sip call --dtmf 123 --pcap`: MOS 4.38, all DTMF received · semua DTMF diterima |
@@ -26,6 +26,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | --- | --- | --- |
 | Rust SIP/RTP engine | ✅ | `native/voipnet-core` |
 | .NET bindings, async/await, DI | ✅ | `LibraryImport`, unmanaged callbacks, `AddVoipClient`, hosted service |
+| Metrics and tracing | ✅ | meter `VoipNet` (calls, duration, MOS, loss) and activity source `VoipNet` (a span per call, child spans per agent turn), both exportable with OpenTelemetry · meter dan activity source `VoipNet`, siap diekspor lewat OpenTelemetry |
 | Cross-platform runtime | 🟡 | Windows x64 built & tested locally; CI builds win/linux/osx x64+arm64 and runs tests on Windows, Linux, macOS · CI membangun dan menguji lintas platform |
 | NuGet distribution | 🟡 | CI in Vibe_Communication builds 6 runtimes, packs and publishes on `voipnet-v*` tags · CI membangun 6 runtime, membuat paket, dan publish pada tag `voipnet-v*` |
 
@@ -138,6 +139,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 
 ### Unreleased · Belum dirilis
 
+- OpenTelemetry tracing: every call is a span carrying its direction, codec and final quality, agent turns are child spans, and an outbound call continues the activity that placed it. · Tracing OpenTelemetry: setiap panggilan menjadi span dengan arah, codec, dan kualitas akhir; giliran agen menjadi span anak.
 - The echo canceller is told the audio device's round trip (`StreamDelayMs`, `VoipCall.SetAudioDelay`, measured automatically by `CallAudioBridge`), so it lines the two signals up from the first frame. · Pembatal gema kini diberi tahu latensi perangkat audio sehingga penyelarasan tepat sejak awal.
 - DNS SRV/NAPTR resolution (RFC 3263): a domain alone is enough to reach a provider, servers are tried in the order its records ask for, and one that stops answering is skipped for a minute. · Resolusi DNS SRV/NAPTR: cukup nama domain untuk menghubungi provider, server dicoba sesuai urutan record, dan yang tidak menjawab dilewati sementara.
 - SIP session timers (RFC 4028) and reliable provisional responses with PRACK (RFC 3262): calls are refreshed by re-INVITE and hung up when nobody refreshes them, and a 180 is resent until the caller acknowledges it. · Session timer SIP dan respons provisional reliable dengan PRACK: panggilan diperbarui lewat re-INVITE dan ditutup bila tidak ada yang memperbaruinya.

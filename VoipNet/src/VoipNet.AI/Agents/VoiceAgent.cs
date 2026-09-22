@@ -239,6 +239,10 @@ public sealed class VoiceAgent : IAsyncDisposable
         var chatOptions = CloneOptions();
         var answer = new StringBuilder();
         var sentence = new StringBuilder();
+        // One span per turn, under the call's span, so a slow answer is visible next to the call it
+        // belongs to (see VoipTelemetry).
+        using var turn = VoipNet.Diagnostics.VoipTelemetry.StartAgentTurn(_call, chatOptions?.ModelId);
+        turn?.SetTag("voip.caller_text_length", userText.Length);
 
         try
         {
@@ -268,17 +272,21 @@ public sealed class VoiceAgent : IAsyncDisposable
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // Interrupted: keep what was already generated so the model knows where it stopped.
+            turn?.AddEvent(new System.Diagnostics.ActivityEvent("caller interrupted"));
             RecordAnswer(answer.ToString().Trim() is { Length: > 0 } partial ? partial + " …" : string.Empty);
             throw;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             _logger.LogError(ex, "The model call failed");
+            turn?.SetStatus(System.Diagnostics.ActivityStatusCode.Error, ex.Message);
             await SpeakAsync("Maaf, sistem sedang bermasalah. Mohon tunggu sebentar.", cancellationToken).ConfigureAwait(false);
             return;
         }
 
-        RecordAnswer(answer.ToString().Trim());
+        var reply = answer.ToString().Trim();
+        turn?.SetTag("voip.reply_length", reply.Length);
+        RecordAnswer(reply);
     }
 
     private void RecordAnswer(string reply)

@@ -636,6 +636,8 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
             var direction = new KeyValuePair<string, object?>("direction", call.IsOutgoing ? "outbound" : "inbound");
             Diagnostics.VoipMetrics.CallsStarted.Add(1, direction);
             Diagnostics.VoipMetrics.ActiveCalls.Add(1);
+            // An outbound call starts on the caller's thread, so its span continues whatever placed it.
+            call.Activity = Diagnostics.VoipTelemetry.StartCall(call);
         }
     }
 
@@ -650,6 +652,8 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
         if (call.ConnectedAt is null)
         {
             Diagnostics.VoipMetrics.CallsFailed.Add(1, new KeyValuePair<string, object?>("code", call.LastStatusCode));
+            Diagnostics.VoipTelemetry.EndCall(call, call.Activity);
+            call.Activity = null;
             return;
         }
 
@@ -669,6 +673,9 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
         {
             // The call had no media (for example it was rejected after answering).
         }
+
+        Diagnostics.VoipTelemetry.EndCall(call, call.Activity);
+        call.Activity = null;
     }
 
     private static string GetString(JsonElement root, string name) =>

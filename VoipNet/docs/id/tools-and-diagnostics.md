@@ -83,6 +83,23 @@ dotnet-counters monitor --counters VoipNet -n VoipNet.CallCenter
 
 Atau ekspor dengan OpenTelemetry: `builder.Services.AddOpenTelemetry().WithMetrics(m => m.AddMeter("VoipNet"))`.
 
+### Tracing
+
+Activity source `VoipNet`. Setiap panggilan menjadi satu span (`sip.call`) yang dibuka saat panggilan
+dimulai atau masuk dan ditutup saat panggilan berakhir, dengan tag arah, URI lawan, status code
+terakhir, codec, serta kualitas akhir panggilan (`voip.mos`, `voip.loss_percent`, `voip.jitter_ms`).
+Panggilan keluar melanjutkan activity yang memulainya, sehingga panggilan muncul di bawah request yang
+memicunya. Voice agent menambah span anak per giliran (`voip.agent.turn`) berisi model dan event ketika
+penelepon menyela.
+
+```csharp
+builder.Services.AddOpenTelemetry()
+    .WithTracing(t => t.AddSource(VoipTelemetry.ActivitySourceName).AddOtlpExporter())
+    .WithMetrics(m => m.AddMeter(VoipMetrics.MeterName));
+```
+
+Tidak ada yang direkam selama tidak ada listener; `VoipTelemetry.Enabled` menunjukkan statusnya.
+
 ### Logging
 
 Berikan `ILogger<VoipClient>`; event log engine (deteksi NAT, kegagalan kirim, error media) diteruskan dengan level yang sesuai.

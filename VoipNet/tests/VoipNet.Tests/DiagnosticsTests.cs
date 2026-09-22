@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Net;
 using VoipNet.Diagnostics;
@@ -59,6 +60,56 @@ public sealed class DiagnosticsTests
     }
 
     [Fact]
+    public async Task CallsAndAgentTurnsAreTraced()
+    {
+        var finished = new List<Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == VoipTelemetry.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity =>
+            {
+                lock (finished)
+                {
+                    finished.Add(activity);
+                }
+            },
+        };
+        ActivitySource.AddActivityListener(listener);
+        Assert.True(VoipTelemetry.Enabled);
+
+        await using var pair = await LoopbackPair.ConnectAsync("tracer", "traced");
+        pair.CallerLeg.SendAudio(TestHelpers.Tone(16000, 400), 16000);
+        await TestHelpers.ReceivedAudioAsync(pair.CalleeLeg, 300);
+        await pair.CallerLeg.HangupAsync();
+
+        var outbound = await TestHelpers.WaitAsync(
+            () =>
+            {
+                lock (finished)
+                {
+                    return finished.FirstOrDefault(a =>
+                        a.OperationName == VoipTelemetry.CallSpan && (string?)a.GetTagItem("sip.direction") == "outbound");
+                }
+            },
+            TimeSpan.FromSeconds(10),
+            "outbound call span");
+
+        Assert.Equal(ActivityKind.Client, outbound.Kind);
+        Assert.Equal(ActivityStatusCode.Ok, outbound.Status);
+        Assert.Equal("opus", outbound.GetTagItem("voip.codec"));
+        Assert.NotNull(outbound.GetTagItem("voip.mos"));
+        Assert.True(outbound.Duration > TimeSpan.Zero);
+
+        lock (finished)
+        {
+            var inbound = finished.FirstOrDefault(a => (string?)a.GetTagItem("sip.direction") == "inbound");
+            Assert.NotNull(inbound);
+            Assert.Equal(ActivityKind.Server, inbound.Kind);
+        }
+    }
+
+    [Fact]
     public async Task SipTraceIsCapturedAndFinalStatisticsSurviveHangup()
     {
         var path = Path.Combine(Path.GetTempPath(), $"voipnet-sip-{Guid.NewGuid():N}.pcap");
@@ -90,9 +141,13 @@ public sealed class DiagnosticsTests
             capture.Attach(caller);
             var call = await caller.CallAsync($"sip:peer@{callee.LocalAddress}");
             call.SendAudio(TestHelpers.Tone(16000, 400), 16000);
-            await Task.Delay(700);
+            // Audio is paced one frame per packet time, so wait for the packets instead of the clock.
+            await TestHelpers.WaitAsync(
+                () => call.GetStatistics().PacketsSent > 10 ? "sent" : null,
+                TimeSpan.FromSeconds(10),
+                "outbound RTP");
             await call.HangupAsync();
-            await Task.Delay(200);
+            await TestHelpers.WaitAsync(() => call.FinalStatistics, TimeSpan.FromSeconds(5), "final statistics");
 
             Assert.NotNull(call.FinalStatistics);
             Assert.True(call.FinalStatistics.PacketsSent > 10);

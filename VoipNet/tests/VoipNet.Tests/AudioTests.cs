@@ -79,8 +79,9 @@ public sealed class AudioTests
 
         pair.CallerLeg.SendAudio(TestHelpers.Tone(16000, 800), 16000);
         pair.CalleeLeg.SendAudio(TestHelpers.Tone(16000, 800, 880), 16000);
-        await Task.Delay(1400);
+        var heard = await TestHelpers.ReceivedAudioAsync(pair.CalleeLeg, 700);
         recorder.Dispose();
+        Assert.True(heard >= 700, $"only {heard} ms of audio arrived");
 
         var (samples, rate, channels) = WavReader.Read(recorder.Path);
         File.Delete(recorder.Path);
@@ -101,8 +102,9 @@ public sealed class AudioTests
         var path = Path.Combine(Path.GetTempPath(), $"voipnet-rec-{Guid.NewGuid():N}.mp3");
         var recorder = CallRecorder.Start(pair.CalleeLeg, path, RecordingFormat.Mp3, RecordingLayout.Mono);
         pair.CallerLeg.SendAudio(TestHelpers.Tone(16000, 600), 16000);
-        await Task.Delay(1000);
+        var heard = await TestHelpers.ReceivedAudioAsync(pair.CalleeLeg, 500);
         recorder.Dispose();
+        Assert.True(heard >= 500, $"only {heard} ms of audio arrived");
 
         Assert.True(File.Exists(recorder.Path));
         Assert.True(new FileInfo(recorder.Path).Length > 1000);

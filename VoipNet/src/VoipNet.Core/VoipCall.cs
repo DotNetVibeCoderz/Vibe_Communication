@@ -84,6 +84,9 @@ public sealed class VoipCall
     /// <summary>0 = not counted, 1 = counted as started, 2 = counted as ended.</summary>
     internal int MetricsStarted;
 
+    /// <summary>The call's tracing span while one is open (see <see cref="Diagnostics.VoipTelemetry"/>).</summary>
+    internal System.Diagnostics.Activity? Activity { get; set; }
+
     /// <summary>Arbitrary per-call state for applications (queue entry, agent, AI session…).</summary>
     public IDictionary<string, object?> Items { get; } = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
 

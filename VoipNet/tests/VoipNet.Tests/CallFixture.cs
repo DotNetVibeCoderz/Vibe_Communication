@@ -27,6 +27,39 @@ public static class TestHelpers
         return samples;
     }
 
+    /// <summary>
+    /// Waits until a call has received at least <paramref name="milliseconds"/> of inbound audio.
+    /// Media is paced one frame per packet time, and a loaded CI machine paces it slower than the wall
+    /// clock, so tests wait for the audio itself instead of sleeping a fixed time.
+    /// </summary>
+    public static async Task<int> ReceivedAudioAsync(VoipCall call, int milliseconds, int timeoutMs = 20000)
+    {
+        var received = 0;
+        void OnAudio(VoipCall _, AudioDirection direction, int sampleRate, ReadOnlySpan<short> samples)
+        {
+            if (direction == AudioDirection.Inbound)
+            {
+                Interlocked.Add(ref received, samples.Length * 1000 / Math.Max(sampleRate, 1));
+            }
+        }
+
+        call.AudioReceived += OnAudio;
+        try
+        {
+            var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            while (Volatile.Read(ref received) < milliseconds && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(20);
+            }
+
+            return Volatile.Read(ref received);
+        }
+        finally
+        {
+            call.AudioReceived -= OnAudio;
+        }
+    }
+
     public static async Task<T> WaitAsync<T>(Func<T?> probe, TimeSpan timeout, string what) where T : class
     {
         var deadline = DateTime.UtcNow + timeout;

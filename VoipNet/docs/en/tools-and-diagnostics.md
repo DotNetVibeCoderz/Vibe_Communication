@@ -83,6 +83,23 @@ dotnet-counters monitor --counters VoipNet -n VoipNet.CallCenter
 
 Or export with OpenTelemetry: `builder.Services.AddOpenTelemetry().WithMetrics(m => m.AddMeter("VoipNet"))`.
 
+### Tracing
+
+Activity source `VoipNet`. Every call is a span (`sip.call`) that opens when the call is placed or
+arrives and closes when it ends, tagged with the direction, the remote URI, the final status code, the
+codec and the quality the call finished with (`voip.mos`, `voip.loss_percent`, `voip.jitter_ms`). An
+outbound call continues whatever activity placed it, so a call appears under the request that caused
+it. Voice agents add a child span per turn (`voip.agent.turn`) with the model and an event when the
+caller interrupts.
+
+```csharp
+builder.Services.AddOpenTelemetry()
+    .WithTracing(t => t.AddSource(VoipTelemetry.ActivitySourceName).AddOtlpExporter())
+    .WithMetrics(m => m.AddMeter(VoipMetrics.MeterName));
+```
+
+Nothing is recorded while no listener is attached; `VoipTelemetry.Enabled` says whether one is.
+
 ### Logging
 
 Pass an `ILogger<VoipClient>`; engine log events (NAT discovery, send failures, media errors) are forwarded at matching levels.
