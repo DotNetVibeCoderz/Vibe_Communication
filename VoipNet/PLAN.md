@@ -52,10 +52,6 @@ Today H.264, VP8 and VP9 are negotiated as pass-through payloads only. This mile
 
 - Benchmarks and nightly live-provider test jobs in CI (the six-runtime build/test/publish matrix already ships in 1.0). · Benchmark dan uji provider langsung terjadwal di CI (matriks enam runtime sudah ada sejak 1.0).
 - Container images for the Realtime Agent and Call Centre samples; Helm chart. · Image container dan Helm chart.
-- OpenTelemetry tracing across SIP dialogs and AI turns. · Tracing OpenTelemetry.
-- Load testing tool (`voipnet load`) for concurrent calls and CPS. · Tool uji beban.
-- DNS SRV/NAPTR resolution (RFC 3263) and failover. · Resolusi DNS SRV/NAPTR.
-- SIP session timers (RFC 4028), PRACK (RFC 3262). · Session timer dan PRACK.
 
 ## Principles · Prinsip
 
