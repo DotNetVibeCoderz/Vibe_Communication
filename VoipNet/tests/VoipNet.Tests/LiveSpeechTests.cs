@@ -27,6 +27,97 @@ public sealed class LiveSpeechTests
         return Pcm.AsSamples(bytes.ToArray()).ToArray();
     }
 
+    /// <summary>
+    /// Every synthesis provider the key file has a key for, as xUnit test data. A provider without a
+    /// key is simply absent, so the suite grows as keys are added rather than failing without them.
+    /// </summary>
+    public static TheoryData<string> SynthesisProviders()
+    {
+        var data = new TheoryData<string>();
+        foreach (var name in new[] { "ElevenLabs", "OpenAI", "Google Cloud", "Azure AI Speech", "Cartesia", "Deepgram", "Amazon Polly" })
+        {
+            if (Synthesizer(name) is not null)
+            {
+                data.Add(name);
+            }
+        }
+
+        // A theory with no data fails the run, so keep one placeholder that skips.
+        if (data.Count == 0)
+        {
+            data.Add("none");
+        }
+
+        return data;
+    }
+
+    /// <summary>Builds a synthesiser for a provider, or null when its key is not in the key file.</summary>
+    private static ITextToSpeech? Synthesizer(string provider) => provider switch
+    {
+        "ElevenLabs" => ElevenLabs() is { } o ? new ElevenLabsTextToSpeech(o) : null,
+        "OpenAI" => TestKeys.Section("OpenAI Speech") is { } s && TestKeys.Value(s, "apikey") is { Length: > 0 } key
+            ? new OpenAiTextToSpeech(new OpenAiSpeechOptions { ApiKey = key })
+            : null,
+        "Google Cloud" => TestKeys.Section("Google Cloud") is { } s && TestKeys.Value(s, "apikey") is { Length: > 0 } key
+            ? new GoogleCloudTextToSpeech(new GoogleCloudSpeechOptions { ApiKey = key })
+            : null,
+        "Azure AI Speech" => TestKeys.Section("Azure Speech") is { } s && TestKeys.Value(s, "apikey") is { Length: > 0 } key
+            ? new AzureTextToSpeech(new AzureSpeechOptions { ApiKey = key, Region = TestKeys.Value(s, "region") ?? "southeastasia" })
+            : null,
+        "Cartesia" => TestKeys.Section("Cartesia") is { } s && TestKeys.Value(s, "apikey") is { Length: > 0 } key
+            ? new CartesiaTextToSpeech(new CartesiaOptions { ApiKey = key, Voice = TestKeys.Value(s, "voice") ?? string.Empty })
+            : null,
+        "Deepgram" => TestKeys.Section("Deepgram") is { } s && TestKeys.Value(s, "apikey") is { Length: > 0 } key
+            ? new DeepgramTextToSpeech(new DeepgramOptions { ApiKey = key })
+            : null,
+        "Amazon Polly" => TestKeys.Section("Amazon") is { } s && TestKeys.Value(s, "accesskey") is { Length: > 0 } id && TestKeys.Value(s, "secret") is { Length: > 0 } secret
+            ? new AmazonPollyTextToSpeech(new AmazonPollyOptions { AccessKeyId = id, SecretAccessKey = secret, Region = TestKeys.Value(s, "region") ?? "ap-southeast-1" })
+            : null,
+        _ => null,
+    };
+
+    /// <summary>Every recogniser with a key, paired with the language to ask for.</summary>
+    private static ISpeechToText? Recognizer(string provider) => provider switch
+    {
+        "ElevenLabs" => ElevenLabs() is { } o ? new ElevenLabsSpeechToText(o) : null,
+        "OpenAI" => TestKeys.Section("OpenAI Speech") is { } s && TestKeys.Value(s, "apikey") is { Length: > 0 } key
+            ? new OpenAiSpeechToText(new OpenAiSpeechOptions { ApiKey = key })
+            : null,
+        "Google Cloud" => TestKeys.Section("Google Cloud") is { } s && TestKeys.Value(s, "apikey") is { Length: > 0 } key
+            ? new GoogleCloudSpeechToText(new GoogleCloudSpeechOptions { ApiKey = key })
+            : null,
+        "Azure AI Speech" => TestKeys.Section("Azure Speech") is { } s && TestKeys.Value(s, "apikey") is { Length: > 0 } key
+            ? new AzureSpeechToText(new AzureSpeechOptions { ApiKey = key, Region = TestKeys.Value(s, "region") ?? "southeastasia" })
+            : null,
+        "Deepgram" => TestKeys.Section("Deepgram") is { } s && TestKeys.Value(s, "apikey") is { Length: > 0 } key
+            ? new DeepgramSpeechToText(new DeepgramOptions { ApiKey = key, Language = "id" })
+            : null,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Speaks a phrase with each provider that has a key and, where the same provider can also listen,
+    /// transcribes it back. This is the opt-in live suite: drop a key in the file and it runs.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(SynthesisProviders))]
+    public async Task EverySpeechProviderWithAKeySpeaksAndListens(string provider)
+    {
+        var tts = Synthesizer(provider);
+        Assert.SkipWhen(tts is null, $"No key for {provider}.");
+
+        const string phrase = "Pesanan Anda sudah dikirim hari ini.";
+        var samples = await SynthesizeAsync(tts!, phrase, 16000);
+        Assert.True(samples.Length > 8000, $"{provider} produced only {samples.Length} samples");
+        Assert.True(samples.Max(s => Math.Abs((int)s)) > 2000, $"{provider} produced silence");
+
+        if (Recognizer(provider) is { } stt)
+        {
+            var text = await stt.TranscribeOnceAsync(Pcm.ToBytes(samples), 16000, new SpeechRecognitionOptions { Language = "id-ID" });
+            Assert.False(string.IsNullOrWhiteSpace(text), $"{provider} transcribed nothing");
+        }
+    }
+
     [Fact]
     public async Task ElevenLabsSpeaksAndTranscribesIndonesian()
     {

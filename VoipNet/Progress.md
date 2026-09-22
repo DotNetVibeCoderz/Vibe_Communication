@@ -105,7 +105,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 | Amazon Polly / Transcribe | ⏳ | ✅ Polly | Transcribe planned · direncanakan |
 | ElBruno.Realtime | ✅ | ✅ | documented WS/HTTP protocol · protokol terdokumentasi |
 
-> Live keys cover Azure OpenAI (chat and realtime), DeepSeek and ElevenLabs. The other speech providers are implemented against their public APIs and covered by the offline pipeline tests, but not exercised against the live services yet. · Kunci langsung tersedia untuk Azure OpenAI (chat dan realtime), DeepSeek, dan ElevenLabs; provider suara lainnya diimplementasikan sesuai API publiknya dan diuji lewat pipeline offline, tetapi belum diuji ke layanan aslinya.
+> Live keys cover Azure OpenAI (chat and realtime), DeepSeek and ElevenLabs. The other speech providers are implemented against their public APIs and covered by the offline protocol tests; `EverySpeechProviderWithAKeySpeaksAndListens` runs the same live round trip (speak a phrase, transcribe it back) for any provider whose key is added to the key file, and skips the rest. · Kunci langsung tersedia untuk Azure OpenAI (chat dan realtime), DeepSeek, dan ElevenLabs; provider suara lainnya diimplementasikan sesuai API publiknya dan diuji lewat test protokol offline; `EverySpeechProviderWithAKeySpeaksAndListens` menjalankan uji langsung (mengucapkan satu kalimat lalu mentranskripsikannya kembali) untuk provider yang kuncinya ditambahkan ke file kunci, dan melewati sisanya.
 
 ## Developer experience
 
@@ -145,6 +145,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 
 ### Unreleased · Belum dirilis
 
+- A live verification suite that runs a speak-and-listen round trip against every speech provider whose key is present, and skips the rest. · Uji langsung untuk setiap provider suara yang kuncinya tersedia.
 - Semantic turn detection: the agent can ask a small model whether the caller has finished speaking instead of trusting silence, joining "my number is…" and what follows into one question. · Deteksi akhir ucapan berbasis model, bukan sekadar jeda.
 - Queue callbacks and estimated wait time: a caller can keep their place and hang up, and the service rings them back when their turn comes and an agent is free (`RequestCallback`, `PendingCallbacks`, `EstimatedWait`). · Callback antrean dan estimasi waktu tunggu.
 - Azure AI Speech (recognition and neural voices), Cartesia and Deepgram Aura (synthesis) join the speech providers, with `AddAzureSpeech` and `AddCartesiaTextToSpeech` for dependency injection. · Azure AI Speech dan Cartesia ditambahkan sebagai provider suara.
