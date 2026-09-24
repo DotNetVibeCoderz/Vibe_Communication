@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -17,7 +17,7 @@ use super::tls::{TlsContext, TlsSettings};
 use super::transport::{Transport, TransportKind};
 use super::uri::{NameAddr, SipUri};
 use crate::codec::CodecKind;
-use crate::media::conference::Conference;
+use crate::media::conference::{Conference, ConferenceLayout};
 use crate::media::dtls::{DtlsIdentity, DtlsRole};
 use super::dns::{DnsTransport, Resolver};
 use crate::media::{AudioDirection, DtmfMode, DtmfSource, MediaConfig, MediaSession, MediaSink, MediaStats, NegotiatedMedia};
@@ -235,6 +235,9 @@ enum Dispatch {
 struct SinkAdapter {
     handler: Arc<dyn EndpointHandler>,
     tx: Mutex<mpsc::Sender<Dispatch>>,
+    /// Set once the endpoint exists, so video can be forwarded between conference participants
+    /// straight from the media thread rather than through the application.
+    inner: Mutex<Weak<Inner>>,
 }
 
 impl MediaSink for SinkAdapter {
@@ -251,6 +254,10 @@ impl MediaSink for SinkAdapter {
         let _ = self.tx.lock().send(Dispatch::Event(Event::MediaEvent { call_id, kind: kind.into(), detail: detail.into() }));
     }
     fn on_video_frame(&self, call_id: u64, timestamp: u32, keyframe: bool, frame: &[u8], content: &str) {
+        if let Some(inner) = self.inner.lock().upgrade() {
+            inner.forward_conference_video(call_id, timestamp, keyframe, frame, content);
+        }
+
         self.handler.on_video_frame(call_id, timestamp, keyframe, frame, content);
     }
 }
@@ -571,7 +578,7 @@ impl Endpoint {
         }
 
         let (tx, rx) = mpsc::channel::<Dispatch>();
-        let sink = Arc::new(SinkAdapter { handler: handler.clone(), tx: Mutex::new(tx.clone()) });
+        let sink = Arc::new(SinkAdapter { handler: handler.clone(), tx: Mutex::new(tx.clone()), inner: Mutex::new(Weak::new()) });
         let resolver = Resolver::new(cfg.dns_servers.iter().filter_map(|s| resolve_hostport(s, 53)).collect());
         let inner = Arc::new(Inner {
             cfg,
@@ -616,6 +623,7 @@ impl Endpoint {
             })
             .map_err(EndpointError::Io)?;
 
+        *inner.sink_adapter().inner.lock() = Arc::downgrade(&inner);
         let weak = Arc::downgrade(&inner);
         transport.start(Arc::new(move |msg, from| {
             if let Some(inner) = weak.upgrade() {
@@ -850,6 +858,19 @@ impl Endpoint {
         Ok(())
     }
 
+    /// Chooses who conference participants see: whoever is speaking, or one pinned call.
+    pub fn conference_set_layout(&self, conference_id: u64, layout: ConferenceLayout) -> Result<()> {
+        let conf = self.inner.conferences.lock().get(&conference_id).cloned().ok_or(EndpointError::NotFound)?;
+        conf.set_layout(layout);
+        Ok(())
+    }
+
+    /// The call whose participant is currently holding the floor.
+    pub fn conference_active_speaker(&self, conference_id: u64) -> Result<Option<u64>> {
+        let conf = self.inner.conferences.lock().get(&conference_id).cloned().ok_or(EndpointError::NotFound)?;
+        Ok(conf.active_speaker())
+    }
+
     pub fn conference_destroy(&self, conference_id: u64) {
         self.inner.conferences.lock().remove(&conference_id);
     }
@@ -926,6 +947,11 @@ fn resolve_hostport(s: &str, default_port: u16) -> Option<SocketAddr> {
 // ---------------------------------------------------------------------------------------------
 
 impl Inner {
+    /// The sink handed to every media session, so the endpoint can be wired into it after construction.
+    fn sink_adapter(&self) -> Arc<SinkAdapter> {
+        self.sink.clone()
+    }
+
     fn emit(&self, e: Event) {
         let _ = self.events.lock().send(Dispatch::Event(e));
     }
@@ -1776,6 +1802,49 @@ impl Inner {
             kind: "video".into(),
             detail: format!("{content} {} {}", n.codec.encoding, n.direction.as_str()),
         }]
+    }
+
+    /// Sends a conference participant's video on to whoever the layout says should see it.
+    ///
+    /// Forwarded, not mixed: the frame goes out on each viewer's own video stream exactly as it came in.
+    fn forward_conference_video(&self, from: u64, timestamp: u32, keyframe: bool, frame: &[u8], content: &str) {
+        // Screen shares are their own stream on their own call; only the camera is routed by layout.
+        if content != "main" {
+            return;
+        }
+
+        let (conference, source_video) = {
+            let st = self.state.lock();
+            let Some(call) = st.calls.get(&from) else { return };
+            let Some(media) = call.media.as_ref() else { return };
+            let Some(conference) = media.conference() else { return };
+            let video = call.videos.iter().find(|v| v.content == "main").and_then(|v| v.session.clone());
+            (conference, video)
+        };
+
+        let (targets, wants_keyframe) = conference.video_targets(from, keyframe);
+        if wants_keyframe {
+            // Somebody just started watching this participant and cannot decode a half picture.
+            if let Some(session) = source_video {
+                session.request_keyframe(false);
+            }
+        }
+
+        if targets.is_empty() {
+            return;
+        }
+
+        let sessions: Vec<Arc<MediaSession>> = {
+            let st = self.state.lock();
+            targets
+                .iter()
+                .filter_map(|id| st.calls.get(id))
+                .filter_map(|call| call.videos.iter().find(|v| v.content == "main").and_then(|v| v.session.clone()))
+                .collect()
+        };
+        for session in sessions {
+            session.send_video_frame(timestamp, frame);
+        }
     }
 
     /// The session behind one of a call's video streams, by what it shows.
@@ -3726,6 +3795,79 @@ m=audio {} RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n",
 
         a.hangup(a_call).unwrap();
         ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("terminated");
+    }
+
+    #[test]
+    fn a_conference_forwards_the_speaker_video_to_everyone_else() {
+        // A host with two guests, all on video: the guests should see whoever is talking.
+        let mut host_cfg = cfg("host");
+        host_cfg.video = true;
+        let host_rec = Arc::new(Recorder::default());
+        let host = Endpoint::start(host_cfg, host_rec.clone()).unwrap();
+
+        let mut guests = Vec::new();
+        for name in ["guest1", "guest2"] {
+            let mut c = cfg(name);
+            c.video = true;
+            let rec = Arc::new(Recorder::default());
+            let endpoint = Endpoint::start(c, rec.clone()).unwrap();
+            guests.push((endpoint, rec, name));
+        }
+
+        let conference = host.conference_create();
+        let mut host_legs = Vec::new();
+        for (endpoint, rec, name) in &guests {
+            let target = format!("sip:{name}@{}", endpoint.local_address());
+            let host_call = host.make_call(&target).unwrap();
+            let Some(Event::IncomingCall { call_id, .. }) = rec.wait_for(4000, |e| matches!(e, Event::IncomingCall { .. })) else {
+                panic!("{name} was not called");
+            };
+            endpoint.answer(call_id).unwrap();
+            host_rec
+                .wait_for(4000, |e| matches!(e, Event::CallState { call_id: id, state: "connected", .. } if *id == host_call))
+                .expect("host connected");
+            rec.wait_for(4000, |e| matches!(e, Event::MediaEvent { kind, detail, .. } if kind == "video" && detail.starts_with("main H264")))
+                .expect("guest video");
+            host.conference_add(conference, host_call).unwrap();
+            host_legs.push(host_call);
+        }
+
+        // The first guest talks, so the host's forwarder should pick their call as the speaker.
+        let tone: Vec<i16> = (0..16000).map(|i| (9000.0 * (i as f64 / 6.0).sin()) as i16).collect();
+        guests[0].0.send_audio(guests[0].0.calls()[0].call_id, &tone, 16000).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while host.conference_active_speaker(conference).ok().flatten() != Some(host_legs[0]) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        assert_eq!(
+            host.conference_active_speaker(conference).unwrap(),
+            Some(host_legs[0]),
+            "the talking guest holds the floor"
+        );
+
+        // Their video is forwarded to the other guest, keyframe first.
+        let mut keyframe = vec![0, 0, 0, 1, 0x67, 0x42, 0xe0, 0x1f];
+        keyframe.extend_from_slice(&[0, 0, 0, 1, 0x65]);
+        keyframe.extend((0..1200).map(|i| (i % 251) as u8 | 1));
+        let mut seen = Vec::new();
+        for i in 0..20u32 {
+            let call = guests[0].0.calls()[0].call_id;
+            guests[0].0.send_video_frame(call, 90_000 + i * 3000, &keyframe, "main").unwrap();
+            guests[0].0.send_audio(call, &tone, 16000).unwrap();
+            seen = guests[1].1.wait_video(1, 250);
+            if !seen.is_empty() {
+                break;
+            }
+        }
+
+        let (_, _, data, content) = seen.first().expect("the other guest sees the speaker").clone();
+        assert_eq!(content, "main");
+        assert_eq!(data, keyframe);
+
+        for leg in host_legs {
+            let _ = host.hangup(leg);
+        }
     }
 
     #[test]

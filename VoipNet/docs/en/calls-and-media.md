@@ -164,6 +164,22 @@ conference.Add(supervisor); supervisor.SetHold(true);   // listen-only: the brid
 
 Mixing happens at 16 kHz inside the engine, per participant (mix-minus), with saturation.
 
+Video in a conference is forwarded, not mixed — mixing would mean decoding and re-encoding every
+stream, which needs codecs this engine does not carry. Each participant therefore sees one other
+participant at a time:
+
+```csharp
+conference.FollowSpeaker();                    // the default: everyone sees whoever is talking
+conference.Pin(conference.Participants[0]);    // or everyone sees one participant
+Console.WriteLine(conference.ActiveSpeaker?.RemoteUri);
+```
+
+The speaker is chosen from the audio the bridge already mixes: the loudest participant takes the floor,
+keeps it for a moment after they stop, and only loses it to somebody clearly louder — so the picture
+does not flick between two people talking over each other. When the source changes, the bridge asks the
+new speaker for a keyframe and holds the switch back until it arrives, because a decoder cannot start
+mid-picture. A grid view needs one stream per participant and is not offered.
+
 ## Recording
 
 ```csharp

@@ -184,6 +184,12 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "voipnet_conference_add")]
     internal static partial int ConferenceAdd(nint handle, ulong conferenceId, ulong callId);
 
+    [LibraryImport(Library, EntryPoint = "voipnet_conference_layout")]
+    internal static partial int ConferenceLayout(nint handle, ulong conferenceId, ulong pinnedCallId);
+
+    [LibraryImport(Library, EntryPoint = "voipnet_conference_active_speaker")]
+    internal static partial int ConferenceActiveSpeaker(nint handle, ulong conferenceId, out ulong callId);
+
     [LibraryImport(Library, EntryPoint = "voipnet_conference_remove")]
     internal static partial int ConferenceRemove(nint handle, ulong callId);
 

@@ -78,6 +78,7 @@
 | `SendEncoded(...)`, `EncodedReceived` | Payload pass-through. |
 | `SendVideoFrame(...)`, `VideoFrameReceived`, `VideoCodec`, `VideoStreams` | Frame video utuh, ditandai per stream (`main`, `slides`). |
 | `ShareScreen()`, `StopScreenShare()` | Menawarkan atau menghentikan stream video kedua berisi layar. |
+| `VoipConference.FollowSpeaker()`, `Pin(call)`, `ActiveSpeaker`, `Layout` | Siapa yang dilihat peserta konferensi; video diteruskan, bukan dicampur. |
 | `RequestKeyframe(full)` | Meminta keyframe video ke lawan (RTCP PLI atau FIR). |
 | `SetAudioDelay(ms)` | Melaporkan waktu tempuh speaker ke mikrofon kepada pembatal gema. |
 | `GetStatistics()`, `FinalStatistics` | Kualitas, termasuk laporan lawan lewat RTCP (`RoundTripMs`, `RemoteLossPercent`, `RemoteJitterMs`, `RemoteMos`). |

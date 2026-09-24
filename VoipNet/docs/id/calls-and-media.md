@@ -167,6 +167,23 @@ conference.Add(supervisor); supervisor.SetHold(true);   // hanya mendengar: jemb
 
 Pencampuran berlangsung pada 16 kHz di dalam engine, per peserta (mix-minus), dengan saturasi.
 
+Video dalam konferensi diteruskan, bukan dicampur — mencampurnya berarti men-decode dan meng-encode
+ulang setiap stream, dan codec untuk itu tidak ada di engine ini. Jadi setiap peserta melihat satu
+peserta lain pada satu waktu:
+
+```csharp
+conference.FollowSpeaker();                    // bawaan: semua melihat yang sedang bicara
+conference.Pin(conference.Participants[0]);    // atau semua melihat satu peserta tertentu
+Console.WriteLine(conference.ActiveSpeaker?.RemoteUri);
+```
+
+Pembicara dipilih dari audio yang memang sudah dicampur bridge: peserta paling keras mengambil alih
+layar, menahannya sejenak setelah berhenti bicara, dan hanya kalah oleh suara yang jelas lebih keras —
+sehingga gambar tidak berkedip saat dua orang bicara bersamaan. Ketika sumbernya berganti, bridge
+meminta keyframe ke pembicara baru dan menahan perpindahan sampai keyframe itu tiba, karena decoder
+tidak bisa mulai di tengah gambar. Tampilan grid memerlukan satu stream per peserta dan belum
+disediakan.
+
 ## Perekaman
 
 ```csharp

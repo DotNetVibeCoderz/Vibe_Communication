@@ -79,6 +79,16 @@ public delegate void AudioFrameHandler(VoipCall call, AudioDirection direction, 
 /// <param name="payload">Encoded payload bytes.</param>
 public delegate void EncodedFrameHandler(VoipCall call, int payloadType, uint timestamp, bool marker, ReadOnlySpan<byte> payload);
 
+/// <summary>Who a conference's participants see.</summary>
+public enum ConferenceLayout
+{
+    /// <summary>Everyone sees whoever is speaking.</summary>
+    SpeakerFocus,
+
+    /// <summary>Everyone sees one pinned participant.</summary>
+    Pinned,
+}
+
 /// <summary>Handles a complete video frame received on a call.</summary>
 /// <param name="call">The call the frame belongs to.</param>
 /// <param name="timestamp">RTP timestamp in the 90 kHz video clock.</param>

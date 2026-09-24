@@ -331,6 +331,15 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
     internal void ConferenceAdd(ulong conferenceId, ulong callId) =>
         Check(NativeMethods.ConferenceAdd(_handle, conferenceId, callId), "add to conference");
 
+    internal void ConferenceLayout(ulong conferenceId, ulong pinnedCallId) =>
+        Check(NativeMethods.ConferenceLayout(_handle, conferenceId, pinnedCallId), "set the conference layout");
+
+    internal ulong ConferenceActiveSpeaker(ulong conferenceId)
+    {
+        Check(NativeMethods.ConferenceActiveSpeaker(_handle, conferenceId, out var callId), "read the active speaker");
+        return callId;
+    }
+
     internal void ConferenceRemove(ulong callId) => Check(NativeMethods.ConferenceRemove(_handle, callId), "leave conference");
 
     internal void ConferenceDestroy(ulong conferenceId) => Check(NativeMethods.ConferenceDestroy(_handle, conferenceId), "destroy conference");
@@ -810,6 +819,36 @@ public sealed class VoipConference : IDisposable
                 return _participants.ToArray();
             }
         }
+    }
+
+    /// <summary>Who the participants see. Video is forwarded, never mixed, so everyone watches one
+    /// participant at a time: whoever is speaking, or the call pinned with <see cref="Pin"/>.</summary>
+    public ConferenceLayout Layout { get; private set; } = ConferenceLayout.SpeakerFocus;
+
+    /// <summary>The participant currently holding the floor, or <c>null</c> while the room is silent.</summary>
+    public VoipCall? ActiveSpeaker
+    {
+        get
+        {
+            var id = _client.ConferenceActiveSpeaker(Id);
+            return id == 0 ? null : Participants.FirstOrDefault(c => c.Id == id);
+        }
+    }
+
+    /// <summary>Everyone sees whoever is speaking.</summary>
+    public void FollowSpeaker()
+    {
+        _client.ConferenceLayout(Id, 0);
+        Layout = ConferenceLayout.SpeakerFocus;
+    }
+
+    /// <summary>Everyone sees this participant, whatever the room sounds like.</summary>
+    /// <param name="call">The call to pin.</param>
+    public void Pin(VoipCall call)
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        _client.ConferenceLayout(Id, call.Id);
+        Layout = ConferenceLayout.Pinned;
     }
 
     /// <summary>Adds a call. Each participant hears everyone except themselves.</summary>

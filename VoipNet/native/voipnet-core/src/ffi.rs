@@ -553,6 +553,40 @@ pub unsafe extern "C" fn voipnet_conference_add(handle: *mut c_void, conference_
     with_endpoint!(handle, ep => ep.conference_add(conference_id, call_id))
 }
 
+/// Chooses who conference participants see: 0 follows whoever is speaking, otherwise the call id to pin.
+///
+/// # Safety
+/// `handle` must be a live endpoint handle.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_conference_layout(handle: *mut c_void, conference_id: u64, pinned_call_id: u64) -> c_int {
+    let layout = if pinned_call_id == 0 {
+        crate::media::conference::ConferenceLayout::SpeakerFocus
+    } else {
+        crate::media::conference::ConferenceLayout::Pinned(pinned_call_id)
+    };
+    with_endpoint!(handle, ep => ep.conference_set_layout(conference_id, layout))
+}
+
+/// Writes the call id of the participant holding the floor, or 0 when the room has been silent.
+///
+/// # Safety
+/// `out_call_id` must point to a writable `u64`.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_conference_active_speaker(handle: *mut c_void, conference_id: u64, out_call_id: *mut u64) -> c_int {
+    let Some(ep) = endpoint(handle) else { return VN_ERR_INVALID_ARGUMENT };
+    if out_call_id.is_null() {
+        return VN_ERR_INVALID_ARGUMENT;
+    }
+
+    match ep.conference_active_speaker(conference_id) {
+        Ok(speaker) => {
+            *out_call_id = speaker.unwrap_or(0);
+            VN_OK
+        }
+        Err(e) => map_error(e),
+    }
+}
+
 /// # Safety
 /// `handle` must be a live endpoint handle.
 #[no_mangle]

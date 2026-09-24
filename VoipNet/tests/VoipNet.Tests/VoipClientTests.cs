@@ -9,6 +9,47 @@ public sealed class VoipClientTests
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
 
     [Fact]
+    public async Task AConferenceShowsWhoeverIsSpeaking()
+    {
+        // Two callers in a bridge: the one talking is the one everybody would see.
+        await using var host = new VoipClient(TestHelpers.LoopbackOptions("host"));
+        await using var first = new VoipClient(TestHelpers.LoopbackOptions("first"));
+        await using var second = new VoipClient(TestHelpers.LoopbackOptions("second"));
+        await host.StartAsync();
+        await first.StartAsync();
+        await second.StartAsync();
+        host.IncomingCall += (_, e) => _ = e.Call.AnswerAsync();
+
+        var firstLeg = await first.CallAsync($"sip:host@{host.LocalAddress}");
+        var secondLeg = await second.CallAsync($"sip:host@{host.LocalAddress}");
+        await TestHelpers.WaitUntilAsync(() => host.Calls.Count(c => c.IsActive) == 2, TimeSpan.FromSeconds(10), "both legs up");
+
+        using var conference = host.CreateConference();
+        foreach (var call in host.Calls.Where(c => c.IsActive))
+        {
+            conference.Add(call);
+        }
+
+        Assert.Equal(ConferenceLayout.SpeakerFocus, conference.Layout);
+        Assert.Null(conference.ActiveSpeaker);
+
+        // The first caller talks; the bridge should hand them the floor.
+        firstLeg.SendAudio(TestHelpers.Tone(16000, 1500), 16000);
+        var speaker = await TestHelpers.WaitAsync(() => conference.ActiveSpeaker, TimeSpan.FromSeconds(10), "an active speaker");
+        // Participants are the host's own legs, oldest first: the first caller is the one talking.
+        Assert.Equal(conference.Participants[0], speaker);
+
+        // Pinning overrides the room: the layout says so even while somebody else talks.
+        conference.Pin(conference.Participants[1]);
+        Assert.Equal(ConferenceLayout.Pinned, conference.Layout);
+        conference.FollowSpeaker();
+        Assert.Equal(ConferenceLayout.SpeakerFocus, conference.Layout);
+
+        await firstLeg.HangupAsync();
+        await secondLeg.HangupAsync();
+    }
+
+    [Fact]
     public async Task AScreenShareArrivesAsItsOwnStream()
     {
         await using var pair = await LoopbackPair.ConnectAsync("presenter", "viewer", o => o.Video = true);

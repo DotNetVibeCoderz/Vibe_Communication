@@ -860,6 +860,11 @@ impl MediaSession {
         *self.shared.conference.lock() = Some(conference);
     }
 
+    /// The conference this session is mixed into, if any.
+    pub fn conference(&self) -> Option<Arc<Conference>> {
+        self.shared.conference.lock().clone()
+    }
+
     pub fn leave_conference(&self) {
         if let Some(c) = self.shared.conference.lock().take() {
             c.leave(self.shared.call_id);
