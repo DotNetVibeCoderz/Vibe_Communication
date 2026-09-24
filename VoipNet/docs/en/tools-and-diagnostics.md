@@ -14,8 +14,8 @@ voipnet --help
 | `voipnet version` | SDK, engine and runtime versions |
 | `voipnet sip ping <uri> [--count 4]` | OPTIONS round-trip times and the responder's User-Agent |
 | `voipnet sip register -d pbx -u 1001 -p secret` | test credentials against a registrar |
-| `voipnet sip call <uri> [--duration 10] [--tone 440] [--dtmf 123] [--record out.wav] [--register]` | place a test call and watch MOS, loss, jitter live |
-| `voipnet sip listen [--sip-port 5060] [--echo]` | answer calls; `--echo` turns it into an echo test service |
+| `voipnet sip call <uri> [--duration 10] [--tone 440] [--dtmf 123] [--record out.wav] [--register] [--video clip.h264] [--video-fps 15]` | place a test call and watch MOS, loss, jitter live; `--video` streams an H.264 file and reports the video that comes back |
+| `voipnet sip listen [--sip-port 5060] [--echo] [--video]` | answer calls; `--echo` turns it into an echo test service, `--video` accepts (and echoes) video |
 | `voipnet sip message <uri> "text"` | send a SIP MESSAGE |
 | `voipnet load <uri> [-n 20] [--concurrency 4] [--cps 2] [--duration 5]` | place calls at a steady rate and report setup times, failures and media quality |
 | `voipnet rtp analyze capture.pcap [--json]` | loss, jitter, ordering and MOS for every RTP stream in a capture |
@@ -63,6 +63,30 @@ The achieved rate is what the far end really saw: concurrency and call duration 
 below the one you asked for means calls were queueing behind the limit. The command exits non-zero
 when any call failed, which is what a CI job wants. MOS is only scored when the target sends audio
 back — point the run at an echo service or an IVR, not at something that answers in silence.
+
+Example — a video echo test, with a clip made by ffmpeg:
+
+```bash
+ffmpeg -f lavfi -i testsrc=size=320x240:rate=15:duration=3 -c:v libx264 -g 15 -f h264 clip.h264
+voipnet sip listen --echo --video
+voipnet sip call sip:echo@127.0.0.1:5060 --duration 4 --tone 0 --video clip.h264
+```
+
+```
+Video: H264
+╭────────────────────┬────────────╮
+│ Frames / keyframes │     52 / 6 │
+│ Frame rate         │   12.4 fps │
+│ Bitrate            │ 150 kbit/s │
+│ Keyframe every     │   9 frames │
+│ Longest freeze     │      82 ms │
+╰────────────────────┴────────────╯
+```
+
+The file is read as Annex B and sent one access unit per frame, looping until the call ends; parameter
+sets travel with the keyframe they describe, so the far end can start decoding on it. What comes back is
+measured the way a viewer would notice it: frame rate, bitrate, how often a keyframe arrives (that is how
+long a late joiner waits for a picture) and the longest gap between frames, which is a freeze.
 
 ## Diagnostics in code
 

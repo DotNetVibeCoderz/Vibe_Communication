@@ -14,8 +14,8 @@ voipnet --help
 | `voipnet version` | versi SDK, engine, dan runtime |
 | `voipnet sip ping <uri> [--count 4]` | waktu tempuh OPTIONS dan User-Agent penjawab |
 | `voipnet sip register -d pbx -u 1001 -p rahasia` | menguji kredensial ke registrar |
-| `voipnet sip call <uri> [--duration 10] [--tone 440] [--dtmf 123] [--record out.wav] [--register]` | panggilan uji dengan pemantauan MOS, loss, jitter secara langsung |
-| `voipnet sip listen [--sip-port 5060] [--echo]` | menjawab panggilan; `--echo` menjadikannya layanan uji gema |
+| `voipnet sip call <uri> [--duration 10] [--tone 440] [--dtmf 123] [--record out.wav] [--register] [--video clip.h264] [--video-fps 15]` | panggilan uji dengan pemantauan MOS, loss, jitter secara langsung |
+| `voipnet sip listen [--sip-port 5060] [--echo] [--video]` | menjawab panggilan; `--echo` menjadikannya layanan uji gema, `--video` menerima (dan memantulkan) video |
 | `voipnet sip message <uri> "teks"` | mengirim SIP MESSAGE |
 | `voipnet load <uri> [-n 20] [--concurrency 4] [--cps 2] [--duration 5]` | membuat panggilan dengan laju tetap dan melaporkan waktu setup, kegagalan, serta kualitas media |
 | `voipnet rtp analyze capture.pcap [--json]` | loss, jitter, urutan, dan MOS setiap stream RTP dalam capture |
@@ -63,6 +63,19 @@ Laju yang tercapai adalah yang benar-benar diterima lawan: batas konkurensi dan 
 menahannya, jadi laju di bawah permintaan berarti panggilan mengantre di batas itu. Perintah ini
 keluar dengan kode bukan nol bila ada panggilan yang gagal, sesuai kebutuhan job CI. MOS hanya terisi
 bila target mengirim audio balik — arahkan ke layanan echo atau IVR, bukan ke yang menjawab tanpa suara.
+
+Contoh — uji echo video dengan klip buatan ffmpeg:
+
+```bash
+ffmpeg -f lavfi -i testsrc=size=320x240:rate=15:duration=3 -c:v libx264 -g 15 -f h264 clip.h264
+voipnet sip listen --echo --video
+voipnet sip call sip:echo@127.0.0.1:5060 --duration 4 --tone 0 --video clip.h264
+```
+
+File dibaca sebagai Annex B dan dikirim satu access unit per frame, berulang sampai panggilan selesai;
+parameter set ikut bersama keyframe yang dijelaskannya sehingga sisi lawan bisa mulai men-decode di
+situ. Video yang kembali diukur seperti yang dirasakan penonton: laju frame, bitrate, seberapa sering
+keyframe datang (itulah lama menunggu gambar pertama), dan jeda terpanjang antar-frame alias freeze.
 
 ## Diagnostik di kode
 

@@ -73,9 +73,11 @@ internal sealed class AccountOptions
         UserAgent = "voipnet-cli/1.0",
     };
 
-    public (VoipClient Client, PcapWriter? Capture) CreateClient(ParseResult result, int? port = null)
+    public (VoipClient Client, PcapWriter? Capture) CreateClient(ParseResult result, int? port = null, Action<VoipClientOptions>? configure = null)
     {
-        var client = new VoipClient(Build(result, port));
+        var options = Build(result, port);
+        configure?.Invoke(options);
+        var client = new VoipClient(options);
         PcapWriter? capture = null;
         if (result.GetValue(Trace))
         {
@@ -199,13 +201,17 @@ internal static class SipCommands
         var tone = new Option<int>("--tone") { Description = "Send a test tone at this frequency (Hz). 0 sends nothing.", DefaultValueFactory = _ => 440 };
         var dtmf = new Option<string?>("--dtmf") { Description = "DTMF digits to send after answer." };
         var record = new Option<string?>("--record") { Description = "Record the call; the extension picks the format (.wav, .mp3, .avi with video)." };
+        var video = new Option<string?>("--video") { Description = "Send this H.264 file (Annex B, as ffmpeg writes with -f h264) as video, looping until the call ends." };
+        var videoFps = new Option<int>("--video-fps") { Description = "Frame rate for --video.", DefaultValueFactory = _ => 15 };
         var register = new Option<bool>("--register") { Description = "Register before calling." };
-        var command = new Command("call", "Place a test call and report media quality.") { target, duration, tone, dtmf, record, register };
+        var command = new Command("call", "Place a test call and report media quality.") { target, duration, tone, dtmf, record, register, video, videoFps };
         account.AddTo(command);
 
         command.SetAction(async (result, cancellationToken) =>
         {
-            var (client, capture) = account.CreateClient(result);
+            // Video is negotiated in the first offer, so it has to be on before the client starts.
+            var videoFile = result.GetValue(video);
+            var (client, capture) = account.CreateClient(result, configure: o => o.Video = videoFile is { Length: > 0 });
             await using var _ = client;
             using var __ = capture;
             await client.StartAsync(cancellationToken);
@@ -235,6 +241,14 @@ internal static class SipCommands
             }
 
             AnsiConsole.MarkupLine($"[green]Connected[/] codec [bold]{call.Codec}[/] @ {call.SampleRate} Hz");
+            var inbound = new VideoStreamStats();
+            Task videoSender = Task.CompletedTask;
+            if (videoFile is { Length: > 0 })
+            {
+                call.VideoFrameReceived += (_, _, keyframe, frame, _) => inbound.Add(frame.Length, keyframe);
+                videoSender = SendVideoAsync(call, videoFile, result.GetValue(videoFps), cancellationToken);
+                AnsiConsole.MarkupLine($"Video: [bold]{call.VideoCodec ?? "not negotiated"}[/]");
+            }
             // The extension says what to write: WAV, MP3, or AVI when the call carries video.
             using var recorder = result.GetValue(record) is { } file
                 ? CallRecorder.Start(call, file, System.IO.Path.GetExtension(file).ToLowerInvariant() switch
@@ -280,10 +294,16 @@ internal static class SipCommands
                 await call.HangupAsync(CancellationToken.None);
             }
 
+            await videoSender;
             var final = call.FinalStatistics;
             if (final is not null)
             {
                 AnsiConsole.MarkupLine($"Final: MOS [bold]{final.Mos:F2}[/], loss {final.LossPercent:F1}%, jitter {final.JitterMs:F1} ms");
+            }
+
+            if (inbound.Frames > 0)
+            {
+                AnsiConsole.Write(VideoTable(inbound));
             }
 
             return 0;
@@ -297,12 +317,13 @@ internal static class SipCommands
         var sipPort = new Option<int>("--sip-port") { Description = "Port to listen on.", DefaultValueFactory = _ => 5060 };
         var echo = new Option<bool>("--echo") { Description = "Play the caller's audio back to them (echo test)." };
         var answerAfter = new Option<int>("--answer-after") { Description = "Milliseconds to ring before answering.", DefaultValueFactory = _ => 500 };
-        var command = new Command("listen", "Answer incoming calls; with --echo acts as an echo test service.") { sipPort, echo, answerAfter };
+        var video = new Option<bool>("--video") { Description = "Accept a video stream as well; with --echo the video is sent back too." };
+        var command = new Command("listen", "Answer incoming calls; with --echo acts as an echo test service.") { sipPort, echo, answerAfter, video };
         account.AddTo(command);
 
         command.SetAction(async (result, cancellationToken) =>
         {
-            var (client, capture) = account.CreateClient(result, result.GetValue(sipPort));
+            var (client, capture) = account.CreateClient(result, result.GetValue(sipPort), o => o.Video = result.GetValue(video));
             await using var _ = client;
             using var __ = capture;
             await client.StartAsync(cancellationToken);
@@ -324,6 +345,19 @@ internal static class SipCommands
                         if (direction == AudioDirection.Inbound)
                         {
                             call.SendAudio(samples, rate);
+                        }
+                    };
+
+                    // Video goes back on the stream it arrived on, which makes this a video echo test.
+                    e.Call.VideoFrameReceived += (call, timestamp, _, frame, content) =>
+                    {
+                        try
+                        {
+                            call.SendVideoFrame(timestamp, frame, content);
+                        }
+                        catch (VoipException)
+                        {
+                            // The caller hung up mid-frame.
                         }
                     };
                 }
@@ -368,6 +402,53 @@ internal static class SipCommands
             return reply.IsSuccess ? 0 : 1;
         });
         return command;
+    }
+
+    /// <summary>
+    /// Streams an H.264 file into the call at a fixed rate, looping until the call ends. Real video
+    /// would come from a camera and an encoder; a file is what makes the path testable from a shell.
+    /// </summary>
+    private static async Task SendVideoAsync(VoipCall call, string path, int fps, CancellationToken cancellationToken)
+    {
+        var frames = AnnexB.Frames(File.ReadAllBytes(path));
+        if (frames.Count == 0)
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(path)} holds no H.264 frames.[/]");
+            return;
+        }
+
+        var step = TimeSpan.FromSeconds(1.0 / Math.Clamp(fps, 1, 60));
+        var ticks = (uint)(90000 / Math.Clamp(fps, 1, 60));
+        uint timestamp = 0;
+        var index = 0;
+        while (call.IsActive && !cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                call.SendVideoFrame(timestamp, frames[index % frames.Count]);
+            }
+            catch (VoipException)
+            {
+                return;   // the call ended between the check and the frame
+            }
+
+            timestamp += ticks;
+            index++;
+            await Task.Delay(step, CancellationToken.None);
+        }
+    }
+
+    private static Table VideoTable(VideoStreamStats video)
+    {
+        var table = new Table().Border(TableBorder.Rounded).Title("[bold]Video received[/]");
+        table.AddColumn("Metric").AddColumn(new TableColumn("Value").RightAligned());
+        table.AddRow("Frames / keyframes", $"{video.Frames} / {video.Keyframes}");
+        table.AddRow("Frame rate", $"{video.FrameRate:F1} fps");
+        table.AddRow("Bitrate", $"{video.Kbps:F0} kbit/s");
+        table.AddRow("Keyframe every", video.Keyframes > 0 ? $"{video.KeyframeInterval:F0} frames" : "[grey]none seen[/]");
+        var freeze = video.LongestGap.TotalMilliseconds;
+        table.AddRow("Longest freeze", freeze > 500 ? $"[yellow]{freeze:F0} ms[/]" : $"{freeze:F0} ms");
+        return table;
     }
 
     private static Table StatsTable(CallStatistics s)
