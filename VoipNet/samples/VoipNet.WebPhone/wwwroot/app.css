@@ -258,6 +258,38 @@ table.grid td.num { font-family: var(--mono); text-align: right; }
     object-fit: cover;
 }
 
+/* The data channel reads like the rest of the rack: a labelled two-column log, not a chat bubble. */
+.chat { margin: 18px 0 0; display: grid; gap: 8px; }
+.chat h3 { margin: 0; }
+.chat-empty { margin: 0; }
+.chat-log {
+    list-style: none;
+    margin: 0;
+    padding: 8px 10px;
+    display: grid;
+    gap: 6px;
+    max-height: 168px;
+    overflow-y: auto;
+    background: var(--trace);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+}
+.chat-log li { display: grid; grid-template-columns: 62px 1fr; gap: 10px; align-items: baseline; }
+.chat-log li .eyebrow { color: var(--ink-soft); }
+.chat-log li.you .eyebrow { color: var(--cobalt); }
+.chat-log li.gateway .eyebrow { color: var(--violet); }
+.chat-send { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+.chat-send input {
+    padding: 9px 11px;
+    font: inherit;
+    color: var(--ink);
+    background: var(--raised);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+}
+.chat-send input:focus-visible { outline: 2px solid var(--cobalt); outline-offset: 1px; }
+.chat-send input:disabled { background: var(--trace); color: var(--ink-soft); }
+
 .meters { display: grid; gap: 10px; }
 .meter { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 10px; }
 .ladder { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; height: 14px; }

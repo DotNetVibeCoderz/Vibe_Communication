@@ -26,6 +26,7 @@
 | `ReliableProvisional` | `true` | Mengirim respons provisional secara reliable (RFC 3262) ke pemanggil yang mendukung 100rel; yang mewajibkannya selalu dilayani reliable. |
 | `AudioCodecs` | `opus, G722, PCMU, PCMA` | Urutan preferensi. Native: opus, G722, PCMU, PCMA, L16. |
 | `Video`, `VideoCodecs` | `false`, `H264, VP8` | Menawarkan stream `m=video` di samping audio; frame di-encode oleh aplikasi. |
+| `DataChannels` | `false` | Menawarkan stream `m=application` untuk kanal data (RFC 8831); butuh `SrtpKeying.Dtls`. |
 | `Srtp` | `Disabled` | `Disabled`, `Optional`, `Mandatory`. |
 | `SrtpKeying` | `Sdes` | `Sdes` (`a=crypto`) atau `Dtls` (DTLS-SRTP dengan ICE, seperti WebRTC). Offer masuk boleh memakai keduanya. |
 | `DtmfMode` | `Rfc4733` | `Rfc4733`, `InBand`, `SipInfo`. |

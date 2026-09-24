@@ -12,6 +12,7 @@ use parking_lot::Mutex;
 
 use super::conference::{Conference, CONFERENCE_RATE};
 use super::dtls::{DtlsEvent, DtlsIdentity, DtlsRole, DtlsTransport};
+use super::sctp::{SctpAssociation, SctpEvent};
 #[cfg(feature = "audio-processing")]
 use super::enhance::AudioEnhancer;
 use super::ice::{IceAgent, IceOutput, IceRole};
@@ -60,6 +61,8 @@ pub trait MediaSink: Send + Sync {
     /// A complete video frame arrived (H.264 access unit in Annex B form, or a VP8 frame). `content`
     /// says what the stream shows: `main` for a camera, `slides` for a shared screen.
     fn on_video_frame(&self, _call_id: u64, _timestamp: u32, _keyframe: bool, _frame: &[u8], _content: &str) {}
+    /// A data channel message arrived on `stream` (RFC 8831). `text` says whether it is UTF-8.
+    fn on_data_message(&self, _call_id: u64, _stream: u16, _text: bool, _data: &[u8]) {}
 }
 
 #[derive(Debug, Clone)]
@@ -306,6 +309,12 @@ struct Shared {
     dtls_start_pending: AtomicBool,
     /// Media must be encrypted (DTLS-SRTP): never send or accept plain RTP while keys are pending.
     secure_required: AtomicBool,
+    /// Data channels, which ride inside the same DTLS tunnel as the SRTP keying (RFC 8261).
+    /// Created when the tunnel comes up, because only then is the role settled.
+    sctp: Mutex<Option<SctpAssociation>>,
+    data_channels: AtomicBool,
+    /// Channels asked for before the association was up, opened as soon as it is.
+    pending_channels: Mutex<Vec<String>>,
 }
 
 pub struct MediaSession {
@@ -445,6 +454,9 @@ impl MediaSession {
             stream_delay_ms: AtomicU32::new(config.stream_delay_ms),
             dtls: Mutex::new(None),
             dtls_start_pending: AtomicBool::new(false),
+            sctp: Mutex::new(None),
+            data_channels: AtomicBool::new(false),
+            pending_channels: Mutex::new(Vec::new()),
             secure_required: AtomicBool::new(false),
         });
         let session = Arc::new(Self { shared, local, reflexive, threads: Mutex::new(Vec::new()), local_srtp_key: Mutex::new(None), dtls_role: Mutex::new(None) });
@@ -542,6 +554,68 @@ impl MediaSession {
 
     pub fn set_dtls_role(&self, role: DtlsRole) {
         self.dtls_role.lock().get_or_insert(role);
+    }
+
+    /// Turns on data channels, which share the call's DTLS tunnel (RFC 8261). The association opens
+    /// once that tunnel is up, so this can be called any time before or during the handshake.
+    pub fn enable_data_channels(&self) {
+        self.shared.data_channels.store(true, Ordering::Relaxed);
+    }
+
+    pub fn data_channels_enabled(&self) -> bool {
+        self.shared.data_channels.load(Ordering::Relaxed)
+    }
+
+    /// Asks for a channel with this label. It is opened straight away when the association is up, and
+    /// queued until then, so the application never has to wait for the handshake.
+    pub fn open_data_channel(&self, label: &str) {
+        let sh = &self.shared;
+        let mut events = Vec::new();
+        {
+            let mut guard = sh.sctp.lock();
+            match guard.as_mut().filter(|s| s.is_established()) {
+                Some(sctp) => {
+                    sctp.open_channel(label, Instant::now(), &mut events);
+                }
+                None => sh.pending_channels.lock().push(label.to_owned()),
+            }
+        }
+
+        process_sctp_events(sh, events);
+    }
+
+    /// Sends a text message on an open channel. False when the channel is not usable yet.
+    pub fn send_data_text(&self, stream: u16, text: &str) -> bool {
+        self.send_data(stream, |sctp, events| sctp.send_text(stream, text, Instant::now(), events))
+    }
+
+    /// Sends a binary message on an open channel. False when the channel is not usable yet.
+    pub fn send_data_binary(&self, stream: u16, data: &[u8]) -> bool {
+        self.send_data(stream, |sctp, events| sctp.send_binary(stream, data, Instant::now(), events))
+    }
+
+    fn send_data(&self, stream: u16, send: impl FnOnce(&mut SctpAssociation, &mut Vec<SctpEvent>) -> bool) -> bool {
+        let sh = &self.shared;
+        let mut events = Vec::new();
+        let sent = {
+            let mut guard = sh.sctp.lock();
+            match guard.as_mut() {
+                Some(sctp) if sctp.channels().any(|(id, _)| *id == stream) => send(sctp, &mut events),
+                _ => false,
+            }
+        };
+        process_sctp_events(sh, events);
+        sent
+    }
+
+    /// Channels that are open, as (stream number, label).
+    pub fn data_channels(&self) -> Vec<(u16, String)> {
+        self.shared
+            .sctp
+            .lock()
+            .as_ref()
+            .map(|s| s.channels().map(|(id, label)| (*id, label.clone())).collect())
+            .unwrap_or_default()
     }
 
     pub fn set_dtmf_mode(&self, mode: DtmfMode) {
@@ -1201,8 +1275,88 @@ fn process_dtls_events(sh: &Arc<Shared>, events: Vec<DtlsEvent>) {
                 sh.rx.lock().srtp = Some(inbound);
                 sh.sink.on_media_event(sh.call_id, "dtls-connected", profile.name());
             }
+            DtlsEvent::Connected => start_sctp(sh),
+            DtlsEvent::Data(packet) => {
+                let mut out = Vec::new();
+                if let Some(sctp) = sh.sctp.lock().as_mut() {
+                    sctp.handle_packet(&packet, Instant::now(), &mut out);
+                }
+
+                process_sctp_events(sh, out);
+            }
             DtlsEvent::Failed(reason) => sh.sink.on_media_event(sh.call_id, "dtls-failed", &reason),
         }
+    }
+}
+
+/// Opens the SCTP association once the tunnel is up. Only the DTLS client sends INIT, which is also
+/// the side that owns the even stream numbers (RFC 8832 §6), so both ends agree without negotiating.
+fn start_sctp(sh: &Arc<Shared>) {
+    if !sh.data_channels.load(Ordering::Relaxed) {
+        return;
+    }
+
+    let client = sh.dtls.lock().as_ref().map(|d| d.role() == DtlsRole::Client).unwrap_or(true);
+    let mut events = Vec::new();
+    {
+        let mut guard = sh.sctp.lock();
+        let sctp = guard.get_or_insert_with(|| SctpAssociation::new(client));
+        if sctp.is_established() {
+            return;
+        }
+
+        sctp.connect(Instant::now(), &mut events);
+    }
+
+    process_sctp_events(sh, events);
+}
+
+/// Acts on SCTP output: packets go back into the tunnel, messages go to the application.
+fn process_sctp_events(sh: &Arc<Shared>, events: Vec<SctpEvent>) {
+    for event in events {
+        match event {
+            SctpEvent::Send(packet) => {
+                let mut out = Vec::new();
+                if let Some(dtls) = sh.dtls.lock().as_mut() {
+                    dtls.send_data(&packet, &mut out);
+                }
+
+                for event in out {
+                    // Only the encrypted records matter here; a nested handshake event cannot happen.
+                    if let DtlsEvent::Send(record) = event {
+                        send_raw(sh, &record);
+                    }
+                }
+            }
+            SctpEvent::ChannelOpen { stream, label } => {
+                sh.sink.on_media_event(sh.call_id, "data-channel-open", &format!("{stream} {label}"));
+            }
+            SctpEvent::Message { stream, text, data } => sh.sink.on_data_message(sh.call_id, stream, text, &data),
+            SctpEvent::Closed(reason) => sh.sink.on_media_event(sh.call_id, "data-channel-closed", &reason),
+        }
+    }
+
+    open_pending_channels(sh);
+}
+
+/// Opens the channels the application asked for before the association finished its handshake.
+fn open_pending_channels(sh: &Arc<Shared>) {
+    let mut events = Vec::new();
+    {
+        let mut guard = sh.sctp.lock();
+        let Some(sctp) = guard.as_mut() else { return };
+        if !sctp.is_established() {
+            return;
+        }
+
+        let labels = std::mem::take(&mut *sh.pending_channels.lock());
+        for label in labels {
+            sctp.open_channel(&label, Instant::now(), &mut events);
+        }
+    }
+
+    if !events.is_empty() {
+        process_sctp_events(sh, events);
     }
 }
 
@@ -1381,6 +1535,11 @@ fn playout_loop(sh: &Arc<Shared>) {
             dtls.poll_timeout(Instant::now(), &mut dtls_events);
         }
         process_dtls_events(sh, dtls_events);
+        let mut sctp_events = Vec::new();
+        if let Some(sctp) = sh.sctp.lock().as_mut() {
+            sctp.poll_timeout(Instant::now(), &mut sctp_events);
+        }
+        process_sctp_events(sh, sctp_events);
 
         // ---- Transmit path ----
         if let Some(conf) = &conference {

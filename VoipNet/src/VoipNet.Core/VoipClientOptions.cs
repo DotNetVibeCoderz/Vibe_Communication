@@ -150,6 +150,10 @@ public sealed class VoipClientOptions
     /// <summary>Video codecs to offer, in preference order. Payload formats: H264 (RFC 6184), VP8 (RFC 7741).</summary>
     public IList<string> VideoCodecs { get; set; } = ["H264", "VP8"];
 
+    /// <summary>Offer and accept data channels next to the call (RFC 8831): SCTP inside the call's DTLS
+    /// tunnel, for chat, files or application messages. Needs <see cref="SrtpKeying.Dtls"/>.</summary>
+    public bool DataChannels { get; set; }
+
     /// <summary>Media encryption policy.</summary>
     public SrtpMode Srtp { get; set; } = SrtpMode.Disabled;
 

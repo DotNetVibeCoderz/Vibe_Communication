@@ -81,6 +81,30 @@
                 }
             </figcaption>
         </figure>
+
+        @* Text beside the call: an SCTP data channel in its own DTLS tunnel (RFC 8831). *@
+        <div class="chat">
+            <h3 class="eyebrow">Data channel</h3>
+            @if (_chat.Count == 0)
+            {
+                <p class="soft small chat-empty">@(_chatOpen ? "Open. Type something and the desk will answer." : "Opens with the call, beside the audio.")</p>
+            }
+            else
+            {
+                <ol class="chat-log" aria-live="polite">
+                    @foreach (var line in _chat)
+                    {
+                        <li class="@line.From"><span class="eyebrow">@line.From</span><span>@line.Text</span></li>
+                    }
+                </ol>
+            }
+            <div class="chat-send">
+                <input value="@_message" @oninput="@(e => _message = e.Value?.ToString() ?? "")"
+                       @onkeydown="@(async e => { if (e.Key == "Enter") { await SendChatAsync(); } })"
+                       placeholder="Message the desk" aria-label="Message the desk" disabled="@(!_chatOpen)" />
+                <button class="btn" @onclick="SendChatAsync" disabled="@(!_chatOpen || string.IsNullOrWhiteSpace(_message))">Send</button>
+            </div>
+        </div>
     </article>
 
     <article class="module legs">
@@ -191,6 +215,13 @@
         new(Hop.Desk, "Desk phone", "Answers"),
     ];
 
+    /// <summary>One line in the data channel log: who sent it and what it said.</summary>
+    private sealed record ChatLine(string From, string Text);
+
+    private readonly List<ChatLine> _chat = [];
+    private bool _chatOpen;
+    private string _message = "";
+
     private IJSObjectReference? _module;
     private DotNetObjectReference<Home>? _self;
     private ElementReference _audio;
@@ -240,10 +271,26 @@
         }
     }
 
+    private async Task SendChatAsync()
+    {
+        var text = _message.Trim();
+        if (text.Length == 0 || _module is null)
+        {
+            return;
+        }
+
+        if (await _module.InvokeAsync<bool>("sendChat", text))
+        {
+            _message = "";
+        }
+    }
+
     private async Task CallAsync()
     {
         _stats = null;
         _phase = "microphone";
+        _chat.Clear();
+        _chatOpen = false;
         await _module!.InvokeVoidAsync("call", _self, $"ws://{Host}:{Gateway.WebSocketPort}", _desk, _audio, _video, _withVideo);
     }
 
@@ -258,11 +305,34 @@
     [JSInvokable]
     public Task OnPhase(string phase, string detail)
     {
+        if (phase == "chat-open")
+        {
+            _chatOpen = true;
+            return InvokeAsync(StateHasChanged);
+        }
+
+        if (phase is "ended" or "failed")
+        {
+            _chatOpen = false;
+        }
+
         // Connection-state changes never move a finished call back to "in progress".
         if (!(phase.StartsWith("pc-") && _phase is "ended" or "failed"))
         {
             _phase = phase == "pc-failed" ? "failed" : phase;
             _detail = phase == "pc-failed" ? "ICE or DTLS could not connect" : detail;
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task OnChat(string from, string text)
+    {
+        _chat.Add(new ChatLine(from, text));
+        if (_chat.Count > 12)
+        {
+            _chat.RemoveAt(0);
         }
 
         return InvokeAsync(StateHasChanged);

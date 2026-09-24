@@ -41,6 +41,9 @@ pub type VnVideoCallback = extern "C" fn(
     content: *const c_char,
 );
 
+pub type VnDataCallback =
+    extern "C" fn(user: *mut c_void, call_id: u64, stream: u16, text: c_int, data: *const u8, len: c_int);
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct VnCallbacks {
@@ -49,6 +52,7 @@ pub struct VnCallbacks {
     pub on_dtmf: Option<VnDtmfCallback>,
     pub on_encoded: Option<VnEncodedCallback>,
     pub on_video: Option<VnVideoCallback>,
+    pub on_data: Option<VnDataCallback>,
     pub user_data: *mut c_void,
 }
 
@@ -92,6 +96,12 @@ impl EndpointHandler for FfiHandler {
         if let Some(f) = self.cb.on_video {
             let label = CString::new(content).unwrap_or_default();
             f(self.cb.user_data, call_id, timestamp, c_int::from(keyframe), frame.as_ptr(), frame.len() as c_int, label.as_ptr());
+        }
+    }
+
+    fn on_data_message(&self, call_id: u64, stream: u16, text: bool, data: &[u8]) {
+        if let Some(f) = self.cb.on_data {
+            f(self.cb.user_data, call_id, stream, c_int::from(text), data.as_ptr(), data.len() as c_int);
         }
     }
 }
@@ -380,6 +390,66 @@ pub unsafe extern "C" fn voipnet_send_video_frame(
     }
 }
 
+/// Opens a data channel on a call (RFC 8831). It becomes usable when a `data-channel-open` media
+/// event names it.
+///
+/// # Safety
+/// `label` must be a NUL-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_open_data_channel(handle: *mut c_void, call_id: u64, label: *const c_char) -> c_int {
+    let Some(label) = str_from(label) else { return VN_ERR_INVALID_ARGUMENT };
+    with_endpoint!(handle, ep => ep.open_data_channel(call_id, label))
+}
+
+/// Sends a message on an open data channel. `text` says whether `data` is UTF-8.
+///
+/// # Safety
+/// `data` must point to `len` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_send_data_message(
+    handle: *mut c_void,
+    call_id: u64,
+    stream: u16,
+    text: c_int,
+    data: *const u8,
+    len: c_int,
+) -> c_int {
+    let Some(ep) = endpoint(handle) else { return VN_ERR_INVALID_ARGUMENT };
+    if data.is_null() || len < 0 {
+        return VN_ERR_INVALID_ARGUMENT;
+    }
+
+    let slice = std::slice::from_raw_parts(data, len as usize);
+    let result = match text != 0 {
+        true => match std::str::from_utf8(slice) {
+            Ok(message) => ep.send_data_text(call_id, stream, message),
+            Err(_) => return VN_ERR_INVALID_ARGUMENT,
+        },
+        false => ep.send_data_binary(call_id, stream, slice),
+    };
+    match result {
+        Ok(()) => VN_OK,
+        Err(e) => map_error(e),
+    }
+}
+
+/// Writes the call's open data channels into `out` as `stream:label`, comma separated.
+///
+/// # Safety
+/// `out` must point to `len` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_data_channels(handle: *mut c_void, call_id: u64, out: *mut c_char, len: c_int) -> c_int {
+    let Some(ep) = endpoint(handle) else { return VN_ERR_INVALID_ARGUMENT };
+    match ep.data_channels(call_id) {
+        Ok(channels) => {
+            let list: Vec<String> = channels.iter().map(|(stream, label)| format!("{stream}:{label}")).collect();
+            write_error(out, len, &list.join(","));
+            VN_OK
+        }
+        Err(e) => map_error(e),
+    }
+}
+
 /// Offers a screen-share stream on a call, or withdraws it when `on` is zero.
 ///
 /// # Safety
@@ -651,6 +721,7 @@ mod tests {
             on_dtmf: None,
             on_encoded: None,
             on_video: None,
+            on_data: None,
             user_data: std::ptr::null_mut(),
         };
         let mut handle = std::ptr::null_mut();
@@ -687,7 +758,7 @@ mod tests {
     #[test]
     fn invalid_configuration_is_reported() {
         let cfg = CString::new(r#"{"sipPort":"not-a-number"}"#).unwrap();
-        let cbs = VnCallbacks { on_event: None, on_audio: None, on_dtmf: None, on_encoded: None, on_video: None, user_data: std::ptr::null_mut() };
+        let cbs = VnCallbacks { on_event: None, on_audio: None, on_dtmf: None, on_encoded: None, on_video: None, on_data: None, user_data: std::ptr::null_mut() };
         let mut handle = std::ptr::null_mut();
         let mut err = [0i8; 256];
         unsafe {

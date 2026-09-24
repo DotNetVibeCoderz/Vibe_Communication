@@ -54,6 +54,10 @@ pub enum DtlsEvent {
     Send(Vec<u8>),
     /// Handshake finished and the peer certificate matched: (outbound, inbound, profile).
     Keys(SrtpContext, SrtpContext, SrtpProfile),
+    /// The tunnel is up, so application data — SCTP, for a data channel — can flow through it.
+    Connected,
+    /// Plaintext that arrived inside the tunnel, which for WebRTC is an SCTP packet (RFC 8261).
+    Data(Vec<u8>),
     Failed(String),
 }
 
@@ -107,6 +111,17 @@ impl DtlsTransport {
         match self.dtls.handle_packet(data) {
             Ok(()) => self.drain(events),
             Err(e) => self.fail(format!("DTLS: {e}"), events),
+        }
+    }
+
+    /// Sends application data through the tunnel. Fails quietly before the handshake finishes;
+    /// the data channel queues its own packets and resends them, so nothing is lost by dropping here.
+    pub fn send_data(&mut self, data: &[u8], events: &mut Vec<DtlsEvent>) {
+        match self.dtls.send_application_data(data) {
+            Ok(()) => self.drain(events),
+            // Before the handshake finishes there is nothing to send through; the data channel
+            // holds on to its packets and sends them again, so dropping one here loses nothing.
+            Err(_) => {}
         }
     }
 
@@ -170,7 +185,8 @@ impl DtlsTransport {
                         Err(e) => self.fail(format!("DTLS-SRTP keys: {e:?}"), events),
                     }
                 }
-                Output::Connected | Output::ApplicationData(_) => {}
+                Output::Connected => events.push(DtlsEvent::Connected),
+                Output::ApplicationData(data) => events.push(DtlsEvent::Data(data.to_vec())),
                 Output::CloseNotify => self.fail("DTLS closed by peer".into(), events),
                 _ => {}
             }

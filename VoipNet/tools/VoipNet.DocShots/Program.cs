@@ -5,7 +5,7 @@
 //   scenarios: callcenter, ivrstudio, webphone
 //
 // The webphone scenario doubles as a browser interop test: it exits with 1 when the browser call does not
-// carry encrypted audio both ways.
+// carry encrypted audio, video and a data channel message both ways.
 
 using System.Text.Json.Nodes;
 using VoipNet.DocShots;
@@ -72,6 +72,12 @@ switch (scenario)
         await browser.ClickTextAsync("button", "Call echo desk");
         var flowing = await browser.WaitForAsync("document.body.innerText.includes('Media is flowing')", TimeSpan.FromSeconds(30));
         await browser.WaitForAsync("document.querySelectorAll('.jack.live').length === 6", TimeSpan.FromSeconds(20));
+
+        // The data channel: type a line and wait for the desk to answer on it (RFC 8831 over SCTP/DTLS).
+        var chatOpen = await browser.WaitForAsync("document.querySelector('.chat-send input:not([disabled])') !== null", TimeSpan.FromSeconds(20));
+        await browser.TypeAsync(".chat-send input", "halo dari browser");
+        await browser.ClickTextAsync(".chat-send button", "Send");
+        var answered = await browser.WaitForAsync("document.querySelectorAll('.chat-log li.gateway').length > 0", TimeSpan.FromSeconds(20));
         await Task.Delay(TimeSpan.FromSeconds(4));
         await browser.ScreenshotAsync(Path.Combine(output, $"webphone-call{suffix}.png"), fullPage: true);
 
@@ -85,11 +91,12 @@ switch (scenario)
         await browser.ClickTextAsync("button", "Hang up");
         await Task.Delay(TimeSpan.FromSeconds(2));
 
-        var ok = flowing && Number(received) > 50 && Number(live) == 6 && Number(videoBack) > 0;
+        var ok = flowing && Number(received) > 50 && Number(live) == 6 && Number(videoBack) > 0 && chatOpen && answered;
         Console.WriteLine($"video returned: {Number(videoBack)}px wide");
+        Console.WriteLine($"data channel: {(answered ? "the desk answered" : "no answer")}");
         Console.WriteLine(ok
             ? "interop: OK"
-            : $"interop: FAILED (flowing={flowing}, packets in={Number(received)}, live hops={Number(live)}, video width={Number(videoBack)})");
+            : $"interop: FAILED (flowing={flowing}, packets in={Number(received)}, live hops={Number(live)}, video width={Number(videoBack)}, chat open={chatOpen}, chat answered={answered})");
         return ok ? 0 : 1;
 
     default:

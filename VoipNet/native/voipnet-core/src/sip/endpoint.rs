@@ -19,10 +19,11 @@ use super::uri::{NameAddr, SipUri};
 use crate::codec::CodecKind;
 use crate::media::conference::{Conference, ConferenceLayout};
 use crate::media::dtls::{DtlsIdentity, DtlsRole};
+use crate::media::sctp::{MAX_MESSAGE_SIZE as MAX_DATA_MESSAGE, WEBRTC_PORT};
 use super::dns::{DnsTransport, Resolver};
 use crate::media::{AudioDirection, DtmfMode, DtmfSource, MediaConfig, MediaSession, MediaSink, MediaStats, NegotiatedMedia};
 use crate::net;
-use crate::sdp::{negotiate, CryptoAttr, Direction, MediaDescription, RtpMap, SessionDescription};
+use crate::sdp::{negotiate, static_rtpmap, CryptoAttr, Direction, MediaDescription, RtpMap, SessionDescription};
 use crate::srtp::SUITE_AES_CM_128_HMAC_SHA1_80;
 use crate::stun::Candidate;
 
@@ -99,6 +100,8 @@ pub struct EndpointConfig {
     pub audio_codecs: Vec<String>,
     /// Offer and accept a video stream alongside the audio one.
     pub video: bool,
+    /// Offer and accept data channels (RFC 8831) alongside the call. They need DTLS, which carries them.
+    pub data_channels: bool,
     pub video_codecs: Vec<String>,
     pub srtp: SrtpMode,
     pub srtp_keying: SrtpKeying,
@@ -161,6 +164,7 @@ impl Default for EndpointConfig {
             min_session_expires: 90,
             audio_codecs: vec!["opus".into(), "G722".into(), "PCMU".into(), "PCMA".into()],
             video: false,
+            data_channels: false,
             video_codecs: vec!["H264".into(), "VP8".into()],
             srtp: SrtpMode::Disabled,
             srtp_keying: SrtpKeying::Sdes,
@@ -225,6 +229,8 @@ pub trait EndpointHandler: Send + Sync {
     /// A complete video frame was received; `frame` is one H.264 access unit (Annex B) or VP8 frame,
     /// and `content` says which stream it came from (`main` or `slides`).
     fn on_video_frame(&self, _call_id: u64, _timestamp: u32, _keyframe: bool, _frame: &[u8], _content: &str) {}
+    /// A data channel message arrived on `stream`; `text` says whether the bytes are UTF-8 (RFC 8831).
+    fn on_data_message(&self, _call_id: u64, _stream: u16, _text: bool, _data: &[u8]) {}
 }
 
 enum Dispatch {
@@ -259,6 +265,9 @@ impl MediaSink for SinkAdapter {
         }
 
         self.handler.on_video_frame(call_id, timestamp, keyframe, frame, content);
+    }
+    fn on_data_message(&self, call_id: u64, stream: u16, text: bool, data: &[u8]) {
+        self.handler.on_data_message(call_id, stream, text, data);
     }
 }
 
@@ -390,6 +399,8 @@ struct Call {
     /// Video streams, in the order their m-lines appear: the camera first, a shared screen after it.
     /// Empty on an audio-only call.
     videos: Vec<VideoStream>,
+    /// The `m=application` stream carrying data channels, once one has been offered or accepted.
+    data: Option<Arc<MediaSession>>,
     remote_offer: Option<SessionDescription>,
     session_id: u64,
     session_version: u64,
@@ -428,6 +439,10 @@ impl Call {
                 session.stop();
             }
         }
+        if let Some(data) = self.data.take() {
+            data.stop();
+        }
+
         let media = self.media.take()?;
         self.final_stats = Some(media.stats());
         Some(media)
@@ -804,6 +819,41 @@ impl Endpoint {
         let st = self.inner.state.lock();
         let call = st.calls.get(&call_id).ok_or(EndpointError::NotFound)?;
         Ok(call.videos.iter().filter(|v| v.is_live()).map(|v| v.content.clone()).collect())
+    }
+
+    /// Opens a data channel on the call (RFC 8831). The label is what the peer sees; the channel is
+    /// usable once a `data-channel-open` media event names it, and messages sent before that are
+    /// refused rather than queued.
+    pub fn open_data_channel(&self, call_id: u64, label: &str) -> Result<()> {
+        self.inner.data_session(call_id)?.open_data_channel(label);
+        Ok(())
+    }
+
+    /// Sends a text message on an open channel.
+    pub fn send_data_text(&self, call_id: u64, stream: u16, text: &str) -> Result<()> {
+        if !self.inner.data_session(call_id)?.send_data_text(stream, text) {
+            return Err(EndpointError::InvalidState("the data channel is not open"));
+        }
+
+        Ok(())
+    }
+
+    /// Sends a binary message on an open channel.
+    pub fn send_data_binary(&self, call_id: u64, stream: u16, data: &[u8]) -> Result<()> {
+        if !self.inner.data_session(call_id)?.send_data_binary(stream, data) {
+            return Err(EndpointError::InvalidState("the data channel is not open"));
+        }
+
+        Ok(())
+    }
+
+    /// The call's open data channels, as (stream number, label). Empty when the call has none.
+    pub fn data_channels(&self, call_id: u64) -> Result<Vec<(u16, String)>> {
+        let session = {
+            let st = self.inner.state.lock();
+            st.calls.get(&call_id).ok_or(EndpointError::NotFound)?.data.clone()
+        };
+        Ok(session.map(|s| s.data_channels()).unwrap_or_default())
     }
 
     pub fn send_encoded(&self, call_id: u64, payload_type: u8, timestamp: u32, marker: bool, payload: &[u8]) -> Result<()> {
@@ -1331,6 +1381,7 @@ impl Inner {
             peer: dest,
             media: Some(media),
             videos: Vec::new(),
+            data: None,
             remote_offer: None,
             session_id: rand::random::<u32>() as u64,
             session_version: 1,
@@ -1355,6 +1406,7 @@ impl Inner {
             redirects: 0,
         };
         self.offer_video(&mut call);
+        self.offer_data(&mut call);
         let sdp = self.local_offer(&call, Direction::SendRecv);
         let mut req = self.base_request(Method::Invite, &uri.to_string(), &call.local_uri, &call.remote_uri, &sip_call_id, 1, &[]);
         if let Some(r) = replaces {
@@ -1425,6 +1477,11 @@ impl Inner {
 
             lines.push(line);
         }
+        if let Some(session) = &call.data {
+            let offered = answer_to.and_then(|o| o.media.iter().find(|m| m.media == "application"));
+            lines.push(self.data_line(session, answer_to, offered, &(call.videos.len() + 1).to_string()));
+        }
+
         let mut sdp = SessionDescription {
             origin_user: "voipnet".into(),
             session_id: call.session_id,
@@ -1524,6 +1581,161 @@ impl Inner {
             m.candidates = media.local_candidates().iter().map(Candidate::to_sdp).collect();
         }
         m
+    }
+
+    /// Builds the `m=application` line that carries data channels (RFC 8841). It reuses the ordinary
+    /// keying and ICE attributes, since the channel rides in a DTLS tunnel just like SRTP keying does.
+    fn data_line(
+        &self,
+        media: &Arc<MediaSession>,
+        answer_to: Option<&SessionDescription>,
+        offered: Option<&MediaDescription>,
+        default_mid: &str,
+    ) -> MediaDescription {
+        let mut m = self.media_line("application", media, Vec::new(), Direction::SendRecv, answer_to, offered, default_mid);
+        // No RTP here, so no payload types, no SDES key and nothing to multiplex RTCP with.
+        m.protocol = offered.map_or_else(|| "UDP/DTLS/SCTP".to_owned(), |o| o.protocol.clone());
+        m.formats.clear();
+        m.crypto.clear();
+        m.rtcp_mux = false;
+        m.ptime = None;
+        m.other_attributes.push(format!("sctp-port:{WEBRTC_PORT}"));
+        m.other_attributes.push(format!("max-message-size:{MAX_DATA_MESSAGE}"));
+        m
+    }
+
+    /// Adds a data channel stream to a call we are about to offer, when the configuration asks for one.
+    fn offer_data(&self, call: &mut Call) {
+        if !self.cfg.data_channels || call.data.is_some() {
+            return;
+        }
+
+        match self.new_data_media(call.id) {
+            Ok(session) => call.data = Some(session),
+            Err(e) => self.log("warn", format!("call {}: no data channel ({e})", call.id)),
+        }
+    }
+
+    /// Creates the stream behind `m=application`: its own socket, DTLS, and SCTP inside it.
+    fn new_data_media(&self, call_id: u64) -> Result<Arc<MediaSession>> {
+        let media = MediaSession::new(call_id, self.media_cfg.clone(), self.sink.clone())?;
+        if media.enable_dtls().is_none() {
+            media.stop();
+            return Err(EndpointError::InvalidArgument("data channels need a DTLS certificate".into()));
+        }
+
+        media.enable_data_channels();
+        Ok(media)
+    }
+
+    /// The payload type a data stream carries in its negotiated media. Nothing is ever sent with it:
+    /// the stream is inactive and everything travels inside DTLS, but the media session wants a codec.
+    fn data_codec(&self) -> RtpMap {
+        self.supported_audio.first().cloned().unwrap_or_else(|| static_rtpmap(0).expect("PCMU is a static payload type"))
+    }
+
+    /// Negotiates the `m=application` line of an offer we are answering.
+    ///
+    /// Returns what to apply to the data stream, or nothing when the offer has no data channel we can
+    /// take — in which case the answer rejects that m-line with port 0.
+    fn negotiate_data_offer(&self, offer: &SessionDescription, call: &mut Call) -> (Option<NegotiatedMedia>, Vec<Event>) {
+        let mut events = Vec::new();
+        let offered = offer
+            .media
+            .iter()
+            .find(|m| m.media == "application" && m.protocol.to_ascii_uppercase().contains("SCTP") && m.port != 0);
+        let Some(offered) = offered.filter(|_| self.cfg.data_channels) else {
+            if let Some(session) = call.data.take() {
+                session.stop();
+                events.push(Event::MediaEvent { call_id: call.id, kind: "data-channel".into(), detail: "stopped".into() });
+            }
+
+            return (None, events);
+        };
+
+        if call.data.is_none() {
+            match self.new_data_media(call.id) {
+                Ok(session) => call.data = Some(session),
+                Err(e) => {
+                    self.log("warn", format!("call {}: no data channel ({e})", call.id));
+                    return (None, events);
+                }
+            }
+        }
+
+        // The role goes on the session before the answer is built, since the answer has to state it
+        // (RFC 5763 5): an offer of actpass is answered with active, which is also the SCTP client.
+        let session = call.data.clone().expect("the data stream was just created");
+        session.set_dtls_role(match offered.setup.as_deref() {
+            Some("active") => DtlsRole::Server,
+            _ => DtlsRole::Client,
+        });
+        let remote_ip = offer.rtp_address(offered).and_then(|a| a.parse::<IpAddr>().ok());
+        let n = NegotiatedMedia {
+            remote: remote_ip.map(|ip| SocketAddr::new(ip, offered.port)).filter(|a| !a.ip().is_unspecified()),
+            codec: self.data_codec(),
+            dtmf: None,
+            // Nothing is sent or received as RTP on this stream: everything rides inside DTLS.
+            direction: Direction::Inactive,
+            remote_srtp_key: None,
+            remote_ice_ufrag: offered.ice_ufrag.clone().or_else(|| offer.ice_ufrag.clone()),
+            remote_ice_pwd: offered.ice_pwd.clone().or_else(|| offer.ice_pwd.clone()),
+            ice_controlling: false,
+            remote_candidates: offered.candidates.iter().filter_map(|c| Candidate::parse(c)).collect(),
+            ptime_ms: None,
+            remote_fingerprint: offered.fingerprint.clone().or_else(|| offer.fingerprint.clone()),
+            dtls_role: session.dtls_role(),
+        };
+        (Some(n), events)
+    }
+
+    /// Applies negotiated parameters to the data stream, which starts DTLS and then SCTP.
+    fn apply_data(&self, call: &mut Call, n: &NegotiatedMedia) -> Vec<Event> {
+        let Some(session) = call.data.clone() else { return Vec::new() };
+        if let Err(e) = session.apply(n) {
+            call.data = None;
+            session.stop();
+            return vec![Event::Log { level: "error", message: format!("call {}: data channel {e}", call.id) }];
+        }
+
+        vec![Event::MediaEvent { call_id: call.id, kind: "data-channel".into(), detail: "negotiated".into() }]
+    }
+
+    /// Reads the answer to our `m=application` line and applies it, or drops the stream when refused.
+    fn apply_data_answer(&self, call: &mut Call, answer: &SessionDescription) -> Vec<Event> {
+        if call.data.is_none() {
+            return Vec::new();
+        }
+
+        let answered = answer
+            .media
+            .iter()
+            .find(|m| m.media == "application" && m.port != 0 && m.protocol.to_ascii_uppercase().contains("SCTP"));
+        let remote_ip = answered.and_then(|a| answer.rtp_address(a)).and_then(|a| a.parse::<IpAddr>().ok());
+        let (Some(answered), Some(remote_ip)) = (answered, remote_ip) else {
+            if let Some(session) = call.data.take() {
+                session.stop();
+                return vec![Event::MediaEvent { call_id: call.id, kind: "data-channel".into(), detail: "declined".into() }];
+            }
+
+            return Vec::new();
+        };
+
+        let n = NegotiatedMedia {
+            remote: Some(SocketAddr::new(remote_ip, answered.port)).filter(|a| !a.ip().is_unspecified()),
+            codec: self.data_codec(),
+            dtmf: None,
+            direction: Direction::Inactive,
+            remote_srtp_key: None,
+            remote_ice_ufrag: answered.ice_ufrag.clone().or_else(|| answer.ice_ufrag.clone()),
+            remote_ice_pwd: answered.ice_pwd.clone().or_else(|| answer.ice_pwd.clone()),
+            ice_controlling: true,
+            remote_candidates: answered.candidates.iter().filter_map(|c| Candidate::parse(c)).collect(),
+            ptime_ms: None,
+            remote_fingerprint: answered.fingerprint.clone().or_else(|| answer.fingerprint.clone()),
+            dtls_role: Some(if answered.setup.as_deref() == Some("active") { DtlsRole::Server } else { DtlsRole::Client }),
+        };
+        self.apply_data(call, &n)
     }
 
     /// Negotiates an incoming offer. Returns (formats for answer, negotiated media) or a SIP error code.
@@ -1849,6 +2061,13 @@ impl Inner {
         }
     }
 
+    /// The session carrying the call's data channels.
+    fn data_session(&self, call_id: u64) -> Result<Arc<MediaSession>> {
+        let st = self.state.lock();
+        let call = st.calls.get(&call_id).ok_or(EndpointError::NotFound)?;
+        call.data.clone().ok_or(EndpointError::InvalidState("the call has no data channel"))
+    }
+
     /// The session behind one of a call's video streams, by what it shows.
     fn video_session(&self, call_id: u64, content: &str) -> Result<Arc<MediaSession>> {
         let st = self.state.lock();
@@ -1955,12 +2174,19 @@ impl Inner {
                 Some(offer) => match self.negotiate_offer(&offer, &media) {
                     Ok((formats, negotiated)) => {
                         let (videos, video_events) = self.negotiate_video_offers(&offer, call);
+                        let (data, data_events) = self.negotiate_data_offer(&offer, call);
                         let sdp = self.build_sdp(call, &media, formats, negotiated.direction, Some(&offer));
                         events.extend(self.apply_media(call, &negotiated));
                         events.extend(video_events);
                         for (index, video) in videos {
                             events.extend(self.apply_video(call, index, &video));
                         }
+
+                        events.extend(data_events);
+                        if let Some(data) = data {
+                            events.extend(self.apply_data(call, &data));
+                        }
+
                         sdp
                     }
                     Err(code) => {
@@ -2399,6 +2625,8 @@ a=candidate:{candidate}
                                 }
                                 let video = self.apply_video_answer(call, &sdp);
                                 events.extend(video);
+                                let data = self.apply_data_answer(call, &sdp);
+                                events.extend(data);
                             }
                         }
                     }
@@ -2612,6 +2840,7 @@ a=candidate:{candidate}
             peer: from,
             media: Some(media),
             videos: Vec::new(),
+            data: None,
             remote_offer: offer.clone(),
             session_id: rand::random::<u32>() as u64,
             session_version: 1,
@@ -2711,12 +2940,19 @@ a=candidate:{candidate}
                     };
                     call.session_version += 1;
                     let (videos, video_events) = self.negotiate_video_offers(&offer, call);
+                    let (data, data_events) = self.negotiate_data_offer(&offer, call);
                     let sdp = self.build_sdp(call, &media, formats, negotiated.direction, Some(&offer));
                     events.extend(self.apply_media(call, &negotiated));
                     events.extend(video_events);
                     for (index, video) in videos {
                         events.extend(self.apply_video(call, index, &video));
                     }
+
+                    events.extend(data_events);
+                    if let Some(data) = data {
+                        events.extend(self.apply_data(call, &data));
+                    }
+
                     resp.set_body("application/sdp", sdp.into_bytes());
                     if remote_hold != call.remote_hold {
                         call.remote_hold = remote_hold;
@@ -2847,6 +3083,8 @@ a=candidate:{candidate}
                                         events.extend(self.apply_media(call, &n));
                                     }
                                     let video = self.apply_video_answer(call, &sdp);
+                                    let data = self.apply_data_answer(call, &sdp);
+                                    events.extend(data);
                                     events.extend(video);
                                 }
                                 let new_state = if call.local_hold { CallState::OnHold } else if call.remote_hold { CallState::RemoteHold } else { CallState::Connected };
@@ -3041,6 +3279,8 @@ a=candidate:{candidate}
                 }
                 if let Some(answer) = answer.as_ref() {
                     let video = self.apply_video_answer(call, answer);
+                    let data = self.apply_data_answer(call, answer);
+                    events.extend(data);
                     events.extend(video);
                 }
                 self.session_timer_from_answer(call, resp);
@@ -3399,6 +3639,7 @@ mod tests {
         audio_frames: AtomicU32,
         dtmf: Mutex<String>,
         video: Mutex<Vec<(u32, bool, Vec<u8>, String)>>,
+        data: Mutex<Vec<(u16, bool, Vec<u8>)>>,
     }
 
     impl EndpointHandler for Recorder {
@@ -3416,6 +3657,9 @@ mod tests {
         fn on_encoded(&self, _: u64, _: u8, _: u32, _: bool, _: &[u8]) {}
         fn on_video_frame(&self, _: u64, timestamp: u32, keyframe: bool, frame: &[u8], content: &str) {
             self.video.lock().push((timestamp, keyframe, frame.to_vec(), content.to_owned()));
+        }
+        fn on_data_message(&self, _: u64, stream: u16, text: bool, data: &[u8]) {
+            self.data.lock().push((stream, text, data.to_vec()));
         }
     }
 
@@ -3457,6 +3701,15 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(20));
             }
             self.video.lock().clone()
+        }
+
+        /// Waits for at least `min` data channel messages and returns the ones received.
+        fn wait_data(&self, min: usize, timeout_ms: u64) -> Vec<(u16, bool, Vec<u8>)> {
+            let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+            while self.data.lock().len() < min && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            self.data.lock().clone()
         }
 
         /// Waits until the received DTMF digits equal `expected`; returns what arrived.
@@ -4054,6 +4307,49 @@ m=audio {} RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n",
         let d = Endpoint::start(EndpointConfig { tls_verify_server: false, ..tls_cfg("dave") }, rd.clone()).unwrap();
         d.make_call(&target).unwrap();
         rb.wait_for_incoming(3000, 0).expect("unverified connection reaches bob");
+    }
+
+    #[test]
+    fn a_data_channel_carries_messages_both_ways() {
+        // Data channels ride in their own DTLS tunnel beside the call (RFC 8831), so both endpoints
+        // need DTLS keying; the answerer takes the active role and opens the SCTP association.
+        let with_data =
+            |user: &str| EndpointConfig { data_channels: true, srtp: SrtpMode::Mandatory, srtp_keying: SrtpKeying::Dtls, ..cfg(user) };
+        let (a, ra, b, rb) = pair(with_data("alice"), with_data("bob"));
+        let (a_call, b_call) = establish(&a, &b, &rb, &ra);
+
+        for (recorder, who) in [(&ra, "caller"), (&rb, "callee")] {
+            recorder
+                .wait_for(5000, |e| matches!(e, Event::MediaEvent { kind, detail, .. } if kind == "data-channel" && detail == "negotiated"))
+                .unwrap_or_else(|| panic!("{who} negotiated a data channel"));
+        }
+
+        // Asked for before the association is up: the label is queued and opened once it is.
+        a.open_data_channel(a_call, "chat").unwrap();
+        for (recorder, who) in [(&ra, "caller"), (&rb, "callee")] {
+            recorder
+                .wait_for(10000, |e| matches!(e, Event::MediaEvent { kind, detail, .. } if kind == "data-channel-open" && detail.ends_with("chat")))
+                .unwrap_or_else(|| panic!("{who} sees the channel open"));
+        }
+
+        let channels = a.data_channels(a_call).unwrap();
+        assert_eq!(channels.len(), 1, "one channel, labelled by the application");
+        let (stream, label) = channels[0].clone();
+        assert_eq!(label, "chat");
+        assert_eq!(b.data_channels(b_call).unwrap(), vec![(stream, "chat".to_owned())]);
+
+        a.send_data_text(a_call, stream, "halo dunia").unwrap();
+        let received = rb.wait_data(1, 5000);
+        assert_eq!(received.first().map(|(s, t, d)| (*s, *t, String::from_utf8_lossy(d).into_owned())), Some((stream, true, "halo dunia".to_owned())));
+
+        // And back the other way, on the same stream.
+        let payload: Vec<u8> = (0..3000).map(|i| (i % 251) as u8).collect();
+        b.send_data_binary(b_call, stream, &payload).unwrap();
+        let received = ra.wait_data(1, 5000);
+        assert_eq!(received.first().map(|(s, t, d)| (*s, *t, d.clone())), Some((stream, false, payload)));
+
+        a.hangup(a_call).unwrap();
+        rb.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("callee terminated");
     }
 
     #[test]

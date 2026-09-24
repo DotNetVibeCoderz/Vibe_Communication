@@ -10,7 +10,6 @@ SIP over TLS and WebSocket, DTLS-SRTP, the full ICE agent with trickle and resta
 
 - Firefox on hosted CI runners: the call is signalled but ICE never completes there, while the same build works on a desktop; Chrome gates every CI build today. · Firefox di runner CI.
 - Safari interop (no macOS machine here to try it). · Interop Safari.
-- **Data channels** (SCTP over DTLS, RFC 8831) for chat and file transfer next to calls. · Data channel untuk chat dan transfer file.
 
 ## 1.2 — Codecs and media · Codec dan media
 

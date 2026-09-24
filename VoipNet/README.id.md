@@ -47,7 +47,7 @@ await call.HangupAsync();
 | Codec: Opus (48 kHz, FEC in-band), G.722, G.711 μ-law/A-law, L16 (native) · G.729, SILK, Speex, H.264, VP8, VP9 (dinegosiasikan sebagai pass-through) | ✅ / pass-through |
 | DTMF: RFC 4733, SIP INFO, pembangkitan dan deteksi in-band | ✅ |
 | SRTP: AES-CM-128-HMAC-SHA1-80, AEAD-AES-128/256-GCM; kunci lewat SDES atau DTLS-SRTP | ✅ |
-| Browser WebRTC menelepon SIP (SIP over WebSocket, ICE, DTLS-SRTP), diverifikasi dengan Edge dan Firefox | ✅ · data channel direncanakan |
+| Browser WebRTC menelepon SIP (SIP over WebSocket, ICE, DTLS-SRTP, kanal data), diverifikasi dengan Edge dan Firefox | ✅ |
 | ICE (RFC 8445): pasangan kandidat, nominasi, konflik peran, kandidat peer-reflexive, trickle ICE, ICE restart, consent freshness · STUN, TURN | ✅ |
 | Konferensi dengan mix-minus | ✅ |
 | Rekaman WAV/MP3, stereo atau mono | ✅ |
@@ -68,7 +68,7 @@ Daftar lengkap, termasuk yang masih direncanakan, ada di [PLAN.md](PLAN.md) dan 
 | [VoipNet.Gallery](samples/VoipNet.Gallery) | Desktop Avalonia | Setiap fitur SDK sebagai demo langsung beserta kode C#-nya. |
 | [VoipNet.CallCenter](samples/VoipNet.CallCenter) | Blazor Server | Wallboard: antrean, agen, kualitas panggilan langsung, rekaman, supervisor AI. |
 | [VoipNet.IvrStudio](samples/VoipNet.IvrStudio) | Blazor Server | Rancang IVR, telepon dari browser, serahkan penelepon ke agen AI. |
-| [VoipNet.WebPhone](samples/VoipNet.WebPhone) | Blazor Server | Gateway WebRTC: browser menelepon lewat SIP WebSocket dan DTLS-SRTP, dijembatani ke telepon SIP via UDP. |
+| [VoipNet.WebPhone](samples/VoipNet.WebPhone) | Blazor Server | Gateway WebRTC: browser menelepon lewat SIP WebSocket dan DTLS-SRTP, dengan video dan kanal data, dijembatani ke telepon SIP via UDP. |
 | [VoipNet.RealtimeAgent](samples/VoipNet.RealtimeAgent) | Console | Agen AI yang menjawab panggilan SIP (pipeline atau model realtime). |
 
 | | |

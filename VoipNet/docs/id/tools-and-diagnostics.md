@@ -175,9 +175,11 @@ Gateway WebRTC dalam satu mesin. Script halaman adalah client SIP over WebSocket
 
 Centang **Send video too** dan kamera ikut melewati jalur terenkripsi yang sama: engine merakit
 kembali frame-nya, gateway langsung mengirimkannya balik, dan gambar yang kembali diputar di bawah meter.
-Video berarti satu transport per baris media, bukan BUNDLE, karena setiap stream punya port sendiri di
-sini — jadi halamannya meminta `max-compat` ke browser saat video aktif. Uji interop di CI berjalan
-dengan kamera palsu dan gagal bila video tidak ikut kembali.
+Di bawahnya ada kanal data panggilan: ketik satu baris dan meja menjawabnya di sana — SCTP di dalam
+terowongan DTLS-nya sendiri (RFC 8831), berdampingan dengan media. Setiap baris media memakai transport
+sendiri, bukan BUNDLE, karena setiap stream punya port sendiri di sini — jadi halamannya meminta
+`max-compat` ke browser. Uji interop di CI berjalan dengan kamera palsu dan gagal bila video serta
+jawaban di kanal data tidak ikut kembali.
 
 ### Realtime Agent (console)
 
@@ -190,7 +192,7 @@ Atur provider di `appsettings.json` (`AI:Chat`, `AI:SpeechToText`, `AI:TextToSpe
 
 ### Screenshot dokumentasi
 
-`tools/VoipNet.DocShots` mengendalikan Edge/Chrome headless (DevTools protocol) atau Firefox (WebDriver BiDi, `--firefox [path]`) untuk menangkap sample Blazor. Skenario `webphone` sekaligus menjadi uji interop browser: mencetak statistik WebRTC dari browser dan keluar dengan kode 1 bila panggilan tidak membawa audio terenkripsi dua arah.
+`tools/VoipNet.DocShots` mengendalikan Edge/Chrome headless (DevTools protocol) atau Firefox (WebDriver BiDi, `--firefox [path]`) untuk menangkap sample Blazor. Skenario `webphone` sekaligus menjadi uji interop browser: mencetak statistik WebRTC dari browser dan keluar dengan kode 1 bila panggilan tidak membawa audio terenkripsi, video, dan satu pesan kanal data dua arah.
 
 ```bash
 dotnet run --project tools/VoipNet.DocShots -- ivrstudio http://127.0.0.1:5209 docs/images

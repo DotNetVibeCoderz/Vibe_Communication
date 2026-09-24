@@ -215,7 +215,12 @@ impl SessionDescription {
         }
         for m in &self.media {
             let pts: Vec<String> = m.formats.iter().map(|f| f.payload_type.to_string()).collect();
-            let _ = write!(s, "m={} {} {} {}\r\n", m.media, m.port, m.protocol, pts.join(" "));
+            // A data channel line names the SCTP application rather than payload types (RFC 8841).
+            let formats = match (m.media.as_str(), pts.is_empty()) {
+                ("application", true) => "webrtc-datachannel".to_owned(),
+                _ => pts.join(" "),
+            };
+            let _ = write!(s, "m={} {} {} {}\r\n", m.media, m.port, m.protocol, formats);
             if let Some(c) = &m.connection {
                 let _ = write!(s, "c=IN {} {c}\r\n", ip_kind(c));
             }

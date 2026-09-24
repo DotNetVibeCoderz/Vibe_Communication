@@ -136,6 +136,7 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
             OnDtmf = &NativeCallbacks.OnDtmf,
             OnEncoded = &NativeCallbacks.OnEncoded,
             OnVideo = &NativeCallbacks.OnVideo,
+            OnData = &NativeCallbacks.OnData,
             UserData = GCHandle.ToIntPtr(_self),
         };
 
@@ -386,6 +387,42 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
         }
     }
 
+    internal void OpenDataChannel(ulong id, string label) =>
+        Check(NativeMethods.OpenDataChannel(_handle, id, label), "open the data channel");
+
+    internal unsafe void SendDataMessage(ulong id, ushort stream, bool text, ReadOnlySpan<byte> data)
+    {
+        fixed (byte* bytes = data)
+        {
+            // An empty message is legal (RFC 8831 6.6), and a null pointer is not: point at the span.
+            var pointer = bytes is null ? (byte*)1 : bytes;
+            Check(NativeMethods.SendDataMessage(_handle, id, stream, text ? 1 : 0, pointer, data.Length), "send the data channel message");
+        }
+    }
+
+    internal unsafe DataChannel[] DataChannels(ulong id)
+    {
+        var buffer = stackalloc byte[512];
+        Check(NativeMethods.DataChannels(_handle, id, buffer, 512), "read the data channels");
+        var channels = Marshal.PtrToStringUTF8((nint)buffer);
+        if (string.IsNullOrEmpty(channels))
+        {
+            return [];
+        }
+
+        var open = new List<DataChannel>();
+        foreach (var entry in channels.Split(','))
+        {
+            var split = entry.IndexOf(':');
+            if (split > 0 && ushort.TryParse(entry[..split], out var stream))
+            {
+                open.Add(new DataChannel(stream, entry[(split + 1)..]));
+            }
+        }
+
+        return [.. open];
+    }
+
     internal void ShareScreen(ulong id, bool on) =>
         Check(NativeMethods.ShareScreen(_handle, id, on ? 1 : 0), on ? "start the screen share" : "stop the screen share");
 
@@ -416,6 +453,14 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
         if (_calls.TryGetValue(callId, out var call))
         {
             call.RaiseVideoFrame(timestamp, keyframe, new ReadOnlySpan<byte>(data, length), content);
+        }
+    }
+
+    internal unsafe void HandleDataMessage(ulong callId, ushort stream, bool text, byte* data, int length)
+    {
+        if (_calls.TryGetValue(callId, out var call))
+        {
+            call.RaiseDataMessage(stream, text, new ReadOnlySpan<byte>(data, length));
         }
     }
 

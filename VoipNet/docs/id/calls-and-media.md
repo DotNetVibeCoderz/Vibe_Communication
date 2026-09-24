@@ -105,6 +105,47 @@ client.MediaNotification += (_, e) =>
 Estimasi bandwidth dan penangkapan kamera belum ada — lihat
 [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
 
+## Kanal data
+
+Setel `DataChannels = true` dan panggilan menawarkan stream `m=application` di samping audio: SCTP di
+dalam terowongan DTLS-nya sendiri (RFC 8831/8832), persis yang dipakai `RTCDataChannel` di browser.
+Fitur ini butuh `SrtpKeying.Dtls`, karena terowongan DTLS itulah yang membawanya.
+
+```csharp
+var options = new VoipClientOptions
+{
+    DataChannels = true,
+    Srtp = SrtpMode.Mandatory,
+    SrtpKeying = SrtpKeying.Dtls,
+};
+
+call.OpenDataChannel("chat");                  // diantrikan sampai asosiasi siap, lalu dibuka
+client.MediaNotification += (_, e) =>
+{
+    if (e.Kind == "data-channel-open")
+    {
+        Console.WriteLine(e.Detail);           // "0 chat" — nomor stream dan label
+    }
+};
+
+call.DataMessageReceived += (c, stream, text, data) =>
+{
+    Console.WriteLine(text ? Encoding.UTF8.GetString(data) : $"{data.Length} byte");
+};
+
+var channel = call.DataChannels[0];            // nomor stream dan label, setelah terbuka
+call.SendData(channel.Stream, "halo dunia");   // teks
+call.SendData(channel.Stream, fileBytes);      // biner, dipecah dan disusun ulang untuk lawan bicara
+```
+
+Kanal bersifat reliable dan berurutan; pesan sampai 256 KB dipecah ke beberapa paket SCTP lalu disusun
+kembali di sisi penerima. Sisi yang membuka DTLS memakai nomor stream genap dan sisi lain ganjil,
+sehingga kedua ujung bisa membuka kanal tanpa menyepakati nomor lebih dulu. `samples/VoipNet.WebPhone`
+mengirim satu baris teks dari browser ke gateway dan kembali lagi, berdampingan dengan audio dan video.
+
+Reliabilitas parsial (`maxRetransmits`, `maxPacketLifeTime`) dan pengiriman tak berurutan belum ada:
+setiap kanal reliable dan berurutan.
+
 ## Session timer dan provisional reliable
 
 Panggilan memakai session timer (RFC 4028) secara bawaan: `Session-Expires: 1800`, diperbarui lewat

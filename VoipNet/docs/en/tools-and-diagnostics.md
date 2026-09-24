@@ -185,10 +185,12 @@ Edit menus, options and AI instructions; see the call path; press keys on a phon
 A WebRTC gateway on one machine. The page's script is a small SIP-over-WebSocket client: it calls the gateway endpoint (`ws://host:5090`) with an `RTCPeerConnection` offer, and the gateway answers with ICE and DTLS-SRTP, then relays the audio to an ordinary SIP/UDP call to a desk phone (an echo or a tone player). The signal path at the top lights up hop by hop; both legs show codec, encryption, packets and MOS, next to what the browser itself reports from `getStats()`.
 
 Tick **Send video too** and the camera goes over the same encrypted path: the engine reassembles the
-frames, the gateway sends them straight back, and the returned picture plays under the meters. Video
-means one transport per media line rather than BUNDLE, since each stream has its own port here, so the
-page asks the browser for `max-compat` when video is on. The CI interop test runs with a fake camera and
-fails unless the video comes back as well as the audio.
+frames, the gateway sends them straight back, and the returned picture plays under the meters. Under it
+sits the call's data channel: type a line and the desk answers on it, which is SCTP inside its own DTLS
+tunnel (RFC 8831) beside the media. Each media line gets its own transport rather than BUNDLE, since
+every stream has its own port here, so the page asks the browser for `max-compat`. The CI interop test
+runs with a fake camera and fails unless the video and the channel's answer come back as well as the
+audio.
 
 ### Realtime Agent (console)
 
@@ -201,7 +203,7 @@ Configure providers in `appsettings.json` (`AI:Chat`, `AI:SpeechToText`, `AI:Tex
 
 ### Documentation screenshots
 
-`tools/VoipNet.DocShots` drives headless Edge/Chrome (DevTools protocol) or Firefox (WebDriver BiDi, `--firefox [path]`) to capture the Blazor samples. The `webphone` scenario is also a browser interop test: it prints the browser's WebRTC statistics and exits with 1 when the call does not carry encrypted audio both ways.
+`tools/VoipNet.DocShots` drives headless Edge/Chrome (DevTools protocol) or Firefox (WebDriver BiDi, `--firefox [path]`) to capture the Blazor samples. The `webphone` scenario is also a browser interop test: it prints the browser's WebRTC statistics and exits with 1 when the call does not carry encrypted audio, video and a data channel message both ways.
 
 ```bash
 dotnet run --project tools/VoipNet.DocShots -- ivrstudio http://127.0.0.1:5209 docs/images

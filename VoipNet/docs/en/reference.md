@@ -26,6 +26,7 @@
 | `SessionExpires`, `MinSessionExpires` | `1800`, `90` | Session timer (RFC 4028) in seconds; `0` leaves it out. The refresher re-INVITEs halfway through, and an unrefreshed call is hung up. |
 | `ReliableProvisional` | `true` | Answer callers that support 100rel with reliable provisionals (RFC 3262); callers that require it always get them. |
 | `Video`, `VideoCodecs` | `false`, `H264, VP8` | Offer an `m=video` stream next to audio; the application encodes the frames. |
+| `DataChannels` | `false` | Offer an `m=application` stream for data channels (RFC 8831); needs `SrtpKeying.Dtls`. |
 | `Srtp` | `Disabled` | `Disabled`, `Optional`, `Mandatory`. |
 | `SrtpKeying` | `Sdes` | `Sdes` (`a=crypto`) or `Dtls` (DTLS-SRTP with ICE, as WebRTC uses). Incoming offers may use either. |
 | `DtmfMode` | `Rfc4733` | `Rfc4733`, `InBand`, `SipInfo`. |

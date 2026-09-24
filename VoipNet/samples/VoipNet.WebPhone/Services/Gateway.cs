@@ -44,6 +44,11 @@ public sealed class Bridge
     /// <summary>True once video has arrived from the browser, so the page can say so.</summary>
     public bool VideoSeen { get; internal set; }
 
+    /// <summary>Messages exchanged on the call's data channel, oldest first.</summary>
+    public IReadOnlyList<string> Messages => _messages;
+
+    internal readonly List<string> _messages = [];
+
     public bool Ended => BrowserLeg.State == CallState.Terminated;
 
     public CallStatistics? BrowserStats => Stats(BrowserLeg);
@@ -113,6 +118,8 @@ public sealed class Gateway(ILogger<Gateway> logger) : IHostedService, IAsyncDis
             Ice = true,
             // A browser that offers video gets it back: the gateway echoes the frames it reassembles.
             Video = true,
+            // Chat beside the call: SCTP data channels inside their own DTLS tunnel (RFC 8831).
+            DataChannels = true,
             UserAgent = "Voip.NET WebRTC gateway",
         });
 
@@ -180,6 +187,33 @@ public sealed class Gateway(ILogger<Gateway> logger) : IHostedService, IAsyncDis
             {
                 // The browser hung up between frames.
             }
+        };
+
+        // The desk answers what the browser types, so the data channel is shown working end to end.
+        browserLeg.DataMessageReceived += (call, stream, text, data) =>
+        {
+            if (!text)
+            {
+                return;
+            }
+
+            var message = System.Text.Encoding.UTF8.GetString(data);
+            lock (bridge._messages)
+            {
+                bridge._messages.Add(message);
+            }
+
+            Log(Hop.Bridge, $"data channel message: {message}");
+            try
+            {
+                call.SendData(stream, $"{desk} desk heard: {message}");
+            }
+            catch (VoipException)
+            {
+                // The browser closed the channel between messages.
+            }
+
+            Changed?.Invoke();
         };
 
         // Relay decoded audio in both directions; the engine resamples and paces each leg.

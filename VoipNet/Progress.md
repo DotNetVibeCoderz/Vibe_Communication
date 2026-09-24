@@ -65,7 +65,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | STUN, TURN allocation / permissions / send-data | ✅ | |
 | SRTP AES_CM_128_HMAC_SHA1_80 and AEAD_AES_128/256_GCM (RFC 7714) | ✅ | SDES or DTLS keys · kunci SDES atau DTLS |
 | DTLS-SRTP (RFC 5763/5764) | ✅ | dimpl DTLS 1.2 (pure Rust), fingerprint check, `a=setup` roles, no plain RTP before keys · tanpa RTP polos sebelum kunci siap |
-| Data channels (SCTP) | ⏳ | |
+| Data channels (SCTP over DTLS, RFC 8831/8832) | ✅ | `media/sctp.rs`, sans-IO with unit tests: association, ordered reliable DATA with SACK and retransmission, fragmentation, DCEP. `m=application` beside the call, verified against Edge (a line of text from the browser and back) on every CI build. Partial reliability and unordered delivery not implemented · kanal data SCTP di dalam DTLS
 | Browser video interop | ✅ | the WebPhone sample sends camera video over DTLS-SRTP; the gateway echoes the reassembled frames and the browser decodes them again (Edge: VP8 320×240, 64 frames out and back). Checked on every CI build · video kamera dari browser diuji pada setiap build CI |
 | Browser interop | ✅ | Chrome/Edge and Firefox verified on a desktop; Chrome gates every CI build (`tools/VoipNet.DocShots webphone`) and the build fails unless encrypted audio flows both ways. Firefox on hosted runners signals the call but never finishes ICE there, so that step reports without failing. Safari not tested (no macOS machine) · diuji di setiap build CI; Safari belum diuji |
 

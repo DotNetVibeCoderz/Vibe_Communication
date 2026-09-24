@@ -104,6 +104,47 @@ client.MediaNotification += (_, e) =>
 Bandwidth estimation and camera capture are not implemented yet — see
 [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
 
+## Data channels
+
+Set `DataChannels = true` and the call offers an `m=application` stream beside the audio: SCTP inside
+its own DTLS tunnel (RFC 8831/8832), which is what a browser's `RTCDataChannel` speaks. It needs
+`SrtpKeying.Dtls`, because the DTLS tunnel is what carries it.
+
+```csharp
+var options = new VoipClientOptions
+{
+    DataChannels = true,
+    Srtp = SrtpMode.Mandatory,
+    SrtpKeying = SrtpKeying.Dtls,
+};
+
+call.OpenDataChannel("chat");                  // queued until the association is up, then opened
+client.MediaNotification += (_, e) =>
+{
+    if (e.Kind == "data-channel-open")
+    {
+        Console.WriteLine(e.Detail);           // "0 chat" — stream number and label
+    }
+};
+
+call.DataMessageReceived += (c, stream, text, data) =>
+{
+    Console.WriteLine(text ? Encoding.UTF8.GetString(data) : $"{data.Length} bytes");
+};
+
+var channel = call.DataChannels[0];            // stream number and label, once open
+call.SendData(channel.Stream, "halo dunia");   // text
+call.SendData(channel.Stream, fileBytes);      // binary, split and put back together for the peer
+```
+
+Channels are reliable and ordered, and messages up to 256 KB are fragmented across SCTP packets and
+reassembled at the other end. The side that opened DTLS uses even stream numbers and the other odd
+ones, so both ends can open channels without agreeing on numbers first. `samples/VoipNet.WebPhone`
+sends a line of text from the browser to the gateway and back, next to the audio and video.
+
+Partial reliability (`maxRetransmits`, `maxPacketLifeTime`) and unordered delivery are not
+implemented: every channel is reliable and ordered.
+
 ## Session timers and reliable provisionals
 
 Calls carry a session timer (RFC 4028) by default: `Session-Expires: 1800`, refreshed by a re-INVITE

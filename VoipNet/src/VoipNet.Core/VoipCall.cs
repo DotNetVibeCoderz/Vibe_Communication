@@ -99,6 +99,9 @@ public sealed class VoipCall
     /// <summary>Raised for every complete video frame received on the call's video stream.</summary>
     public event VideoFrameHandler? VideoFrameReceived;
 
+    /// <summary>Raised for every data channel message received on the call.</summary>
+    public event DataMessageHandler? DataMessageReceived;
+
     /// <summary>Raised when the call changes state.</summary>
     public event EventHandler<CallStateEventArgs>? StateChanged;
 
@@ -223,6 +226,26 @@ public sealed class VoipCall
     public void SendVideoFrame(uint timestamp, ReadOnlySpan<byte> frame, string content = "main") =>
         _client.SendVideoFrame(Id, timestamp, frame, content);
 
+    /// <summary>Opens a data channel on the call (RFC 8831). The channel is usable once it appears in
+    /// <see cref="DataChannels"/>, which happens after the peer acknowledges the label; asking for one
+    /// before the association is up is fine, it opens as soon as it is.</summary>
+    /// <param name="label">The name the peer sees, for instance <c>chat</c>.</param>
+    public void OpenDataChannel(string label) => _client.OpenDataChannel(Id, label);
+
+    /// <summary>Sends a text message on an open data channel.</summary>
+    /// <param name="stream">The channel, from <see cref="DataChannels"/>.</param>
+    /// <param name="message">The text; it travels as UTF-8.</param>
+    public void SendData(ushort stream, string message) =>
+        _client.SendDataMessage(Id, stream, true, System.Text.Encoding.UTF8.GetBytes(message));
+
+    /// <summary>Sends a binary message on an open data channel.</summary>
+    /// <param name="stream">The channel, from <see cref="DataChannels"/>.</param>
+    /// <param name="data">The bytes to send; large messages are split and put back together for the peer.</param>
+    public void SendData(ushort stream, ReadOnlySpan<byte> data) => _client.SendDataMessage(Id, stream, false, data);
+
+    /// <summary>The call's open data channels.</summary>
+    public IReadOnlyList<DataChannel> DataChannels => _client.DataChannels(Id);
+
     /// <summary>Offers a second video stream showing a screen (RFC 4796 <c>a=content:slides</c>). Send its
     /// frames with <c>SendVideoFrame(..., "slides")</c> once the peer accepts it.</summary>
     public void ShareScreen() => _client.ShareScreen(Id, true);
@@ -322,6 +345,9 @@ public sealed class VoipCall
 
     internal void RaiseVideoFrame(uint timestamp, bool keyframe, ReadOnlySpan<byte> frame, string content) =>
         VideoFrameReceived?.Invoke(this, timestamp, keyframe, frame, content);
+
+    internal void RaiseDataMessage(ushort stream, bool text, ReadOnlySpan<byte> data) =>
+        DataMessageReceived?.Invoke(this, stream, text, data);
 
     internal void RaiseEncoded(int payloadType, uint timestamp, bool marker, ReadOnlySpan<byte> payload) =>
         EncodedReceived?.Invoke(this, payloadType, timestamp, marker, payload);

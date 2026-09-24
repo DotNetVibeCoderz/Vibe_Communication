@@ -6,6 +6,7 @@ pub mod dtls;
 pub mod enhance;
 pub mod ice;
 pub mod resample;
+pub mod sctp;
 pub mod session;
 
 pub use session::{AudioDirection, DtmfMode, DtmfSource, MediaConfig, MediaSession, MediaSink, MediaStats, NegotiatedMedia};

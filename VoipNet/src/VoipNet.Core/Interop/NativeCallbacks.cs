@@ -85,6 +85,25 @@ internal static unsafe class NativeCallbacks
     }
 
     [UnmanagedCallersOnly]
+    internal static void OnData(nint user, ulong callId, ushort stream, int text, byte* data, int length)
+    {
+        var client = Resolve(user);
+        if (client is null || data is null || length < 0)
+        {
+            return;
+        }
+
+        try
+        {
+            client.HandleDataMessage(callId, stream, text != 0, data, length);
+        }
+        catch (Exception ex)
+        {
+            Swallow(ex);
+        }
+    }
+
+    [UnmanagedCallersOnly]
     internal static void OnEncoded(nint user, ulong callId, byte payloadType, uint timestamp, int marker, byte* data, int length)
     {
         var client = Resolve(user);

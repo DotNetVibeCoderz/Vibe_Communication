@@ -75,7 +75,7 @@ async function collectStats(pc) {
     return out;
 }
 
-/** Places a call through the gateway. `view` receives OnPhase(phase, detail) and OnStats(stats). */
+/** Places a call through the gateway. `view` receives OnPhase(phase, detail), OnStats(stats) and OnChat(from, text). */
 export async function call(view, wsUrl, desk, audioElement, videoElement, withVideo) {
     hangup();
     const host = new URL(wsUrl).host;
@@ -114,10 +114,15 @@ export async function call(view, wsUrl, desk, audioElement, videoElement, withVi
             state.ws.onerror = () => reject(new Error(`Could not open ${wsUrl}. Is the gateway running?`));
         });
 
-        // Voip.NET gives each media stream its own port, so audio and video cannot share a transport:
-        // with video the browser is asked for one transport per m-line.
-        const pc = state.pc = new RTCPeerConnection({ bundlePolicy: withVideo ? "max-compat" : "max-bundle" });
+        // Voip.NET gives each media stream its own port, so audio, video and the data channel cannot
+        // share a transport: the browser is asked for one transport per m-line.
+        const pc = state.pc = new RTCPeerConnection({ bundlePolicy: "max-compat" });
         state.stream.getTracks().forEach(t => pc.addTrack(t, state.stream));
+
+        // A data channel beside the call (RFC 8831): SCTP inside its own DTLS tunnel, for text.
+        const chat = state.chat = pc.createDataChannel("chat");
+        chat.onopen = () => report("chat-open");
+        chat.onmessage = e => view.invokeMethodAsync("OnChat", "gateway", String(e.data));
         pc.ontrack = e => {
             const element = e.track.kind === "video" ? videoElement : audioElement;
             if (!element) return;
@@ -199,6 +204,14 @@ function finish(state, report, reason, failed = false) {
     setTimeout(() => state.ws?.close(), 200);
     report(failed ? "failed" : "ended", reason);
     if (phone === state) phone = null;
+}
+
+/** Sends a line of text on the call's data channel. Returns false when it is not open yet. */
+export function sendChat(text) {
+    if (phone?.chat?.readyState !== "open") return false;
+    phone.chat.send(text);
+    phone.view.invokeMethodAsync("OnChat", "you", text);
+    return true;
 }
 
 /** Hangs up the current call, if any. */

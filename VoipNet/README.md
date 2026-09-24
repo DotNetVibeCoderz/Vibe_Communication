@@ -47,7 +47,7 @@ await call.HangupAsync();
 | Codecs: Opus (48 kHz, in-band FEC), G.722, G.711 μ-law/A-law, L16 (native) · G.729, SILK, Speex, H.264, VP8, VP9 (negotiated as pass-through) | ✅ / pass-through |
 | DTMF: RFC 4733, SIP INFO, in-band generation and detection | ✅ |
 | SRTP: AES-CM-128-HMAC-SHA1-80, AEAD-AES-128/256-GCM; keys via SDES or DTLS-SRTP | ✅ |
-| WebRTC browsers calling SIP (SIP over WebSocket, ICE, DTLS-SRTP), verified with Edge and Firefox | ✅ · data channels planned |
+| WebRTC browsers calling SIP (SIP over WebSocket, ICE, DTLS-SRTP, data channels), verified with Edge and Firefox | ✅ |
 | ICE (RFC 8445): candidate pairs, nomination, role conflicts, peer-reflexive candidates, trickle ICE, ICE restart, consent freshness · STUN, TURN | ✅ |
 | Conferencing with mix-minus | ✅ |
 | Recording WAV/MP3, stereo or mono | ✅ |
@@ -68,7 +68,7 @@ The full list, including what is planned, lives in [PLAN.md](PLAN.md) and [Progr
 | [VoipNet.Gallery](samples/VoipNet.Gallery) | Avalonia desktop | Every SDK feature as a live demo with its C#. |
 | [VoipNet.CallCenter](samples/VoipNet.CallCenter) | Blazor Server | Wallboard: queues, agents, live call quality, recordings, AI supervisor. |
 | [VoipNet.IvrStudio](samples/VoipNet.IvrStudio) | Blazor Server | Design an IVR, call it from the browser, hand the caller to an AI agent. |
-| [VoipNet.WebPhone](samples/VoipNet.WebPhone) | Blazor Server | WebRTC gateway: the browser calls over SIP WebSocket and DTLS-SRTP, bridged to a SIP phone over UDP. |
+| [VoipNet.WebPhone](samples/VoipNet.WebPhone) | Blazor Server | WebRTC gateway: the browser calls over SIP WebSocket and DTLS-SRTP, with video and a data channel, bridged to a SIP phone over UDP. |
 | [VoipNet.RealtimeAgent](samples/VoipNet.RealtimeAgent) | Console | An AI agent that answers SIP calls (pipeline or realtime model). |
 
 | | |

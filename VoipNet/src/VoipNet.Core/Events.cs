@@ -97,6 +97,18 @@ public enum ConferenceLayout
 /// <param name="content">Which stream it came from: <c>main</c> for the camera, <c>slides</c> for a shared screen.</param>
 public delegate void VideoFrameHandler(VoipCall call, uint timestamp, bool keyframe, ReadOnlySpan<byte> frame, string content);
 
+/// <summary>Handles a data channel message received on a call.</summary>
+/// <param name="call">The call the message arrived on.</param>
+/// <param name="stream">The channel it came in on, as listed by <c>VoipCall.DataChannels</c>.</param>
+/// <param name="text">True when the bytes are UTF-8 text, false when they are binary.</param>
+/// <param name="data">The message; it is only valid for the duration of the call to this handler.</param>
+public delegate void DataMessageHandler(VoipCall call, ushort stream, bool text, ReadOnlySpan<byte> data);
+
+/// <summary>An open data channel on a call.</summary>
+/// <param name="Stream">The SCTP stream number, used to send on the channel.</param>
+/// <param name="Label">The name the side that opened it chose.</param>
+public readonly record struct DataChannel(ushort Stream, string Label);
+
 /// <summary>Registration state change.</summary>
 /// <param name="State">New registration state.</param>
 /// <param name="StatusCode">SIP status code that caused the change.</param>
