@@ -17,7 +17,7 @@ public sealed class VideoRecordingTests
         Assert.Equal(RecordingFormat.Avi, recorder.Format);
 
         var received = 0;
-        pair.CalleeLeg.VideoFrameReceived += (_, _, _, _) => Interlocked.Increment(ref received);
+        pair.CalleeLeg.VideoFrameReceived += (_, _, _, _, _) => Interlocked.Increment(ref received);
 
         // Both directions talk, so the recorder has audio to pair, and the caller sends video.
         pair.CallerLeg.SendAudio(TestHelpers.Tone(16000, 1500), 16000);

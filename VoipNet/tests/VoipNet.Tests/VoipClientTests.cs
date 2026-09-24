@@ -9,18 +9,71 @@ public sealed class VoipClientTests
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
 
     [Fact]
+    public async Task AScreenShareArrivesAsItsOwnStream()
+    {
+        await using var pair = await LoopbackPair.ConnectAsync("presenter", "viewer", o => o.Video = true);
+        var frames = new List<(byte[] Data, string Content)>();
+        pair.CalleeLeg.VideoFrameReceived += (_, _, _, frame, content) =>
+        {
+            lock (frames)
+            {
+                frames.Add((frame.ToArray(), content));
+            }
+        };
+
+        pair.CallerLeg.ShareScreen();
+        await TestHelpers.WaitUntilAsync(
+            () => pair.CalleeLeg.VideoStreams.Contains("slides"),
+            TimeSpan.FromSeconds(10),
+            "the viewer sees the shared screen");
+
+        var screen = new byte[] { 0, 0, 0, 1, 0x67, 0x42, 0xE0, 0x1F, 0, 0, 0, 1, 0x65 }
+            .Concat(Enumerable.Range(0, 1200).Select(i => (byte)(i % 251 | 1)))
+            .ToArray();
+        for (var i = 0u; i < 10; i++)
+        {
+            pair.CallerLeg.SendVideoFrame(90000 + (i * 3000), screen, "slides");
+            await Task.Delay(100);
+            lock (frames)
+            {
+                if (frames.Count > 0)
+                {
+                    break;
+                }
+            }
+        }
+
+        lock (frames)
+        {
+            var (data, content) = Assert.Single(frames);
+            Assert.Equal("slides", content);
+            Assert.Equal(screen, data);
+        }
+
+        pair.CallerLeg.StopScreenShare();
+        await TestHelpers.WaitUntilAsync(
+            () => !pair.CallerLeg.VideoStreams.Contains("slides"),
+            TimeSpan.FromSeconds(10),
+            "the share is withdrawn");
+        Assert.Equal(["main"], pair.CallerLeg.VideoStreams);
+        Assert.True(pair.CallerLeg.IsActive, "the call carries on without the share");
+
+        await pair.CallerLeg.HangupAsync();
+    }
+
+    [Fact]
     public async Task VideoCallsCarryFramesAlongsideAudio()
     {
         await using var pair = await LoopbackPair.ConnectAsync("caller", "callee", o => o.Video = true);
         Assert.Equal("H264", pair.CallerLeg.VideoCodec);
         Assert.Equal("H264", pair.CalleeLeg.VideoCodec);
 
-        var received = new List<(uint Timestamp, bool Keyframe, byte[] Data)>();
-        pair.CalleeLeg.VideoFrameReceived += (_, timestamp, keyframe, frame) =>
+        var received = new List<(uint Timestamp, bool Keyframe, byte[] Data, string Content)>();
+        pair.CalleeLeg.VideoFrameReceived += (_, timestamp, keyframe, frame, content) =>
         {
             lock (received)
             {
-                received.Add((timestamp, keyframe, frame.ToArray()));
+                received.Add((timestamp, keyframe, frame.ToArray(), content));
             }
         };
 
@@ -41,7 +94,7 @@ public sealed class VoipClientTests
             }
         }
 
-        (uint Timestamp, bool Keyframe, byte[] Data) first;
+        (uint Timestamp, bool Keyframe, byte[] Data, string Content) first;
         lock (received)
         {
             Assert.NotEmpty(received);
@@ -50,6 +103,7 @@ public sealed class VoipClientTests
 
         Assert.True(first.Keyframe);
         Assert.Equal(keyframe, first.Data);
+        Assert.Equal("main", first.Content);
 
         // The receiver can ask for a fresh keyframe; the sender hears about it as a media notification.
         var requests = new ConcurrentQueue<string>();

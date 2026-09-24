@@ -369,19 +369,30 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
         }
     }
 
-    internal unsafe void SendVideoFrame(ulong id, uint timestamp, ReadOnlySpan<byte> frame)
+    internal unsafe void SendVideoFrame(ulong id, uint timestamp, ReadOnlySpan<byte> frame, string content)
     {
         fixed (byte* data = frame)
         {
-            Check(NativeMethods.SendVideoFrame(_handle, id, timestamp, data, frame.Length), "send video frame");
+            Check(NativeMethods.SendVideoFrame(_handle, id, timestamp, data, frame.Length, content), "send video frame");
         }
     }
+
+    internal void ShareScreen(ulong id, bool on) =>
+        Check(NativeMethods.ShareScreen(_handle, id, on ? 1 : 0), on ? "start the screen share" : "stop the screen share");
 
     internal void SetStreamDelay(ulong id, int delayMs) =>
         Check(NativeMethods.SetStreamDelay(_handle, id, (uint)Math.Clamp(delayMs, 0, 5000)), "report the audio delay");
 
     internal void RequestKeyframe(ulong id, bool full) =>
         Check(NativeMethods.RequestKeyframe(_handle, id, full ? 1 : 0), "request a keyframe");
+
+    internal unsafe string[] VideoStreams(ulong id)
+    {
+        var buffer = stackalloc byte[128];
+        Check(NativeMethods.VideoStreams(_handle, id, buffer, 128), "read the video streams");
+        var streams = Marshal.PtrToStringUTF8((nint)buffer);
+        return string.IsNullOrEmpty(streams) ? [] : streams.Split(',');
+    }
 
     internal unsafe string? VideoCodec(ulong id)
     {
@@ -391,11 +402,11 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
         return string.IsNullOrEmpty(codec) ? null : codec;
     }
 
-    internal unsafe void HandleVideoFrame(ulong callId, uint timestamp, bool keyframe, byte* data, int length)
+    internal unsafe void HandleVideoFrame(ulong callId, uint timestamp, bool keyframe, byte* data, int length, string content)
     {
         if (_calls.TryGetValue(callId, out var call))
         {
-            call.RaiseVideoFrame(timestamp, keyframe, new ReadOnlySpan<byte>(data, length));
+            call.RaiseVideoFrame(timestamp, keyframe, new ReadOnlySpan<byte>(data, length), content);
         }
     }
 

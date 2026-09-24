@@ -222,8 +222,9 @@ pub trait EndpointHandler: Send + Sync {
     fn on_audio(&self, call_id: u64, direction: AudioDirection, sample_rate: u32, pcm: &[i16]);
     fn on_dtmf(&self, call_id: u64, digit: char, source: DtmfSource);
     fn on_encoded(&self, call_id: u64, payload_type: u8, timestamp: u32, marker: bool, payload: &[u8]);
-    /// A complete video frame was received; `frame` is one H.264 access unit (Annex B) or VP8 frame.
-    fn on_video_frame(&self, _call_id: u64, _timestamp: u32, _keyframe: bool, _frame: &[u8]) {}
+    /// A complete video frame was received; `frame` is one H.264 access unit (Annex B) or VP8 frame,
+    /// and `content` says which stream it came from (`main` or `slides`).
+    fn on_video_frame(&self, _call_id: u64, _timestamp: u32, _keyframe: bool, _frame: &[u8], _content: &str) {}
 }
 
 enum Dispatch {
@@ -249,8 +250,8 @@ impl MediaSink for SinkAdapter {
     fn on_media_event(&self, call_id: u64, kind: &str, detail: &str) {
         let _ = self.tx.lock().send(Dispatch::Event(Event::MediaEvent { call_id, kind: kind.into(), detail: detail.into() }));
     }
-    fn on_video_frame(&self, call_id: u64, timestamp: u32, keyframe: bool, frame: &[u8]) {
-        self.handler.on_video_frame(call_id, timestamp, keyframe, frame);
+    fn on_video_frame(&self, call_id: u64, timestamp: u32, keyframe: bool, frame: &[u8], content: &str) {
+        self.handler.on_video_frame(call_id, timestamp, keyframe, frame, content);
     }
 }
 
@@ -337,6 +338,23 @@ struct ClientTx {
     transport_failed: bool,
 }
 
+/// One video stream of a call. A stream that has been withdrawn keeps its place in the list, because
+/// RFC 3264 wants the m-line to stay and be offered with port 0.
+struct VideoStream {
+    /// The media session, or `None` once the stream has been withdrawn.
+    session: Option<Arc<MediaSession>>,
+    /// Everything we support in an offer, the chosen format in an answer; empty means "not offered".
+    formats: Vec<RtpMap>,
+    /// `a=content` (RFC 4796): `main` for a camera, `slides` for a shared screen.
+    content: String,
+}
+
+impl VideoStream {
+    fn is_live(&self) -> bool {
+        self.session.is_some() && !self.formats.is_empty()
+    }
+}
+
 struct ServerTx {
     last_response: Vec<u8>,
     dest: SocketAddr,
@@ -362,10 +380,9 @@ struct Call {
     invite_branch: String,
     peer: SocketAddr,
     media: Option<Arc<MediaSession>>,
-    /// Second media session carrying video, with its own port; `None` on audio-only calls.
-    video: Option<Arc<MediaSession>>,
-    /// Formats to put on the `m=video` line: everything we support in an offer, the chosen one in an answer.
-    video_formats: Vec<RtpMap>,
+    /// Video streams, in the order their m-lines appear: the camera first, a shared screen after it.
+    /// Empty on an audio-only call.
+    videos: Vec<VideoStream>,
     remote_offer: Option<SessionDescription>,
     session_id: u64,
     session_version: u64,
@@ -399,8 +416,10 @@ impl Call {
     /// Detaches the media session, keeping its last statistics so quality can still be reported
     /// after the call has ended.
     fn take_media(&mut self) -> Option<Arc<MediaSession>> {
-        if let Some(video) = self.video.take() {
-            video.stop();
+        for video in self.videos.drain(..) {
+            if let Some(session) = video.session {
+                session.stop();
+            }
         }
         let media = self.media.take()?;
         self.final_stats = Some(media.stats());
@@ -728,35 +747,55 @@ impl Endpoint {
         Ok(())
     }
 
-    pub fn send_video_frame(&self, call_id: u64, timestamp: u32, frame: &[u8]) -> Result<()> {
-        let st = self.inner.state.lock();
-        let video = st.calls.get(&call_id).ok_or(EndpointError::NotFound)?.video.clone();
-        drop(st);
-        let video = video.ok_or(EndpointError::InvalidState("call has no video stream"))?;
-        if !video.send_video_frame(timestamp, frame) {
+    /// Sends one encoded video frame. `content` picks the stream: `main` is the camera, `slides` a
+    /// shared screen. `timestamp` is in the 90 kHz video clock and the frame is split across as many
+    /// RTP packets as it needs.
+    pub fn send_video_frame(&self, call_id: u64, timestamp: u32, frame: &[u8], content: &str) -> Result<()> {
+        let session = self.inner.video_session(call_id, content)?;
+        if !session.send_video_frame(timestamp, frame) {
             return Err(EndpointError::InvalidState("video stream cannot send"));
         }
         Ok(())
     }
 
+    /// Offers a second video stream showing a screen (RFC 4796 `a=content:slides`). Frames go out with
+    /// `send_video_frame(..., "slides")` once the peer has accepted it.
+    pub fn share_screen(&self, call_id: u64) -> Result<()> {
+        self.inner.share_screen(call_id, true)
+    }
+
+    /// Withdraws the screen share: the m-line stays but is offered with port 0, as RFC 3264 requires.
+    pub fn stop_screen_share(&self, call_id: u64) -> Result<()> {
+        self.inner.share_screen(call_id, false)
+    }
+
     /// Asks the peer for a video keyframe (RFC 4585 PLI, or RFC 5104 FIR when `full`). The engine also
     /// does this on its own when a frame arrives with packets missing.
     pub fn request_keyframe(&self, call_id: u64, full: bool) -> Result<()> {
-        let st = self.inner.state.lock();
-        let video = st.calls.get(&call_id).ok_or(EndpointError::NotFound)?.video.clone();
-        drop(st);
-        let video = video.ok_or(EndpointError::InvalidState("call has no video stream"))?;
+        let video = self.inner.video_session(call_id, "main")?;
         if !video.request_keyframe(full) {
             return Err(EndpointError::InvalidState("no video stream from the peer yet"));
         }
         Ok(())
     }
 
-    /// The codec negotiated for the call's video stream, if it has one.
+    /// The codec negotiated for the call's camera stream, if it has one.
     pub fn video_codec(&self, call_id: u64) -> Result<Option<String>> {
         let st = self.inner.state.lock();
         let call = st.calls.get(&call_id).ok_or(EndpointError::NotFound)?;
-        Ok(call.video.as_ref().and(call.video_formats.first()).map(|f| f.encoding.clone()))
+        Ok(call
+            .videos
+            .iter()
+            .find(|v| v.content == "main" && v.is_live())
+            .and_then(|v| v.formats.first())
+            .map(|f| f.encoding.clone()))
+    }
+
+    /// What the call's live video streams show, in m-line order (`main`, `slides`).
+    pub fn video_streams(&self, call_id: u64) -> Result<Vec<String>> {
+        let st = self.inner.state.lock();
+        let call = st.calls.get(&call_id).ok_or(EndpointError::NotFound)?;
+        Ok(call.videos.iter().filter(|v| v.is_live()).map(|v| v.content.clone()).collect())
     }
 
     pub fn send_encoded(&self, call_id: u64, payload_type: u8, timestamp: u32, marker: bool, payload: &[u8]) -> Result<()> {
@@ -1265,8 +1304,7 @@ impl Inner {
             invite_branch: String::new(),
             peer: dest,
             media: Some(media),
-            video: None,
-            video_formats: Vec::new(),
+            videos: Vec::new(),
             remote_offer: None,
             session_id: rand::random::<u32>() as u64,
             session_version: 1,
@@ -1329,17 +1367,37 @@ impl Inner {
     fn build_sdp(&self, call: &Call, media: &Arc<MediaSession>, formats: Vec<RtpMap>, direction: Direction, answer_to: Option<&SessionDescription>) -> String {
         let addr = media.advertised_address();
         let mut lines = vec![self.media_line("audio", media, formats, direction, answer_to, answer_to.and_then(|o| o.audio()), "0")];
-        // The video stream has its own port, so it gets its own m-line rather than a BUNDLE group.
-        if let Some(video) = call.video.as_ref().filter(|_| !call.video_formats.is_empty()) {
-            lines.push(self.media_line(
-                "video",
-                video,
-                call.video_formats.clone(),
-                direction,
-                answer_to,
-                answer_to.and_then(|o| o.video()),
-                "1",
-            ));
+        // Each video stream has its own port, so each gets its own m-line rather than a BUNDLE group.
+        let offered_videos: Vec<&MediaDescription> = answer_to.map(|o| o.media.iter().filter(|m| m.media == "video").collect()).unwrap_or_default();
+        for (index, video) in call.videos.iter().enumerate() {
+            let offered = offered_videos.get(index).copied();
+            let mut line = match (&video.session, video.formats.is_empty()) {
+                (Some(session), false) => self.media_line(
+                    "video",
+                    session,
+                    video.formats.clone(),
+                    direction,
+                    answer_to,
+                    offered,
+                    &(index + 1).to_string(),
+                ),
+                // Withdrawn, or refused: the m-line stays so both sides keep counting the same way.
+                _ => MediaDescription {
+                    media: "video".into(),
+                    port: 0,
+                    protocol: offered.map_or_else(|| "RTP/AVP".to_owned(), |o| o.protocol.clone()),
+                    formats: offered.map(|o| o.formats.iter().take(1).cloned().collect()).unwrap_or_else(|| self.supported_video.iter().take(1).cloned().collect()),
+                    direction: Direction::Inactive,
+                    mid: offered.and_then(|o| o.mid.clone()),
+                    ..Default::default()
+                },
+            };
+            if video.content != "main" {
+                // RFC 4796: say what the stream shows, so the peer can label it.
+                line.other_attributes.push(format!("content:{}", video.content));
+            }
+
+            lines.push(line);
         }
         let mut sdp = SessionDescription {
             origin_user: "voipnet".into(),
@@ -1355,6 +1413,7 @@ impl Inner {
         if let Some(offer) = answer_to {
             let mut ours: Vec<Option<MediaDescription>> = sdp.media.drain(..).map(Some).collect();
             for om in &offer.media {
+                // First unused line of the same kind: with two video streams, order is what pairs them.
                 let mine = ours.iter_mut().find(|l| l.as_ref().is_some_and(|l| l.media == om.media)).and_then(Option::take);
                 sdp.media.push(mine.unwrap_or_else(|| MediaDescription {
                     media: om.media.clone(),
@@ -1520,9 +1579,9 @@ impl Inner {
     }
 
     /// Creates the call's video session: a second RTP stream that packetizes whole frames.
-    fn new_video_media(&self, call_id: u64, format: &RtpMap) -> Result<Arc<MediaSession>> {
+    fn new_video_media(&self, call_id: u64, format: &RtpMap, content: &str) -> Result<Arc<MediaSession>> {
         let media = MediaSession::new(call_id, self.media_cfg.clone(), self.sink.clone())?;
-        if !media.enable_video(&format.encoding, format.payload_type) {
+        if !media.enable_video(&format.encoding, format.payload_type, content) {
             media.stop();
             return Err(EndpointError::InvalidArgument(format!("unsupported video codec {}", format.encoding)));
         }
@@ -1540,127 +1599,249 @@ impl Inner {
 
     /// Adds a video stream to a call we are about to offer, when video is enabled and a codec is configured.
     fn offer_video(&self, call: &mut Call) {
-        if !self.cfg.video || call.video.is_some() {
+        if !self.cfg.video || call.videos.iter().any(|v| v.content == "main") {
             return;
         }
-        let Some(first) = self.supported_video.first() else { return };
-        match self.new_video_media(call.id, first) {
-            Ok(session) => {
-                call.video = Some(session);
-                call.video_formats = self.supported_video.clone();
+
+        if let Some(stream) = self.new_video_stream(call.id, "main") {
+            call.videos.insert(0, stream);
+        }
+    }
+
+    /// Builds a video stream offering everything we support, or logs why it could not.
+    fn new_video_stream(&self, call_id: u64, content: &str) -> Option<VideoStream> {
+        let first = self.supported_video.first()?;
+        match self.new_video_media(call_id, first, content) {
+            Ok(session) => Some(VideoStream {
+                session: Some(session),
+                formats: self.supported_video.clone(),
+                content: content.to_owned(),
+            }),
+            Err(e) => {
+                self.log("warn", format!("call {call_id}: no video stream ({e})"));
+                None
             }
-            Err(e) => self.log("warn", format!("call {}: no video stream ({e})", call.id)),
         }
     }
 
     /// Negotiates the video stream of an offer we are answering. Clears `call.video_formats` when the
     /// offer has no video we can use, so the answer rejects that m-line with port 0.
-    fn negotiate_video_offer(&self, offer: &SessionDescription, call: &mut Call) -> Option<NegotiatedMedia> {
-        let video = offer.video().filter(|v| v.port != 0);
-        let codec = video.and_then(|v| negotiate(&v.formats, &self.supported_video).0).filter(|_| self.cfg.video);
-        let (Some(video), Some(codec)) = (video, codec) else {
-            call.video_formats.clear();
-            if let Some(session) = call.video.take() {
-                session.stop();
+    fn negotiate_video_offers(&self, offer: &SessionDescription, call: &mut Call) -> (Vec<(usize, NegotiatedMedia)>, Vec<Event>) {
+        let offered: Vec<&MediaDescription> = offer.media.iter().filter(|m| m.media == "video").collect();
+        let mut negotiated = Vec::new();
+        let mut events = Vec::new();
+        for (index, video) in offered.iter().enumerate() {
+            // The offer's order decides which stream is which, and `a=content` says what it shows.
+            let content = video
+                .other_attributes
+                .iter()
+                .find_map(|a| a.strip_prefix("content:"))
+                .unwrap_or(if index == 0 { "main" } else { "slides" })
+                .to_owned();
+            while call.videos.len() <= index {
+                call.videos.push(VideoStream { session: None, formats: Vec::new(), content: content.clone() });
             }
-            return None;
-        };
-        let session = match call.video.clone() {
-            Some(session) => {
-                session.enable_video(&codec.encoding, codec.payload_type);
-                session
-            }
-            None => match self.new_video_media(call.id, &codec) {
-                Ok(session) => {
-                    call.video = Some(session.clone());
+
+            call.videos[index].content = content;
+            let codec = (video.port != 0 && self.cfg.video)
+                .then(|| negotiate(&video.formats, &self.supported_video).0)
+                .flatten();
+            let Some(codec) = codec else {
+                // Refused, or withdrawn by the peer: keep the m-line, drop the media.
+                call.videos[index].formats.clear();
+                if let Some(session) = call.videos[index].session.take() {
+                    session.stop();
+                    let content = call.videos[index].content.clone();
+                    events.push(Event::MediaEvent { call_id: call.id, kind: "video".into(), detail: format!("{content} stopped") });
+                }
+
+                continue;
+            };
+
+            let session = match call.videos[index].session.clone() {
+                Some(session) => {
+                    session.enable_video(&codec.encoding, codec.payload_type, &call.videos[index].content);
                     session
                 }
-                Err(e) => {
-                    self.log("warn", format!("call {}: no video stream ({e})", call.id));
-                    call.video_formats.clear();
-                    return None;
-                }
-            },
-        };
-        let crypto = video.crypto.iter().find(|c| c.suite == SUITE_AES_CM_128_HMAC_SHA1_80);
-        let fingerprint = video.fingerprint.clone().or_else(|| offer.fingerprint.clone()).filter(|_| video.protocol.contains("TLS"));
-        let use_dtls = self.cfg.srtp != SrtpMode::Disabled && fingerprint.is_some() && (crypto.is_none() || self.cfg.srtp_keying == SrtpKeying::Dtls);
-        if use_dtls {
-            session.enable_dtls();
-            session.set_dtls_role(match video.setup.as_deref() {
-                Some("active") => DtlsRole::Server,
-                _ => DtlsRole::Client,
-            });
-        } else if crypto.is_some() && self.cfg.srtp != SrtpMode::Disabled {
-            session.enable_srtp();
+                None => match self.new_video_media(call.id, &codec, &call.videos[index].content) {
+                    Ok(session) => {
+                        call.videos[index].session = Some(session.clone());
+                        session
+                    }
+                    Err(e) => {
+                        self.log("warn", format!("call {}: no video stream ({e})", call.id));
+                        call.videos[index].formats.clear();
+                        continue;
+                    }
+                },
+            };
+
+            let crypto = video.crypto.iter().find(|c| c.suite == SUITE_AES_CM_128_HMAC_SHA1_80);
+            let fingerprint = video.fingerprint.clone().or_else(|| offer.fingerprint.clone()).filter(|_| video.protocol.contains("TLS"));
+            let use_dtls = self.cfg.srtp != SrtpMode::Disabled && fingerprint.is_some() && (crypto.is_none() || self.cfg.srtp_keying == SrtpKeying::Dtls);
+            if use_dtls {
+                session.enable_dtls();
+                session.set_dtls_role(match video.setup.as_deref() {
+                    Some("active") => DtlsRole::Server,
+                    _ => DtlsRole::Client,
+                });
+            } else if crypto.is_some() && self.cfg.srtp != SrtpMode::Disabled {
+                session.enable_srtp();
+            }
+
+            call.videos[index].formats = vec![codec.clone()];
+            let remote_ip = offer.rtp_address(video).and_then(|a| a.parse::<IpAddr>().ok());
+            negotiated.push((
+                index,
+                NegotiatedMedia {
+                    remote: remote_ip.filter(|ip| !ip.is_unspecified()).map(|ip| SocketAddr::new(ip, video.port)),
+                    codec,
+                    dtmf: None,
+                    direction: video.direction.reversed(),
+                    remote_srtp_key: crypto.map(|c| c.key_params.clone()).filter(|_| !use_dtls && self.cfg.srtp != SrtpMode::Disabled),
+                    remote_ice_ufrag: video.ice_ufrag.clone().or_else(|| offer.ice_ufrag.clone()),
+                    remote_ice_pwd: video.ice_pwd.clone().or_else(|| offer.ice_pwd.clone()),
+                    ice_controlling: offer.ice_lite,
+                    remote_candidates: video.candidates.iter().filter_map(|c| Candidate::parse(c)).collect(),
+                    ptime_ms: None,
+                    remote_fingerprint: fingerprint.filter(|_| use_dtls),
+                    dtls_role: session.dtls_role(),
+                },
+            ));
         }
-        call.video_formats = vec![codec.clone()];
-        let remote_ip = offer.rtp_address(video).and_then(|a| a.parse::<IpAddr>().ok());
-        Some(NegotiatedMedia {
-            remote: remote_ip.filter(|ip| !ip.is_unspecified()).map(|ip| SocketAddr::new(ip, video.port)),
-            codec,
-            dtmf: None,
-            direction: video.direction.reversed(),
-            remote_srtp_key: crypto.map(|c| c.key_params.clone()).filter(|_| !use_dtls && self.cfg.srtp != SrtpMode::Disabled),
-            remote_ice_ufrag: video.ice_ufrag.clone().or_else(|| offer.ice_ufrag.clone()),
-            remote_ice_pwd: video.ice_pwd.clone().or_else(|| offer.ice_pwd.clone()),
-            ice_controlling: offer.ice_lite,
-            remote_candidates: video.candidates.iter().filter_map(|c| Candidate::parse(c)).collect(),
-            ptime_ms: None,
-            remote_fingerprint: fingerprint.filter(|_| use_dtls),
-            dtls_role: session.dtls_role(),
-        })
+
+        (negotiated, events)
     }
 
     /// Applies the answer to a video stream we offered, dropping the stream if the peer refused it.
     fn apply_video_answer(&self, call: &mut Call, answer: &SessionDescription) -> Vec<Event> {
-        if call.video.is_none() {
+        if call.videos.is_empty() {
             return Vec::new();
         }
-        let video = answer.video().filter(|v| v.port != 0);
-        let codec = video.and_then(|v| negotiate(&v.formats, &self.supported_video).0);
-        let remote_ip = video.and_then(|v| answer.rtp_address(v)).and_then(|a| a.parse::<IpAddr>().ok());
-        let (Some(video), Some(codec), Some(remote_ip)) = (video, codec, remote_ip) else {
-            if let Some(session) = call.video.take() {
-                session.stop();
-            }
-            call.video_formats.clear();
-            return vec![Event::MediaEvent { call_id: call.id, kind: "video".into(), detail: "declined".into() }];
-        };
-        let session = call.video.clone().expect("checked above");
-        session.enable_video(&codec.encoding, codec.payload_type);
-        call.video_formats = vec![codec.clone()];
-        let n = NegotiatedMedia {
-            remote: Some(SocketAddr::new(remote_ip, video.port)).filter(|a| !a.ip().is_unspecified()),
-            codec,
-            dtmf: None,
-            direction: video.direction.reversed(),
-            remote_srtp_key: video.crypto.iter().find(|c| c.suite == SUITE_AES_CM_128_HMAC_SHA1_80).map(|c| c.key_params.clone()),
-            remote_ice_ufrag: video.ice_ufrag.clone().or_else(|| answer.ice_ufrag.clone()),
-            remote_ice_pwd: video.ice_pwd.clone().or_else(|| answer.ice_pwd.clone()),
-            ice_controlling: true,
-            remote_candidates: video.candidates.iter().filter_map(|c| Candidate::parse(c)).collect(),
-            ptime_ms: None,
-            remote_fingerprint: video.fingerprint.clone().or_else(|| answer.fingerprint.clone()),
-            dtls_role: Some(if video.setup.as_deref() == Some("active") { DtlsRole::Server } else { DtlsRole::Client }),
-        };
-        self.apply_video(call, &n)
+
+        let answered: Vec<&MediaDescription> = answer.media.iter().filter(|m| m.media == "video").collect();
+        let mut events = Vec::new();
+        for index in 0..call.videos.len() {
+            let content = call.videos[index].content.clone();
+            let video = answered.get(index).copied().filter(|v| v.port != 0);
+            let codec = video.and_then(|v| negotiate(&v.formats, &self.supported_video).0);
+            let remote_ip = video.and_then(|v| answer.rtp_address(v)).and_then(|a| a.parse::<IpAddr>().ok());
+            let (Some(video), Some(codec), Some(remote_ip)) = (video, codec, remote_ip) else {
+                if let Some(session) = call.videos[index].session.take() {
+                    session.stop();
+                    events.push(Event::MediaEvent { call_id: call.id, kind: "video".into(), detail: format!("{content} declined") });
+                }
+
+                call.videos[index].formats.clear();
+                continue;
+            };
+
+            let session = call.videos[index].session.clone().expect("a stream we offered has a session");
+            session.enable_video(&codec.encoding, codec.payload_type, &content);
+            call.videos[index].formats = vec![codec.clone()];
+            let n = NegotiatedMedia {
+                remote: Some(SocketAddr::new(remote_ip, video.port)).filter(|a| !a.ip().is_unspecified()),
+                codec,
+                dtmf: None,
+                direction: video.direction.reversed(),
+                remote_srtp_key: video.crypto.iter().find(|c| c.suite == SUITE_AES_CM_128_HMAC_SHA1_80).map(|c| c.key_params.clone()),
+                remote_ice_ufrag: video.ice_ufrag.clone().or_else(|| answer.ice_ufrag.clone()),
+                remote_ice_pwd: video.ice_pwd.clone().or_else(|| answer.ice_pwd.clone()),
+                ice_controlling: true,
+                remote_candidates: video.candidates.iter().filter_map(|c| Candidate::parse(c)).collect(),
+                ptime_ms: None,
+                remote_fingerprint: video.fingerprint.clone().or_else(|| answer.fingerprint.clone()),
+                dtls_role: Some(if video.setup.as_deref() == Some("active") { DtlsRole::Server } else { DtlsRole::Client }),
+            };
+            events.extend(self.apply_video(call, index, &n));
+        }
+
+        events
     }
 
     /// Starts a negotiated video stream and reports it.
-    fn apply_video(&self, call: &mut Call, n: &NegotiatedMedia) -> Vec<Event> {
-        let Some(session) = call.video.clone() else { return Vec::new() };
+    fn apply_video(&self, call: &mut Call, index: usize, n: &NegotiatedMedia) -> Vec<Event> {
+        let Some(stream) = call.videos.get_mut(index) else { return Vec::new() };
+        let Some(session) = stream.session.clone() else { return Vec::new() };
+        let content = stream.content.clone();
         if let Err(e) = session.apply(n) {
-            call.video = None;
-            call.video_formats.clear();
+            stream.session = None;
+            stream.formats.clear();
             session.stop();
             return vec![Event::Log { level: "error", message: format!("call {}: video {e}", call.id) }];
         }
+
         vec![Event::MediaEvent {
             call_id: call.id,
             kind: "video".into(),
-            detail: format!("{} {}", n.codec.encoding, n.direction.as_str()),
+            detail: format!("{content} {} {}", n.codec.encoding, n.direction.as_str()),
         }]
+    }
+
+    /// The session behind one of a call's video streams, by what it shows.
+    fn video_session(&self, call_id: u64, content: &str) -> Result<Arc<MediaSession>> {
+        let st = self.state.lock();
+        let call = st.calls.get(&call_id).ok_or(EndpointError::NotFound)?;
+        call.videos
+            .iter()
+            .find(|v| v.content == content && v.is_live())
+            .and_then(|v| v.session.clone())
+            .ok_or(EndpointError::InvalidState("the call has no such video stream"))
+    }
+
+    /// Adds or withdraws the screen-share stream and offers the new shape of the session.
+    fn share_screen(&self, call_id: u64, on: bool) -> Result<()> {
+        let mut stopped = None;
+        let mut guard = self.state.lock();
+        let st = &mut *guard;
+        let call = st.calls.get_mut(&call_id).ok_or(EndpointError::NotFound)?;
+        if !call.state.is_established() {
+            return Err(EndpointError::InvalidState("call is not established"));
+        }
+
+        match (on, call.videos.iter().position(|v| v.content == "slides")) {
+            (true, Some(index)) if call.videos[index].is_live() => return Ok(()),
+            (true, Some(index)) => {
+                let stream = self.new_video_stream(call_id, "slides").ok_or(EndpointError::InvalidState("no video codec to share with"))?;
+                call.videos[index] = stream;
+            }
+            (true, None) => {
+                let stream = self.new_video_stream(call_id, "slides").ok_or(EndpointError::InvalidState("no video codec to share with"))?;
+                call.videos.push(stream);
+            }
+            (false, Some(index)) => {
+                // The m-line stays, offered with port 0, so the peer keeps its own numbering.
+                if let Some(session) = call.videos[index].session.take() {
+                    session.stop();
+                }
+
+                call.videos[index].formats.clear();
+                stopped = Some(call.videos[index].content.clone());
+            }
+            (false, None) => return Ok(()),
+        }
+
+        call.session_version += 1;
+        call.local_cseq += 1;
+        let direction = match (call.local_hold, call.remote_hold) {
+            (true, true) => Direction::Inactive,
+            (true, false) => Direction::SendOnly,
+            (false, true) => Direction::RecvOnly,
+            (false, false) => Direction::SendRecv,
+        };
+        let sdp = self.local_offer(call, direction);
+        let mut req = self.dialog_request(call, Method::Invite);
+        req.set_body("application/sdp", sdp.into_bytes());
+        let dest = self.dialog_dest(call);
+        self.send_request(st, req, dest, Purpose::ReInvite(call_id));
+        // The event goes out with the lock released, as every other event does.
+        drop(guard);
+        if let Some(content) = stopped {
+            // The side that stopped sharing says so itself; the peer learns it from the new offer.
+            self.emit(Event::MediaEvent { call_id, kind: "video".into(), detail: format!("{content} stopped") });
+        }
+
+        Ok(())
     }
 
     fn apply_media(&self, call: &mut Call, n: &NegotiatedMedia) -> Vec<Event> {
@@ -1702,11 +1883,12 @@ impl Inner {
             let body = match call.remote_offer.clone() {
                 Some(offer) => match self.negotiate_offer(&offer, &media) {
                     Ok((formats, negotiated)) => {
-                        let video = self.negotiate_video_offer(&offer, call);
+                        let (videos, video_events) = self.negotiate_video_offers(&offer, call);
                         let sdp = self.build_sdp(call, &media, formats, negotiated.direction, Some(&offer));
                         events.extend(self.apply_media(call, &negotiated));
-                        if let Some(video) = video {
-                            events.extend(self.apply_video(call, &video));
+                        events.extend(video_events);
+                        for (index, video) in videos {
+                            events.extend(self.apply_video(call, index, &video));
                         }
                         sdp
                     }
@@ -2358,8 +2540,7 @@ a=candidate:{candidate}
             invite_branch: req.via_branch().unwrap_or_default(),
             peer: from,
             media: Some(media),
-            video: None,
-            video_formats: Vec::new(),
+            videos: Vec::new(),
             remote_offer: offer.clone(),
             session_id: rand::random::<u32>() as u64,
             session_version: 1,
@@ -2458,11 +2639,12 @@ a=candidate:{candidate}
                         (false, false) => Direction::SendRecv,
                     };
                     call.session_version += 1;
-                    let video = self.negotiate_video_offer(&offer, call);
+                    let (videos, video_events) = self.negotiate_video_offers(&offer, call);
                     let sdp = self.build_sdp(call, &media, formats, negotiated.direction, Some(&offer));
                     events.extend(self.apply_media(call, &negotiated));
-                    if let Some(video) = video {
-                        events.extend(self.apply_video(call, &video));
+                    events.extend(video_events);
+                    for (index, video) in videos {
+                        events.extend(self.apply_video(call, index, &video));
                     }
                     resp.set_body("application/sdp", sdp.into_bytes());
                     if remote_hold != call.remote_hold {
@@ -3145,7 +3327,7 @@ mod tests {
         events: Mutex<Vec<Event>>,
         audio_frames: AtomicU32,
         dtmf: Mutex<String>,
-        video: Mutex<Vec<(u32, bool, Vec<u8>)>>,
+        video: Mutex<Vec<(u32, bool, Vec<u8>, String)>>,
     }
 
     impl EndpointHandler for Recorder {
@@ -3161,8 +3343,8 @@ mod tests {
             self.dtmf.lock().push(digit);
         }
         fn on_encoded(&self, _: u64, _: u8, _: u32, _: bool, _: &[u8]) {}
-        fn on_video_frame(&self, _: u64, timestamp: u32, keyframe: bool, frame: &[u8]) {
-            self.video.lock().push((timestamp, keyframe, frame.to_vec()));
+        fn on_video_frame(&self, _: u64, timestamp: u32, keyframe: bool, frame: &[u8], content: &str) {
+            self.video.lock().push((timestamp, keyframe, frame.to_vec(), content.to_owned()));
         }
     }
 
@@ -3198,7 +3380,7 @@ mod tests {
         }
 
         /// Waits for at least `min` video frames and returns the ones received.
-        fn wait_video(&self, min: usize, timeout_ms: u64) -> Vec<(u32, bool, Vec<u8>)> {
+        fn wait_video(&self, min: usize, timeout_ms: u64) -> Vec<(u32, bool, Vec<u8>, String)> {
             let deadline = Instant::now() + Duration::from_millis(timeout_ms);
             while self.video.lock().len() < min && Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(20));
@@ -3272,7 +3454,7 @@ mod tests {
         cb.video = true;
         let (a, ra, b, rb) = pair(ca, cb);
         let (a_call, b_call) = establish(&a, &b, &rb, &ra);
-        let is_video = |e: &Event| matches!(e, Event::MediaEvent { kind, detail, .. } if kind == "video" && detail.starts_with("H264"));
+        let is_video = |e: &Event| matches!(e, Event::MediaEvent { kind, detail, .. } if kind == "video" && detail.starts_with("main H264"));
         ra.wait_for(3000, is_video).expect("caller video stream");
         rb.wait_for(3000, is_video).expect("callee video stream");
         assert_eq!(a.video_codec(a_call).unwrap().as_deref(), Some("H264"));
@@ -3284,13 +3466,14 @@ mod tests {
         // ICE and DTLS may still be settling, so send a few frames until one arrives.
         let mut received = Vec::new();
         for i in 0..10u32 {
-            a.send_video_frame(a_call, 90_000 + i * 3000, &frame).unwrap();
+            a.send_video_frame(a_call, 90_000 + i * 3000, &frame, "main").unwrap();
             received = rb.wait_video(1, 300);
             if !received.is_empty() {
                 break;
             }
         }
-        let (_, keyframe, data) = received.first().expect("callee received a video frame").clone();
+        let (_, keyframe, data, content) = received.first().expect("callee received a video frame").clone();
+        assert_eq!(content, "main");
         assert!(keyframe, "the frame carries an IDR slice");
         assert_eq!(data, frame);
         a.hangup(a_call).unwrap();
@@ -3492,6 +3675,55 @@ m=audio {} RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n",
                 if message.starts_with("INFO") && message.contains("trickle-ice-sdpfrag") && message.contains("203.0.113.7"))
         });
         assert!(trickled.is_some(), "no trickled candidate arrived");
+        a.hangup(a_call).unwrap();
+        ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("terminated");
+    }
+
+    #[test]
+    fn a_screen_share_adds_a_second_video_stream() {
+        let (mut ca, mut cb) = (cfg("alice"), cfg("bob"));
+        ca.video = true;
+        cb.video = true;
+        let (a, ra, b, rb) = pair(ca, cb);
+        let (a_call, b_call) = establish(&a, &b, &rb, &ra);
+        let camera = |e: &Event| matches!(e, Event::MediaEvent { kind, detail, .. } if kind == "video" && detail.starts_with("main H264"));
+        ra.wait_for(3000, camera).expect("camera stream");
+        rb.wait_for(3000, camera).expect("camera stream on the callee");
+        assert_eq!(a.video_streams(a_call).unwrap(), vec!["main".to_owned()]);
+
+        // Alice shares her screen: a second m-line, marked as slides.
+        a.share_screen(a_call).unwrap();
+        let slides = |e: &Event| matches!(e, Event::MediaEvent { kind, detail, .. } if kind == "video" && detail.starts_with("slides H264"));
+        rb.wait_for(5000, slides).expect("callee sees the screen share");
+        ra.wait_for(5000, slides).expect("caller sees its share accepted");
+        assert_eq!(a.video_streams(a_call).unwrap(), vec!["main".to_owned(), "slides".to_owned()]);
+        assert_eq!(b.video_streams(b_call).unwrap(), vec!["main".to_owned(), "slides".to_owned()]);
+
+        // Frames sent on each stream arrive labelled with what they show.
+        let mut screen = vec![0, 0, 0, 1, 0x67, 0x42, 0xe0, 0x1f];
+        screen.extend_from_slice(&[0, 0, 0, 1, 0x65]);
+        screen.extend((0..1500).map(|i| (i % 251) as u8 | 1));
+        let mut received = Vec::new();
+        for i in 0..10u32 {
+            a.send_video_frame(a_call, 90_000 + i * 3000, &screen, "slides").unwrap();
+            received = rb.wait_video(1, 300);
+            if !received.is_empty() {
+                break;
+            }
+        }
+
+        let (_, _, data, content) = received.first().expect("callee received a shared screen frame").clone();
+        assert_eq!(content, "slides");
+        assert_eq!(data, screen);
+
+        // Stopping the share withdraws the stream but keeps the call.
+        a.stop_screen_share(a_call).unwrap();
+        let gone = |e: &Event| matches!(e, Event::MediaEvent { kind, detail, .. } if kind == "video" && detail == "slides stopped");
+        ra.wait_for(5000, gone).expect("the share is withdrawn");
+        rb.wait_for(5000, gone).expect("the callee sees the share end");
+        assert_eq!(a.video_streams(a_call).unwrap(), vec!["main".to_owned()]);
+        assert_eq!(a.call_info(a_call).unwrap().state, CallState::Connected);
+
         a.hangup(a_call).unwrap();
         ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("terminated");
     }

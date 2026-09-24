@@ -197,6 +197,7 @@ public sealed class CallRecorder : IDisposable
     private WavWriter? _wav;
     private int _sampleRate;
     private AviWriter? _avi;
+    private string? _videoContent;
     private bool _disposed;
 
     private CallRecorder(VoipCall call, string path, RecordingFormat format, RecordingLayout layout, ILogger? logger)
@@ -298,13 +299,21 @@ public sealed class CallRecorder : IDisposable
         }
     }
 
-    private void OnVideoFrame(VoipCall call, uint timestamp, bool keyframe, ReadOnlySpan<byte> frame)
+    private void OnVideoFrame(VoipCall call, uint timestamp, bool keyframe, ReadOnlySpan<byte> frame, string content)
     {
         lock (_gate)
         {
-            if (!_disposed)
+            if (_disposed || _avi is null)
             {
-                _avi?.WriteVideo(frame, keyframe);
+                return;
+            }
+
+            // An AVI holds one video track. The first stream to deliver a frame is the one recorded —
+            // usually the camera, or the shared screen on a call that only shares.
+            _videoContent ??= content;
+            if (content == _videoContent)
+            {
+                _avi.WriteVideo(frame, keyframe);
             }
         }
     }

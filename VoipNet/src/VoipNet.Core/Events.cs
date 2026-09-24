@@ -84,7 +84,8 @@ public delegate void EncodedFrameHandler(VoipCall call, int payloadType, uint ti
 /// <param name="timestamp">RTP timestamp in the 90 kHz video clock.</param>
 /// <param name="keyframe">True when the frame can be decoded on its own.</param>
 /// <param name="frame">The frame bytes: one H.264 access unit in Annex B form, or one VP8 frame.</param>
-public delegate void VideoFrameHandler(VoipCall call, uint timestamp, bool keyframe, ReadOnlySpan<byte> frame);
+/// <param name="content">Which stream it came from: <c>main</c> for the camera, <c>slides</c> for a shared screen.</param>
+public delegate void VideoFrameHandler(VoipCall call, uint timestamp, bool keyframe, ReadOnlySpan<byte> frame, string content);
 
 /// <summary>Registration state change.</summary>
 /// <param name="State">New registration state.</param>

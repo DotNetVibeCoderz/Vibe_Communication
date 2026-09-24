@@ -57,8 +57,9 @@ pub trait MediaSink: Send + Sync {
     fn on_dtmf(&self, call_id: u64, digit: char, source: DtmfSource);
     fn on_encoded(&self, call_id: u64, payload_type: u8, timestamp: u32, marker: bool, payload: &[u8]);
     fn on_media_event(&self, call_id: u64, kind: &str, detail: &str);
-    /// A complete video frame arrived (H.264 access unit in Annex B form, or a VP8 frame).
-    fn on_video_frame(&self, _call_id: u64, _timestamp: u32, _keyframe: bool, _frame: &[u8]) {}
+    /// A complete video frame arrived (H.264 access unit in Annex B form, or a VP8 frame). `content`
+    /// says what the stream shows: `main` for a camera, `slides` for a shared screen.
+    fn on_video_frame(&self, _call_id: u64, _timestamp: u32, _keyframe: bool, _frame: &[u8], _content: &str) {}
 }
 
 #[derive(Debug, Clone)]
@@ -190,6 +191,8 @@ struct Gathering {
 /// A session in video mode packetizes whole frames instead of encoding audio.
 struct VideoTrack {
     payload_type: u8,
+    /// What this stream shows (RFC 4796 `a=content`), carried through to the sink.
+    content: String,
     packetizer: VideoPacketizer,
     depacketizer: VideoDepacketizer,
     /// Incomplete frames already reported, so only new losses ask for a keyframe.
@@ -744,7 +747,7 @@ impl MediaSession {
 
     /// Switches this session to video: frames are packetized on the way out and reassembled on the
     /// way in (RFC 6184 for H.264, RFC 7741 for VP8). Returns false for formats without a payload format.
-    pub fn enable_video(&self, encoding: &str, payload_type: u8) -> bool {
+    pub fn enable_video(&self, encoding: &str, payload_type: u8, content: &str) -> bool {
         let format = match encoding.to_ascii_uppercase().as_str() {
             "H264" => VideoFormat::H264,
             "VP8" => VideoFormat::Vp8,
@@ -752,6 +755,7 @@ impl MediaSession {
         };
         *self.shared.video.lock() = Some(VideoTrack {
             payload_type,
+            content: content.to_owned(),
             packetizer: VideoPacketizer::new(format),
             depacketizer: VideoDepacketizer::new(format),
             incomplete_seen: 0,
@@ -1250,7 +1254,7 @@ fn handle_rtp(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
     // Video frames are reassembled outside the rx lock: a frame can be large and the handler may call
     // back into the session.
     if let Some((h, payload)) = passthrough.as_ref() {
-        let (assembled, request) = {
+        let (assembled, request, content) = {
             let mut track = sh.video.lock();
             match track.as_mut().filter(|t| t.payload_type == h.payload_type) {
                 Some(t) => {
@@ -1263,9 +1267,9 @@ fn handle_rtp(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
                         t.last_request = Some(Instant::now());
                         t.fir_sequence = t.fir_sequence.wrapping_add(1);
                     }
-                    (Some(frame), due.then_some(t.fir_sequence))
+                    (Some(frame), due.then_some(t.fir_sequence), t.content.clone())
                 }
-                None => (None, None),
+                None => (None, None, String::new()),
             }
         };
         if let Some(sequence) = request {
@@ -1273,7 +1277,7 @@ fn handle_rtp(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
         }
         if let Some(frame) = assembled {
             if let Some(frame) = frame {
-                sh.sink.on_video_frame(sh.call_id, frame.timestamp, frame.keyframe, &frame.data);
+                sh.sink.on_video_frame(sh.call_id, frame.timestamp, frame.keyframe, &frame.data, &content);
             }
             return;
         }
@@ -1659,7 +1663,7 @@ mod tests {
         inbound: Mutex<Vec<i16>>,
         dtmf: Mutex<Vec<char>>,
         frames: AtomicUsize,
-        video: Mutex<Vec<(u32, bool, Vec<u8>)>>,
+        video: Mutex<Vec<(u32, bool, Vec<u8>, String)>>,
         events: Mutex<Vec<String>>,
     }
 
@@ -1677,8 +1681,8 @@ mod tests {
         fn on_media_event(&self, _: u64, kind: &str, detail: &str) {
             self.events.lock().push(format!("{kind} {detail}"));
         }
-        fn on_video_frame(&self, _: u64, timestamp: u32, keyframe: bool, frame: &[u8]) {
-            self.video.lock().push((timestamp, keyframe, frame.to_vec()));
+        fn on_video_frame(&self, _: u64, timestamp: u32, keyframe: bool, frame: &[u8], content: &str) {
+            self.video.lock().push((timestamp, keyframe, frame.to_vec(), content.to_owned()));
         }
     }
 
@@ -1778,8 +1782,8 @@ mod tests {
         let a = MediaSession::new(1, loopback_config(), ca.clone()).unwrap();
         let b = MediaSession::new(2, loopback_config(), cb.clone()).unwrap();
         let map = CodecKind::H264.rtpmap();
-        assert!(a.enable_video(&map.encoding, map.payload_type));
-        assert!(b.enable_video(&map.encoding, map.payload_type));
+        assert!(a.enable_video(&map.encoding, map.payload_type, "main"));
+        assert!(b.enable_video(&map.encoding, map.payload_type, "main"));
         let neg = |remote: SocketAddr| NegotiatedMedia {
             remote: Some(remote),
             codec: map.clone(),
@@ -1811,8 +1815,8 @@ mod tests {
         }
         let received = cb.video.lock().clone();
         assert_eq!(received.len(), 2, "received {} frames", received.len());
-        assert_eq!(received[0], (90_000, true, keyframe));
-        assert_eq!(received[1], (93_000, false, delta));
+        assert_eq!(received[0], (90_000, true, keyframe, "main".to_owned()));
+        assert_eq!(received[1], (93_000, false, delta, "main".to_owned()));
         a.stop();
         b.stop();
     }
@@ -1823,8 +1827,8 @@ mod tests {
         let a = MediaSession::new(1, loopback_config(), ca.clone()).unwrap();
         let b = MediaSession::new(2, loopback_config(), cb.clone()).unwrap();
         let map = CodecKind::H264.rtpmap();
-        assert!(a.enable_video(&map.encoding, map.payload_type));
-        assert!(b.enable_video(&map.encoding, map.payload_type));
+        assert!(a.enable_video(&map.encoding, map.payload_type, "main"));
+        assert!(b.enable_video(&map.encoding, map.payload_type, "main"));
         let neg = |remote: SocketAddr| NegotiatedMedia {
             remote: Some(remote),
             codec: map.clone(),

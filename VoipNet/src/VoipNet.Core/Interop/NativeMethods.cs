@@ -61,7 +61,7 @@ internal static unsafe partial class NativeMethods
         public delegate* unmanaged<nint, ulong, int, uint, short*, int, void> OnAudio;
         public delegate* unmanaged<nint, ulong, uint, int, void> OnDtmf;
         public delegate* unmanaged<nint, ulong, byte, uint, int, byte*, int, void> OnEncoded;
-        public delegate* unmanaged<nint, ulong, uint, int, byte*, int, void> OnVideo;
+        public delegate* unmanaged<nint, ulong, uint, int, byte*, int, byte*, void> OnVideo;
         public nint UserData;
     }
 
@@ -142,14 +142,20 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "voipnet_send_encoded")]
     internal static partial int SendEncoded(nint handle, ulong callId, byte payloadType, uint timestamp, int marker, byte* data, int length);
 
-    [LibraryImport(Library, EntryPoint = "voipnet_send_video_frame")]
-    internal static partial int SendVideoFrame(nint handle, ulong callId, uint timestamp, byte* data, int length);
+    [LibraryImport(Library, EntryPoint = "voipnet_send_video_frame", StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial int SendVideoFrame(nint handle, ulong callId, uint timestamp, byte* data, int length, string content);
+
+    [LibraryImport(Library, EntryPoint = "voipnet_share_screen")]
+    internal static partial int ShareScreen(nint handle, ulong callId, int on);
 
     [LibraryImport(Library, EntryPoint = "voipnet_set_stream_delay")]
     internal static partial int SetStreamDelay(nint handle, ulong callId, uint delayMs);
 
     [LibraryImport(Library, EntryPoint = "voipnet_request_keyframe")]
     internal static partial int RequestKeyframe(nint handle, ulong callId, int full);
+
+    [LibraryImport(Library, EntryPoint = "voipnet_video_streams")]
+    internal static partial int VideoStreams(nint handle, ulong callId, byte* buffer, int length);
 
     [LibraryImport(Library, EntryPoint = "voipnet_video_codec")]
     internal static partial int VideoCodec(nint handle, ulong callId, byte* buffer, int length);

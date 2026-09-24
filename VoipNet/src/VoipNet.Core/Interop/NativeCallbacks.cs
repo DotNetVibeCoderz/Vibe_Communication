@@ -66,7 +66,7 @@ internal static unsafe class NativeCallbacks
     }
 
     [UnmanagedCallersOnly]
-    internal static void OnVideo(nint user, ulong callId, uint timestamp, int keyframe, byte* data, int length)
+    internal static void OnVideo(nint user, ulong callId, uint timestamp, int keyframe, byte* data, int length, byte* content)
     {
         var client = Resolve(user);
         if (client is null || data is null || length <= 0)
@@ -76,7 +76,7 @@ internal static unsafe class NativeCallbacks
 
         try
         {
-            client.HandleVideoFrame(callId, timestamp, keyframe != 0, data, length);
+            client.HandleVideoFrame(callId, timestamp, keyframe != 0, data, length, Marshal.PtrToStringUTF8((nint)content) ?? "main");
         }
         catch (Exception ex)
         {

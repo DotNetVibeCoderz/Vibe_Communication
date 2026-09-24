@@ -76,7 +76,8 @@
 | `SendAudio(samples, rate)`, `SendAudio(bytes, rate)`, `SendAudioStreamAsync(...)`, `ClearAudio()`, `QueuedAudioMs` | Audio keluar. |
 | `AudioReceived`, `ReadAudioAsync(direction)` | Audio dari panggilan. |
 | `SendEncoded(...)`, `EncodedReceived` | Payload pass-through. |
-| `SendVideoFrame(...)`, `VideoFrameReceived`, `VideoCodec` | Frame video utuh pada stream video panggilan. |
+| `SendVideoFrame(...)`, `VideoFrameReceived`, `VideoCodec`, `VideoStreams` | Frame video utuh, ditandai per stream (`main`, `slides`). |
+| `ShareScreen()`, `StopScreenShare()` | Menawarkan atau menghentikan stream video kedua berisi layar. |
 | `RequestKeyframe(full)` | Meminta keyframe video ke lawan (RTCP PLI atau FIR). |
 | `SetAudioDelay(ms)` | Melaporkan waktu tempuh speaker ke mikrofon kepada pembatal gema. |
 | `GetStatistics()`, `FinalStatistics` | Kualitas, termasuk laporan lawan lewat RTCP (`RoundTripMs`, `RemoteLossPercent`, `RemoteJitterMs`, `RemoteMos`). |

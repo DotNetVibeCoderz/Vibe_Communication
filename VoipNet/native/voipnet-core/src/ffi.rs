@@ -31,8 +31,15 @@ pub type VnEncodedCallback = extern "C" fn(
     len: c_int,
 );
 
-pub type VnVideoCallback =
-    extern "C" fn(user: *mut c_void, call_id: u64, timestamp: u32, keyframe: c_int, data: *const u8, len: c_int);
+pub type VnVideoCallback = extern "C" fn(
+    user: *mut c_void,
+    call_id: u64,
+    timestamp: u32,
+    keyframe: c_int,
+    data: *const u8,
+    len: c_int,
+    content: *const c_char,
+);
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -81,9 +88,10 @@ impl EndpointHandler for FfiHandler {
         }
     }
 
-    fn on_video_frame(&self, call_id: u64, timestamp: u32, keyframe: bool, frame: &[u8]) {
+    fn on_video_frame(&self, call_id: u64, timestamp: u32, keyframe: bool, frame: &[u8], content: &str) {
         if let Some(f) = self.cb.on_video {
-            f(self.cb.user_data, call_id, timestamp, c_int::from(keyframe), frame.as_ptr(), frame.len() as c_int);
+            let label = CString::new(content).unwrap_or_default();
+            f(self.cb.user_data, call_id, timestamp, c_int::from(keyframe), frame.as_ptr(), frame.len() as c_int, label.as_ptr());
         }
     }
 }
@@ -359,16 +367,26 @@ pub unsafe extern "C" fn voipnet_send_video_frame(
     timestamp: u32,
     data: *const u8,
     len: c_int,
+    content: *const c_char,
 ) -> c_int {
     let Some(ep) = endpoint(handle) else { return VN_ERR_INVALID_ARGUMENT };
     if data.is_null() || len < 0 {
         return VN_ERR_INVALID_ARGUMENT;
     }
     let slice = std::slice::from_raw_parts(data, len as usize);
-    match ep.send_video_frame(call_id, timestamp, slice) {
+    match ep.send_video_frame(call_id, timestamp, slice, str_from(content).unwrap_or("main")) {
         Ok(()) => VN_OK,
         Err(e) => map_error(e),
     }
+}
+
+/// Offers a screen-share stream on a call, or withdraws it when `on` is zero.
+///
+/// # Safety
+/// `handle` must be a live endpoint handle.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_share_screen(handle: *mut c_void, call_id: u64, on: c_int) -> c_int {
+    with_endpoint!(handle, ep => if on != 0 { ep.share_screen(call_id) } else { ep.stop_screen_share(call_id) })
 }
 
 /// Reports the audio device's round trip in milliseconds to the echo canceller.
@@ -388,6 +406,22 @@ pub unsafe extern "C" fn voipnet_set_stream_delay(handle: *mut c_void, call_id: 
 #[no_mangle]
 pub unsafe extern "C" fn voipnet_request_keyframe(handle: *mut c_void, call_id: u64, full: c_int) -> c_int {
     with_endpoint!(handle, ep => ep.request_keyframe(call_id, full != 0))
+}
+
+/// Writes what the call's live video streams show into `out`, comma separated (`main,slides`).
+///
+/// # Safety
+/// `out` must point to `len` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_video_streams(handle: *mut c_void, call_id: u64, out: *mut c_char, len: c_int) -> c_int {
+    let Some(ep) = endpoint(handle) else { return VN_ERR_INVALID_ARGUMENT };
+    match ep.video_streams(call_id) {
+        Ok(streams) => {
+            write_error(out, len, &streams.join(","));
+            VN_OK
+        }
+        Err(e) => map_error(e),
+    }
 }
 
 /// Writes the call's negotiated video codec into `out` (empty when the call has no video stream).

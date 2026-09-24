@@ -68,6 +68,25 @@ call.SendVideoFrame(rtpTimestamp90kHz, encodedFrame);   // dipecah menjadi beber
 Console.WriteLine(call.VideoCodec);                     // "H264", atau null pada panggilan audio saja
 ```
 
+Panggilan bisa membawa stream video kedua berisi tampilan layar (RFC 4796 `a=content:slides`), ditawarkan
+lewat re-INVITE dan dihentikan dengan cara yang sama:
+
+```csharp
+call.ShareScreen();                                        // menawarkan m=video kedua, bertanda slides
+call.SendVideoFrame(rtpTimestamp90kHz, encodedFrame, "slides");
+Console.WriteLine(string.Join(", ", call.VideoStreams));   // "main, slides"
+call.StopScreenShare();                                    // m-line tetap ada, ditawarkan dengan port 0
+```
+
+Frame yang diterima menyebutkan asal streamnya, sehingga kamera dan layar bisa ditampilkan terpisah:
+
+```csharp
+call.VideoFrameReceived += (c, timestamp, keyframe, frame, content) =>
+{
+    if (content == "slides") { screenDecoder.Feed(frame, keyframe); } else { cameraDecoder.Feed(frame, keyframe); }
+};
+```
+
 Frame yang kehilangan paket dibuang, bukan diserahkan dalam keadaan rusak, sehingga decoder tidak
 pernah menerima frame cacat; engine lalu meminta keyframe ke pengirim (RTCP PLI, RFC 4585) agar gambar
 kembali. Minta sendiri dengan `call.RequestKeyframe()`, dan tanggapi permintaan lawan dengan meng-encode

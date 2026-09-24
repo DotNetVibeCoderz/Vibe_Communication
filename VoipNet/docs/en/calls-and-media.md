@@ -68,6 +68,25 @@ call.SendVideoFrame(rtpTimestamp90kHz, encodedFrame);   // split across as many 
 Console.WriteLine(call.VideoCodec);                     // "H264", or null on an audio-only call
 ```
 
+A call can carry a second video stream showing a screen (RFC 4796 `a=content:slides`), offered with a
+re-INVITE and withdrawn the same way:
+
+```csharp
+call.ShareScreen();                                        // offers a second m=video, marked as slides
+call.SendVideoFrame(rtpTimestamp90kHz, encodedFrame, "slides");
+Console.WriteLine(string.Join(", ", call.VideoStreams));   // "main, slides"
+call.StopScreenShare();                                    // the m-line stays, offered with port 0
+```
+
+Received frames say which stream they came from, so a viewer can show the camera and the screen apart:
+
+```csharp
+call.VideoFrameReceived += (c, timestamp, keyframe, frame, content) =>
+{
+    if (content == "slides") { screenDecoder.Feed(frame, keyframe); } else { cameraDecoder.Feed(frame, keyframe); }
+};
+```
+
 A frame that loses a packet is dropped rather than handed over damaged, so decoders never see a torn
 frame; the engine then asks the sender for a keyframe (RTCP PLI, RFC 4585) so the picture comes back.
 Ask for one yourself with `call.RequestKeyframe()`, and answer the peer's requests by encoding one:

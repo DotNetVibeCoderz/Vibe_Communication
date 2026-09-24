@@ -76,7 +76,8 @@
 | `SendAudio(samples, rate)`, `SendAudio(bytes, rate)`, `SendAudioStreamAsync(...)`, `ClearAudio()`, `QueuedAudioMs` | Outbound audio. |
 | `AudioReceived`, `ReadAudioAsync(direction)` | Audio from the call. |
 | `SendEncoded(...)`, `EncodedReceived` | Pass-through payloads. |
-| `SendVideoFrame(...)`, `VideoFrameReceived`, `VideoCodec` | Whole video frames on the call's video stream. |
+| `SendVideoFrame(...)`, `VideoFrameReceived`, `VideoCodec`, `VideoStreams` | Whole video frames, labelled by stream (`main`, `slides`). |
+| `ShareScreen()`, `StopScreenShare()` | Offers or withdraws a second video stream showing a screen. |
 | `RequestKeyframe(full)` | Asks the peer for a video keyframe (RTCP PLI or FIR). |
 | `SetAudioDelay(ms)` | Reports the speaker-to-microphone round trip to the echo canceller. |
 | `GetStatistics()`, `FinalStatistics` | Quality, including what the peer reports over RTCP (`RoundTripMs`, `RemoteLossPercent`, `RemoteJitterMs`, `RemoteMos`). |

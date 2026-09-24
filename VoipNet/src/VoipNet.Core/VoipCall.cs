@@ -219,7 +219,16 @@ public sealed class VoipCall
     /// <summary>Sends one encoded video frame on the call's video stream (H.264 Annex B access unit or VP8 frame).</summary>
     /// <param name="timestamp">Presentation timestamp in the 90 kHz video clock.</param>
     /// <param name="frame">The encoded frame; it is split across as many RTP packets as it needs.</param>
-    public void SendVideoFrame(uint timestamp, ReadOnlySpan<byte> frame) => _client.SendVideoFrame(Id, timestamp, frame);
+    /// <param name="content">Which stream to send on: <c>main</c> for the camera, <c>slides</c> for a shared screen.</param>
+    public void SendVideoFrame(uint timestamp, ReadOnlySpan<byte> frame, string content = "main") =>
+        _client.SendVideoFrame(Id, timestamp, frame, content);
+
+    /// <summary>Offers a second video stream showing a screen (RFC 4796 <c>a=content:slides</c>). Send its
+    /// frames with <c>SendVideoFrame(..., "slides")</c> once the peer accepts it.</summary>
+    public void ShareScreen() => _client.ShareScreen(Id, true);
+
+    /// <summary>Withdraws the screen share. The call and its camera stream carry on.</summary>
+    public void StopScreenShare() => _client.ShareScreen(Id, false);
 
     /// <summary>Reports how long audio takes to travel from the speaker back into the microphone, so the
     /// echo canceller starts from the right alignment. <c>CallAudioBridge</c> reports its own devices;
@@ -235,6 +244,10 @@ public sealed class VoipCall
 
     /// <summary>The video codec negotiated for this call, or <c>null</c> when the call has no video stream.</summary>
     public string? VideoCodec => _client.VideoCodec(Id);
+
+    /// <summary>What the call's live video streams show, in order: <c>main</c> for the camera, <c>slides</c>
+    /// for a shared screen.</summary>
+    public IReadOnlyList<string> VideoStreams => _client.VideoStreams(Id);
 
     /// <summary>Sends an already encoded payload for a pass-through codec.</summary>
     /// <param name="payloadType">RTP payload type.</param>
@@ -307,8 +320,8 @@ public sealed class VoipCall
         }
     }
 
-    internal void RaiseVideoFrame(uint timestamp, bool keyframe, ReadOnlySpan<byte> frame) =>
-        VideoFrameReceived?.Invoke(this, timestamp, keyframe, frame);
+    internal void RaiseVideoFrame(uint timestamp, bool keyframe, ReadOnlySpan<byte> frame, string content) =>
+        VideoFrameReceived?.Invoke(this, timestamp, keyframe, frame, content);
 
     internal void RaiseEncoded(int payloadType, uint timestamp, bool marker, ReadOnlySpan<byte> payload) =>
         EncodedReceived?.Invoke(this, payloadType, timestamp, marker, payload);
