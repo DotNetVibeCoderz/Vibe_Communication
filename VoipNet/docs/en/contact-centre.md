@@ -156,6 +156,54 @@ Each row covers one queue in one interval: offered, answered, abandoned, overflo
 longest wait, average talk time, service level and abandon rate. The CSV is plain UTF-8 with an ISO
 timestamp per row, which loads into a spreadsheet, a warehouse or a Grafana source without a converter.
 
+### Opening hours
+
+A queue can have a schedule, so callers arriving out of hours are not left waiting for an agent who
+is not there. Hours are written in their own time zone, and a date that breaks the weekly pattern —
+a holiday, or a half day — is an exception:
+
+```csharp
+var hours = RoutingSchedule.Weekdays(new TimeOnly(8, 0), new TimeOnly(17, 0), "Asia/Jakarta");
+hours.Exceptions.Add(new ScheduleException { Date = new DateOnly(2026, 3, 19), Reason = "Nyepi" });
+hours.Exceptions.Add(new ScheduleException
+{
+    Date = new DateOnly(2026, 12, 24),
+    Reason = "Christmas Eve",
+    Hours = [new OpeningHours(DayOfWeek.Thursday, new TimeOnly(8, 0), new TimeOnly(12, 0))],
+});
+
+centre.AddQueue(new CallQueueOptions
+{
+    Name = "support",
+    Schedule = new RoutingSchedule
+    {
+        TimeZone = "Asia/Jakarta",
+        Hours = hours.Hours,
+        Exceptions = hours.Exceptions,
+        ClosedTarget = "sip:voicemail@pbx",   // where callers go while the queue is shut
+    },
+});
+```
+
+`EnqueueAsync` checks the schedule before the caller joins: a closed queue transfers them to
+`ClosedTarget` (when there is one) and returns `QueueOutcome.Closed` straight away, so the call is
+never counted as abandoned. Ask the schedule yourself to tell a caller when to ring back:
+
+```csharp
+var status = queueOptions.Schedule!.Check(DateTimeOffset.UtcNow);
+if (!status.IsOpen)
+{
+    await tts.SpeakAsync(call, status.Reason is { } why
+        ? $"We are closed today for {why}. We open again at {status.Until:HH:mm}."
+        : $"We are closed. We open again at {status.Until:HH:mm}.");
+}
+```
+
+An opening period whose closing time is at or before its opening time runs past midnight, so
+`(Friday, 22:00, 02:00)` keeps the queue open until two on Saturday morning. A schedule with no hours
+and no exceptions is always open. Closed calls are counted as offered in the metrics and stored in
+the history, so a supervisor can see how much demand arrives while the queue is shut.
+
 ### Metrics
 
 ```csharp

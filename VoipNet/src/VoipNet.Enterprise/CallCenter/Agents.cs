@@ -120,6 +120,9 @@ public sealed class CallQueueOptions
 
     /// <summary>How callbacks are made for this queue.</summary>
     public CallbackOptions Callbacks { get; init; } = new();
+
+    /// <summary>When the queue takes calls. Without one it is always open.</summary>
+    public RoutingSchedule? Schedule { get; init; }
 }
 
 /// <summary>A caller waiting in a queue.</summary>
@@ -167,6 +170,9 @@ public enum QueueOutcome
 
     /// <summary>The caller asked to be called back and hung up, keeping their place.</summary>
     CallbackScheduled,
+
+    /// <summary>The queue was closed, so the caller never joined it.</summary>
+    Closed,
 }
 
 /// <summary>Result of waiting in a queue.</summary>

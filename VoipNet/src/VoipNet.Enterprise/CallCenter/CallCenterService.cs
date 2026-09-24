@@ -379,6 +379,24 @@ public sealed class CallCenterService(
             Context = context ?? new Dictionary<string, string>(),
         };
 
+        // Out of hours the caller is not left waiting for an agent who is not there.
+        if (options.Schedule?.Check(DateTimeOffset.UtcNow) is { IsOpen: false } closed)
+        {
+            var until = closed.Until is { } opens ? $", open again {opens:g}" : "";
+            _logger.LogInformation("Queue {Queue} is closed{Reason}{Until}", queueName, closed.Reason is { Length: > 0 } r ? $" ({r})" : "", until);
+            var shut = new QueueResult(QueueOutcome.Closed, null, TimeSpan.Zero);
+            if (options.Schedule.ClosedTarget is { Length: > 0 } target && call.IsActive)
+            {
+                call.Transfer(target);
+            }
+
+            Metrics.RecordOffered(queueName);
+            Metrics.RecordOutcome(queueName, shut, options.ServiceLevelTarget);
+            Record(entry, shut);
+            CallDequeued?.Invoke(this, (entry, shut));
+            return shut;
+        }
+
         var list = _waiting.GetOrAdd(queueName, _ => []);
         lock (_gate)
         {

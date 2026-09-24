@@ -154,6 +154,55 @@ rata-rata dan waktu tunggu terlama, rata-rata waktu bicara, service level, serta
 UTF-8 biasa dengan timestamp ISO per baris, sehingga langsung bisa dibuka di spreadsheet, dimuat ke
 warehouse, atau dipakai sebagai sumber Grafana.
 
+### Jam buka
+
+Antrean bisa punya jadwal, sehingga penelepon di luar jam kerja tidak dibiarkan menunggu agen yang
+memang tidak ada. Jam ditulis dalam zona waktunya sendiri, dan tanggal yang menyimpang dari pola
+mingguan — hari libur atau setengah hari — ditulis sebagai pengecualian:
+
+```csharp
+var hours = RoutingSchedule.Weekdays(new TimeOnly(8, 0), new TimeOnly(17, 0), "Asia/Jakarta");
+hours.Exceptions.Add(new ScheduleException { Date = new DateOnly(2026, 3, 19), Reason = "Nyepi" });
+hours.Exceptions.Add(new ScheduleException
+{
+    Date = new DateOnly(2026, 12, 24),
+    Reason = "Malam Natal",
+    Hours = [new OpeningHours(DayOfWeek.Thursday, new TimeOnly(8, 0), new TimeOnly(12, 0))],
+});
+
+centre.AddQueue(new CallQueueOptions
+{
+    Name = "support",
+    Schedule = new RoutingSchedule
+    {
+        TimeZone = "Asia/Jakarta",
+        Hours = hours.Hours,
+        Exceptions = hours.Exceptions,
+        ClosedTarget = "sip:voicemail@pbx",   // tujuan penelepon selama antrean tutup
+    },
+});
+```
+
+`EnqueueAsync` memeriksa jadwal sebelum penelepon bergabung: antrean yang tutup mengalihkan mereka ke
+`ClosedTarget` (bila ada) dan langsung mengembalikan `QueueOutcome.Closed`, jadi panggilan itu tidak
+pernah dihitung sebagai abandoned. Tanyakan sendiri ke jadwal untuk memberi tahu kapan harus menelepon
+lagi:
+
+```csharp
+var status = queueOptions.Schedule!.Check(DateTimeOffset.UtcNow);
+if (!status.IsOpen)
+{
+    await tts.SpeakAsync(call, status.Reason is { } why
+        ? $"Kami tutup hari ini karena {why}. Kami buka lagi pukul {status.Until:HH:mm}."
+        : $"Kami sedang tutup. Kami buka lagi pukul {status.Until:HH:mm}.");
+}
+```
+
+Periode yang jam tutupnya sama atau lebih awal dari jam bukanya berarti melewati tengah malam, jadi
+`(Friday, 22:00, 02:00)` membuat antrean tetap buka sampai pukul dua Sabtu dini hari. Jadwal tanpa jam
+dan tanpa pengecualian selalu buka. Panggilan saat tutup tetap dihitung sebagai offered di metrik dan
+disimpan di riwayat, sehingga supervisor bisa melihat berapa banyak permintaan datang saat tutup.
+
 ### Metrik
 
 ```csharp
