@@ -241,6 +241,23 @@ table.grid td.num { font-family: var(--mono); text-align: right; }
 .status { color: var(--ink-soft); }
 .status.bad { color: var(--red); }
 
+/* The camera toggle sits with the desk choices but outside the fieldset, so it stays usable on a call. */
+.video-toggle { margin: 0 0 18px; }
+.video-toggle.connected { border-left-color: var(--cobalt); }
+
+/* The returning picture: small, quiet, and only there when video is on. */
+.return-video { margin: 16px 0 0; display: grid; gap: 6px; }
+.return-video.hidden { display: none; }
+.return-video video {
+    width: 100%;
+    max-width: 320px;
+    aspect-ratio: 4 / 3;
+    background: var(--trace);
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    object-fit: cover;
+}
+
 .meters { display: grid; gap: 10px; }
 .meter { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 10px; }
 .ladder { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; height: 14px; }

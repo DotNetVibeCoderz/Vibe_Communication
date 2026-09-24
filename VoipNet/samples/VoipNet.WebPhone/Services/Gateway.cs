@@ -41,6 +41,9 @@ public sealed class Bridge
 
     public string? SecurityError { get; internal set; }
 
+    /// <summary>True once video has arrived from the browser, so the page can say so.</summary>
+    public bool VideoSeen { get; internal set; }
+
     public bool Ended => BrowserLeg.State == CallState.Terminated;
 
     public CallStatistics? BrowserStats => Stats(BrowserLeg);
@@ -108,6 +111,8 @@ public sealed class Gateway(ILogger<Gateway> logger) : IHostedService, IAsyncDis
             Srtp = SrtpMode.Mandatory,
             SrtpKeying = SrtpKeying.Dtls,
             Ice = true,
+            // A browser that offers video gets it back: the gateway echoes the frames it reassembles.
+            Video = true,
             UserAgent = "Voip.NET WebRTC gateway",
         });
 
@@ -156,6 +161,26 @@ public sealed class Gateway(ILogger<Gateway> logger) : IHostedService, IAsyncDis
         var trunkLeg = _trunk!.Call($"sip:{desk}@{_desk!.LocalAddress}");
         bridge.TrunkLeg = trunkLeg;
         Changed?.Invoke();
+
+        // Video is echoed rather than bridged: the desk phone is audio only, and returning the frames
+        // shows the whole encrypted video path working — browser encoder, SRTP, this engine, and back.
+        browserLeg.VideoFrameReceived += (call, timestamp, _, frame, content) =>
+        {
+            try
+            {
+                call.SendVideoFrame(timestamp, frame, content);
+                if (!bridge.VideoSeen)
+                {
+                    bridge.VideoSeen = true;
+                    Log(Hop.Bridge, $"video from the browser ({call.VideoCodec}), echoing it back");
+                    Changed?.Invoke();
+                }
+            }
+            catch (VoipException)
+            {
+                // The browser hung up between frames.
+            }
+        };
 
         // Relay decoded audio in both directions; the engine resamples and paces each leg.
         browserLeg.AudioReceived += (_, direction, rate, samples) =>

@@ -67,6 +67,8 @@ switch (scenario)
         await browser.NavigateAsync($"{baseUrl}/");
         await browser.WaitForAsync("[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Call echo desk' && !b.disabled)", TimeSpan.FromSeconds(15));
         await browser.ScreenshotAsync(Path.Combine(output, $"webphone-idle{suffix}.png"), fullPage: true);
+        // The fake camera is on for these runs, so the call carries video as well as audio.
+        await browser.EvaluateAsync("document.querySelector('.video-toggle input').click()");
         await browser.ClickTextAsync("button", "Call echo desk");
         var flowing = await browser.WaitForAsync("document.body.innerText.includes('Media is flowing')", TimeSpan.FromSeconds(30));
         await browser.WaitForAsync("document.querySelectorAll('.jack.live').length === 6", TimeSpan.FromSeconds(20));
@@ -78,11 +80,16 @@ switch (scenario)
         Console.WriteLine(await browser.EvaluateAsync("[...document.querySelectorAll('.jack')].map(j => j.className + ' ' + j.querySelector('.jack-detail').innerText).join('\\n')"));
         var received = await browser.EvaluateAsync("(() => { const t = [...document.querySelectorAll('.facts div')].find(d => d.innerText.startsWith('Packets') || d.innerText.startsWith('PACKETS')); return t ? parseInt(t.querySelector('dd').innerText) || 0 : 0; })()");
         var live = await browser.EvaluateAsync("document.querySelectorAll('.jack.live').length");
+        // Frames the browser decoded from what the gateway sent back: the video path, end to end.
+        var videoBack = await browser.EvaluateAsync("(() => { const el = document.querySelector('.return-video video'); return el ? el.videoWidth : 0; })()");
         await browser.ClickTextAsync("button", "Hang up");
         await Task.Delay(TimeSpan.FromSeconds(2));
 
-        var ok = flowing && Number(received) > 50 && Number(live) == 6;
-        Console.WriteLine(ok ? "interop: OK" : $"interop: FAILED (flowing={flowing}, packets in={Number(received)}, live hops={Number(live)})");
+        var ok = flowing && Number(received) > 50 && Number(live) == 6 && Number(videoBack) > 0;
+        Console.WriteLine($"video returned: {Number(videoBack)}px wide");
+        Console.WriteLine(ok
+            ? "interop: OK"
+            : $"interop: FAILED (flowing={flowing}, packets in={Number(received)}, live hops={Number(live)}, video width={Number(videoBack)})");
         return ok ? 0 : 1;
 
     default:

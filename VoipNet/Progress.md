@@ -66,6 +66,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | SRTP AES_CM_128_HMAC_SHA1_80 and AEAD_AES_128/256_GCM (RFC 7714) | ✅ | SDES or DTLS keys · kunci SDES atau DTLS |
 | DTLS-SRTP (RFC 5763/5764) | ✅ | dimpl DTLS 1.2 (pure Rust), fingerprint check, `a=setup` roles, no plain RTP before keys · tanpa RTP polos sebelum kunci siap |
 | Data channels (SCTP) | ⏳ | |
+| Browser video interop | ✅ | the WebPhone sample sends camera video over DTLS-SRTP; the gateway echoes the reassembled frames and the browser decodes them again (Edge: VP8 320×240, 64 frames out and back). Checked on every CI build · video kamera dari browser diuji pada setiap build CI |
 | Browser interop | ✅ | Chrome/Edge and Firefox verified on a desktop; Chrome gates every CI build (`tools/VoipNet.DocShots webphone`) and the build fails unless encrypted audio flows both ways. Firefox on hosted runners signals the call but never finishes ICE there, so that step reports without failing. Safari not tested (no macOS machine) · diuji di setiap build CI; Safari belum diuji |
 
 ## 🎥 Video · Fitur video
@@ -148,6 +149,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 
 ### Unreleased · Belum dirilis
 
+- The WebPhone sample sends video: the browser's camera goes over the same DTLS-SRTP path, the gateway echoes the frames it reassembles, and the returned picture plays in the page. The CI interop test now fails unless video comes back too. · Sample WebPhone mengirim video kamera; gateway memantulkannya dan CI menuntut video ikut kembali.
 - Conference video: the bridge forwards the active speaker (or a pinned participant) to everyone else, asking the new source for a keyframe before it switches. `FollowSpeaker()`, `Pin(call)` and `ActiveSpeaker` on `VoipConference`. · Video konferensi mengikuti pembicara aktif atau peserta yang dipin.
 - Screen sharing: a call can offer a second video stream marked `a=content:slides`, frames say which stream they belong to, and withdrawing the share leaves the call and the camera alone. · Berbagi layar sebagai stream video kedua, lengkap dengan label pada setiap frame.
 - CRM connectors for HubSpot, Salesforce, Dynamics 365 and Odoo: look a caller up by number, read their recent tickets, open one, and add a note — the four operations a voice agent needs. · Konektor CRM untuk HubSpot, Salesforce, Dynamics 365, dan Odoo.

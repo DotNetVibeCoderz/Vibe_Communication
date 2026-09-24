@@ -173,6 +173,12 @@ Sunting menu, opsi, dan instruksi AI; lihat jalur panggilan; tekan tombol pada t
 
 Gateway WebRTC dalam satu mesin. Script halaman adalah client SIP over WebSocket kecil: ia menelepon endpoint gateway (`ws://host:5090`) dengan offer `RTCPeerConnection`, lalu gateway menjawab dengan ICE dan DTLS-SRTP dan meneruskan audionya ke panggilan SIP/UDP biasa menuju telepon meja (echo atau pemutar nada). Jalur sinyal di bagian atas menyala hop demi hop; kedua leg menampilkan codec, enkripsi, paket, dan MOS, berdampingan dengan laporan browser sendiri dari `getStats()`.
 
+Centang **Send video too** dan kamera ikut melewati jalur terenkripsi yang sama: engine merakit
+kembali frame-nya, gateway langsung mengirimkannya balik, dan gambar yang kembali diputar di bawah meter.
+Video berarti satu transport per baris media, bukan BUNDLE, karena setiap stream punya port sendiri di
+sini — jadi halamannya meminta `max-compat` ke browser saat video aktif. Uji interop di CI berjalan
+dengan kamera palsu dan gagal bila video tidak ikut kembali.
+
 ### Realtime Agent (console)
 
 ```bash

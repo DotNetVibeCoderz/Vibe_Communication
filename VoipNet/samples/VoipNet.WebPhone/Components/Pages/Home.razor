@@ -46,6 +46,11 @@
             </label>
         </fieldset>
 
+        <label class="choice cable video-toggle @(_withVideo ? "connected" : "")">
+            <input type="checkbox" checked="@_withVideo" disabled="@InCall" @onchange="@(e => _withVideo = (bool)(e.Value ?? false))" />
+            <span><strong>Send video too</strong><span class="soft">Your camera goes over the same encrypted path; the gateway sends the frames straight back.</span></span>
+        </label>
+
         <div class="actions">
             @if (InCall)
             {
@@ -63,6 +68,19 @@
             <Meter Label="Coming back" Level="@(_stats?.RemoteLevel ?? 0)" />
         </div>
         <audio @ref="_audio" autoplay></audio>
+        <figure class="return-video @(_withVideo ? "" : "hidden")">
+            <video @ref="_video" autoplay playsinline muted></video>
+            <figcaption class="soft small">
+                @if (_stats is { VideoFramesReceived: > 0 })
+                {
+                    <span class="mono">@_stats.VideoCodec @_stats.VideoSize · @_stats.VideoFramesReceived frames back</span>
+                }
+                else if (_withVideo)
+                {
+                    <span>What comes back from the gateway appears here.</span>
+                }
+            </figcaption>
+        </figure>
     </article>
 
     <article class="module legs">
@@ -114,6 +132,7 @@
             <div><dt class="eyebrow">ICE pair</dt><dd class="mono">@Show(_stats?.CandidatePair)</dd></div>
             <div><dt class="eyebrow">Packets in / out</dt><dd class="mono">@(_stats is null ? "—" : $"{_stats.PacketsReceived} / {_stats.PacketsSent}")</dd></div>
             <div><dt class="eyebrow">Jitter · lost</dt><dd class="mono">@(_stats is null ? "—" : $"{_stats.JitterMs} ms · {_stats.PacketsLost}")</dd></div>
+            <div><dt class="eyebrow">Video</dt><dd class="mono">@(_stats is null or { VideoFramesSent: 0 } ? "—" : $"{_stats.VideoCodec} {_stats.VideoSize} · {_stats.VideoFramesSent} sent / {_stats.VideoFramesReceived} back")</dd></div>
         </dl>
     </article>
 </section>
@@ -156,7 +175,11 @@
         string Codec,
         string DtlsState,
         string SrtpCipher,
-        string CandidatePair);
+        string CandidatePair,
+        string VideoCodec,
+        long VideoFramesSent,
+        long VideoFramesReceived,
+        string VideoSize);
 
     private readonly HopInfo[] _hops =
     [
@@ -171,6 +194,8 @@
     private IJSObjectReference? _module;
     private DotNetObjectReference<Home>? _self;
     private ElementReference _audio;
+    private ElementReference _video;
+    private bool _withVideo;
     private string _desk = "echo";
     private string _phase = "idle";
     private string _detail = "";
@@ -219,7 +244,7 @@
     {
         _stats = null;
         _phase = "microphone";
-        await _module!.InvokeVoidAsync("call", _self, $"ws://{Host}:{Gateway.WebSocketPort}", _desk, _audio);
+        await _module!.InvokeVoidAsync("call", _self, $"ws://{Host}:{Gateway.WebSocketPort}", _desk, _audio, _video, _withVideo);
     }
 
     private async Task HangupAsync()

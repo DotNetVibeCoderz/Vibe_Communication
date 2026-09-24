@@ -35,7 +35,11 @@ function parse(text) {
 const uriOf = value => (/<([^>]+)>/.exec(value) ?? [null, value.split(";")[0]])[1];
 
 async function collectStats(pc) {
-    const out = { packetsSent: 0, packetsReceived: 0, packetsLost: 0, jitterMs: 0, micLevel: 0, remoteLevel: 0, codec: "", dtlsState: "", srtpCipher: "", candidatePair: "" };
+    const out = {
+        packetsSent: 0, packetsReceived: 0, packetsLost: 0, jitterMs: 0, micLevel: 0, remoteLevel: 0,
+        codec: "", dtlsState: "", srtpCipher: "", candidatePair: "",
+        videoCodec: "", videoFramesSent: 0, videoFramesReceived: 0, videoSize: "",
+    };
     const report = await pc.getStats();
     const byId = new Map();
     report.forEach(s => byId.set(s.id, s));
@@ -48,6 +52,13 @@ async function collectStats(pc) {
             out.remoteLevel = s.audioLevel ?? 0;
             const codec = byId.get(s.codecId);
             if (codec) out.codec = `${codec.mimeType.replace("audio/", "")} ${codec.clockRate / 1000} kHz`;
+        }
+        if (s.type === "outbound-rtp" && s.kind === "video") out.videoFramesSent = s.framesEncoded ?? 0;
+        if (s.type === "inbound-rtp" && s.kind === "video") {
+            out.videoFramesReceived = s.framesDecoded ?? 0;
+            if (s.frameWidth) out.videoSize = `${s.frameWidth}×${s.frameHeight}`;
+            const codec = byId.get(s.codecId);
+            if (codec) out.videoCodec = codec.mimeType.replace("video/", "");
         }
         if (s.type === "media-source" && s.kind === "audio") out.micLevel = s.audioLevel ?? 0;
         if (s.type === "transport") {
@@ -65,7 +76,7 @@ async function collectStats(pc) {
 }
 
 /** Places a call through the gateway. `view` receives OnPhase(phase, detail) and OnStats(stats). */
-export async function call(view, wsUrl, desk, audioElement) {
+export async function call(view, wsUrl, desk, audioElement, videoElement, withVideo) {
     hangup();
     const host = new URL(wsUrl).host;
     const domain = `${token(8)}.invalid`;
@@ -92,7 +103,10 @@ export async function call(view, wsUrl, desk, audioElement) {
 
     try {
         report("microphone");
-        state.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false } });
+        // A small picture at a modest frame rate: this is a demonstration, not a broadcast.
+        const wanted = { audio: { echoCancellation: false, noiseSuppression: false } };
+        if (withVideo) wanted.video = { width: 320, height: 240, frameRate: 15 };
+        state.stream = await navigator.mediaDevices.getUserMedia(wanted);
         report("connecting", wsUrl);
         state.ws = new WebSocket(wsUrl, "sip");
         await new Promise((resolve, reject) => {
@@ -100,11 +114,15 @@ export async function call(view, wsUrl, desk, audioElement) {
             state.ws.onerror = () => reject(new Error(`Could not open ${wsUrl}. Is the gateway running?`));
         });
 
-        const pc = state.pc = new RTCPeerConnection({ bundlePolicy: "max-bundle" });
+        // Voip.NET gives each media stream its own port, so audio and video cannot share a transport:
+        // with video the browser is asked for one transport per m-line.
+        const pc = state.pc = new RTCPeerConnection({ bundlePolicy: withVideo ? "max-compat" : "max-bundle" });
         state.stream.getTracks().forEach(t => pc.addTrack(t, state.stream));
         pc.ontrack = e => {
-            audioElement.srcObject = e.streams[0] ?? new MediaStream([e.track]);
-            audioElement.play().catch(() => { });
+            const element = e.track.kind === "video" ? videoElement : audioElement;
+            if (!element) return;
+            element.srcObject = e.streams[0] ?? new MediaStream([e.track]);
+            element.play().catch(() => { });
         };
         pc.onconnectionstatechange = () => report(`pc-${pc.connectionState}`);
         // Candidates found before the call is answered wait here; later ones go out as they appear.

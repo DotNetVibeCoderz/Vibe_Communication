@@ -1451,11 +1451,13 @@ impl Inner {
                     ..Default::default()
                 }));
             }
-            // Keep BUNDLE (RFC 8843) for the accepted streams so WebRTC peers accept the answer.
+            // BUNDLE (RFC 8843) means one transport for every stream in the group, and this engine gives
+            // each stream its own port. So the group is only claimed when a single stream was accepted;
+            // with audio and video up, the answer leaves it out and the peer uses a transport per line.
             if offer.groups.iter().any(|g| g.starts_with("BUNDLE")) {
                 let mids: Vec<String> = sdp.media.iter().filter(|m| m.port != 0).filter_map(|m| m.mid.clone()).collect();
-                if !mids.is_empty() {
-                    sdp.groups.push(format!("BUNDLE {}", mids.join(" ")));
+                if mids.len() == 1 {
+                    sdp.groups.push(format!("BUNDLE {}", mids[0]));
                 }
             }
         }
