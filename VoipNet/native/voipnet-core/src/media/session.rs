@@ -254,12 +254,16 @@ struct Layer {
     bitrate: u64,
     /// When a packet of this encoding last arrived: a sender may stop one at any time.
     last_packet: Instant,
+    /// The stream this encoding arrives on. A browser labels its packets only until it knows the
+    /// labels have been understood, and then sends the stream unlabelled — so after the first few
+    /// seconds the synchronisation source is the only thing that says which encoding a packet is.
+    ssrc: Option<u32>,
 }
 
 impl Layer {
     fn new(format: VideoFormat) -> Self {
         let now = Instant::now();
-        Self { depacketizer: VideoDepacketizer::new(format), bytes: 0, since: now, bitrate: 0, last_packet: now }
+        Self { depacketizer: VideoDepacketizer::new(format), bytes: 0, since: now, bitrate: 0, last_packet: now, ssrc: None }
     }
 
     /// Folds in one packet and returns the measured rate once a second has gone by.
@@ -312,25 +316,33 @@ impl VideoTrack {
     /// Returns the finished frame when the packet completed one *and* it belongs to the encoding
     /// being forwarded, and whether packets went missing, which is worth a keyframe request.
     fn push(&mut self, rid: Option<&str>, header: &RtpHeader, payload: &[u8], now: Instant) -> (Option<VideoFrame>, bool) {
-        let Some(rid) = rid else {
+        // A simulcast sender labels every packet with its encoding, and each one is a stream of its
+        // own: its own sequence numbers, its own frames, its own bitrate. The label stops once the
+        // sender is satisfied it was received, so an unlabelled packet is looked up by its stream.
+        let format = self.format;
+        let index = match rid {
+            Some(rid) => Some(match self.layers.iter().position(|(name, _)| name == rid) {
+                Some(index) => index,
+                None => {
+                    self.layers.push((rid.to_owned(), Layer::new(format)));
+                    self.layers.len() - 1
+                }
+            }),
+            None => self.layers.iter().position(|(_, layer)| layer.ssrc == Some(header.ssrc)),
+        };
+
+        let Some(index) = index else {
+            // Not a simulcast stream at all: one encoding, one reassembler.
             let frame = self.depacketizer.push(header.sequence, header.timestamp, header.marker, payload);
             let lost = self.depacketizer.incomplete_frames > self.incomplete_seen;
             self.incomplete_seen = self.depacketizer.incomplete_frames;
             return (frame, lost);
         };
 
-        // A simulcast sender labels every packet with its encoding, and each one is a stream of its
-        // own: its own sequence numbers, its own frames, its own bitrate.
-        let format = self.format;
-        let index = match self.layers.iter().position(|(name, _)| name == rid) {
-            Some(index) => index,
-            None => {
-                self.layers.push((rid.to_owned(), Layer::new(format)));
-                self.layers.len() - 1
-            }
-        };
-        let selected = self.selected.get_or_insert_with(|| rid.to_owned()).clone();
+        let rid = self.layers[index].0.clone();
+        let selected = self.selected.get_or_insert_with(|| rid.clone()).clone();
         let layer = &mut self.layers[index].1;
+        layer.ssrc = Some(header.ssrc);
         layer.measure(payload.len(), now);
         let frame = layer.depacketizer.push(header.sequence, header.timestamp, header.marker, payload);
         // Only the chosen encoding is watched for loss: the others are dropped on purpose.
@@ -1094,11 +1106,17 @@ impl MediaSession {
     }
 
     /// Asks the peer for a keyframe. `full` sends a Full Intra Request (RFC 5104) instead of a Picture
-    /// Loss Indication (RFC 4585). Returns false when there is no video stream or no peer yet.
+    /// Loss Indication (RFC 4585). Returns false when there is no video stream, no peer yet, or one
+    /// was asked for a moment ago — a keyframe takes time to arrive, and asking again while it is on
+    /// its way only makes the sender produce another (RFC 5104 asks for the same restraint).
     pub fn request_keyframe(&self, full: bool) -> bool {
         let sequence = {
             let mut track = self.shared.video.lock();
             let Some(track) = track.as_mut() else { return false };
+            if track.last_request.is_some_and(|at| at.elapsed() < KEYFRAME_REQUEST_INTERVAL) {
+                return false;
+            }
+
             track.last_request = Some(Instant::now());
             track.fir_sequence = track.fir_sequence.wrapping_add(1);
             track.fir_sequence
@@ -2557,6 +2575,56 @@ mod tests {
         assert_eq!(best_layer(&squeezed, 600_000, Some("l")).as_deref(), Some("l"), "not yet");
         let roomy = [("h".to_owned(), 380_000u64), ("l".to_owned(), 90_000)];
         assert_eq!(best_layer(&roomy, 600_000, Some("l")).as_deref(), Some("h"), "now there is room");
+    }
+
+    #[test]
+    fn an_unlabelled_packet_is_placed_by_the_stream_it_arrives_on() {
+        // Chrome labels its simulcast packets with an encoding name until it is satisfied the labels
+        // arrived, then sends the same streams unlabelled. Without remembering which stream is which,
+        // every frame after that would be reassembled with the other encodings' packets and thrown
+        // away — which is a keyframe request for every frame, for the rest of the call.
+        let mut track = VideoTrack {
+            payload_type: 96,
+            content: "main".into(),
+            packetizer: VideoPacketizer::new(VideoFormat::Vp8),
+            depacketizer: VideoDepacketizer::new(VideoFormat::Vp8),
+            format: VideoFormat::Vp8,
+            rid_extension: Some(10),
+            layers: Vec::new(),
+            selected: None,
+            layer_changed_at: None,
+            incomplete_seen: 0,
+            frames: 0,
+            reported_frames: 0,
+            reported_incomplete: 0,
+            last_request: None,
+            request_backoff: KEYFRAME_REQUEST_INTERVAL,
+            fir_sequence: 0,
+        };
+
+        let now = Instant::now();
+        let frame = |seed: u8| {
+            let mut payload = vec![0x10, 0x02, 0x00];
+            payload.extend((0..40).map(|i| i as u8 ^ seed));
+            payload
+        };
+        let header = |ssrc: u32, sequence: u16, timestamp: u32| RtpHeader {
+            marker: true,
+            payload_type: 96,
+            sequence,
+            timestamp,
+            ssrc,
+        };
+
+        // Labelled: the first encoding seen is the one kept.
+        assert!(track.push(Some("h"), &header(11, 1, 9000), &frame(1), now).0.is_some());
+        assert!(track.push(Some("l"), &header(22, 1, 9000), &frame(2), now).0.is_none());
+
+        // Unlabelled, from the same two streams: the chosen one still arrives, the other is still dropped.
+        let (kept, lost) = track.push(None, &header(11, 2, 12_000), &frame(3), now);
+        assert!(kept.is_some() && !lost, "the chosen encoding carries on unlabelled");
+        assert!(track.push(None, &header(22, 2, 12_000), &frame(4), now).0.is_none(), "the other one is still dropped");
+        assert_eq!(track.measured().len(), 2, "both are still measured: {:?}", track.measured());
     }
 
     #[test]
