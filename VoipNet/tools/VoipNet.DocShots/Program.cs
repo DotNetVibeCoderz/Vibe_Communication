@@ -198,22 +198,23 @@ static async Task<int> MeetingAsync(string baseUrl, string output)
         }
     }
 
-    // Everyone should end up watching the same participant: whoever the engine heard last.
     await first.WaitForAsync("document.querySelectorAll('.roster tbody tr').length >= 2", TimeSpan.FromSeconds(20));
-    var picture = await first.WaitForAsync(
-        "(() => { const v = document.querySelector('.stage-frame video'); return v && v.videoWidth > 0; })()",
-        TimeSpan.FromSeconds(60));
-    var second_picture = await second.WaitForAsync(
-        "(() => { const v = document.querySelector('.stage-frame video'); return v && v.videoWidth > 0; })()",
-        TimeSpan.FromSeconds(60));
+
+    // The room forwards one participant to everyone else, so whoever holds the floor sees nobody.
+    // Pinning each of them in turn asks the room for both directions rather than hoping the floor
+    // moves: with two browsers playing the same test tone, who is loudest is anybody's guess.
+    const string hasPicture = "(() => { const v = document.querySelector('.stage-frame video'); return v && v.videoWidth > 0; })()";
+    await Pin(first, 0);
+    var second_picture = await second.WaitForAsync(hasPicture, TimeSpan.FromSeconds(60));
+    await Pin(first, 1);
+    var picture = await first.WaitForAsync(hasPicture, TimeSpan.FromSeconds(60));
 
     foreach (var (browser, name) in new[] { (first, "Sari"), (second, "Budi") })
     {
         Console.WriteLine($"{name} sees: {await browser.EvaluateAsync("(document.querySelector('.on-screen')?.innerText ?? '') + ' | ' + (document.querySelector('.stage-caption .mono')?.innerText ?? '') + ' | ' + [...document.querySelectorAll('.facts div')].map(d => d.innerText.replace(String.fromCharCode(10), ': ')).join(' ; ')")}");
     }
 
-    // Pin the other participant: the floor stops moving, so the picture settles before the shot.
-    await first.EvaluateAsync("[...document.querySelectorAll('.roster tbody tr')].at(-1)?.querySelector('button')?.click()");
+    // The second participant stays pinned for the shot, so the picture is settled.
     await Task.Delay(TimeSpan.FromSeconds(6));
     var pinnedIn = Number(await first.EvaluateAsync("""
         (() => {
@@ -237,3 +238,7 @@ static async Task<int> MeetingAsync(string baseUrl, string output)
     Console.WriteLine(ok ? "meeting: OK" : $"meeting: FAILED (joined={joined}, first sees video={picture}, second sees video={second_picture})");
     return ok ? 0 : 1;
 }
+
+/// <summary>Pins the participant in that row of the roster, so the room forwards them to everyone else.</summary>
+static async Task Pin(Browser browser, int row) =>
+    await browser.EvaluateAsync($"[...document.querySelectorAll('.roster tbody tr')][{row}]?.querySelector('button')?.click()");
