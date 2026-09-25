@@ -152,7 +152,7 @@ Berikan `ILogger<VoipClient>`; event log engine (deteksi NAT, kegagalan kirim, e
 - Mode demo menjalankan dua jalur dalam proses: **echo** (mendengar suara sendiri) dan **music** (melodi yang menjawab tombol keypad dengan nada).
 - Trace audio langsung untuk kedua arah, codec dan MOS, mute/hold/keypad/rekam/transfer.
 - Panel catatan dengan **Summarise with AI** (endpoint kompatibel OpenAI apa pun).
-- **Camera** menyalakan webcam bila platformnya punya codec (baru Windows): gambarnya ditangkap, di-encode ke H.264, dikirim lewat RTP, lalu ditampilkan kembali setelah didekode — lawan bicara besar, diri sendiri di pojok. Jalur demo echo mengirim gambarnya kembali frame demi frame, sehingga seluruh jalurnya bisa dilihat di satu mesin.
+- **Camera** menyalakan webcam bila platformnya punya codec (baru Windows): gambarnya ditangkap, di-encode ke H.264, dikirim lewat RTP, lalu ditampilkan kembali setelah didekode — lawan bicara besar, diri sendiri di pojok. **Share screen** menambahkan layar di sampingnya sebagai stream kedua (`a=content:slides`, lewat re-INVITE), di-encode untuk teks alih-alih wajah. Jalur demo echo mengembalikan tiap stream pada streamnya sendiri, sehingga seluruh jalurnya bisa dilihat di satu mesin.
 - `dotnet run --project samples/VoipNet.Softphone -- --screenshot docs/images` merender screenshot dokumentasi tanpa tampilan.
 
 ### Gallery (Avalonia)

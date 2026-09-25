@@ -66,12 +66,9 @@ public sealed class DemoBots : IAsyncDisposable
         // The picture goes back the way it came, frame for frame, so a camera can be seen coming home
         // over real RTP rather than out of the same process's memory.
         call.VideoFrameReceived += (c, timestamp, keyframe, frame, content) =>
-        {
-            if (content == "main")
-            {
-                c.SendVideoFrame(timestamp, frame);
-            }
-        };
+            // Each stream goes back on the stream it came from, so a shared screen returns as a
+            // shared screen rather than replacing the face.
+            c.SendVideoFrame(timestamp, frame, content);
         await call.AnswerAsync();
     }
 

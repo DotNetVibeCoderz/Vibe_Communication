@@ -30,7 +30,9 @@ public sealed class CallVideo : IDisposable
     private IVideoEncoder? _encoder;
     private Thread? _captureThread;
     private Thread? _decodeThread;
+    private Thread? _screenThread;
     private volatile bool _running;
+    private volatile bool _sharing;
 
     public CallVideo(VoipCall call)
     {
@@ -52,6 +54,9 @@ public sealed class CallVideo : IDisposable
     /// <summary>What the camera is called, for the label under the self-view.</summary>
     public string CameraName { get; private set; } = string.Empty;
 
+    /// <summary>Whether the screen is going out as a second stream.</summary>
+    public bool IsSharingScreen => _sharing;
+
     /// <summary>Starts sending the camera and showing what arrives. Safe to call twice.</summary>
     public void Start()
     {
@@ -69,6 +74,40 @@ public sealed class CallVideo : IDisposable
         _captureThread.Start();
     }
 
+    /// <summary>
+    /// Offers the screen as a second video stream (<c>a=content:slides</c>), which is a re-INVITE:
+    /// the camera carries on untouched on the first stream while this one is added beside it.
+    /// </summary>
+    public void ShareScreen()
+    {
+        if (_sharing || !_running)
+        {
+            return;
+        }
+
+        _sharing = true;
+        _call.ShareScreen();
+        _screenThread = new Thread(CaptureScreen) { IsBackground = true, Name = "softphone screen" };
+        _screenThread.Start();
+    }
+
+    /// <summary>Withdraws the screen stream, leaving the call and its camera as they were.</summary>
+    public void StopSharingScreen()
+    {
+        if (!_sharing)
+        {
+            return;
+        }
+
+        _sharing = false;
+        _screenThread?.Join(TimeSpan.FromSeconds(2));
+        _screenThread = null;
+        if (_call.IsActive)
+        {
+            _call.StopScreenShare();
+        }
+    }
+
     /// <summary>Stops both directions and puts the camera light out.</summary>
     public void Stop()
     {
@@ -77,6 +116,7 @@ public sealed class CallVideo : IDisposable
             return;
         }
 
+        StopSharingScreen();
         _running = false;
         _call.VideoFrameReceived -= OnVideoFrame;
         _call.KeyframeRequested -= OnKeyframeRequested;
@@ -157,6 +197,46 @@ public sealed class CallVideo : IDisposable
 
                 _call.SendVideoFrame((uint)(elapsed.TotalSeconds * 90_000), encoded.Data.Span);
             }
+        }
+    }
+
+    /// <summary>Copies the screen and sends it on the second stream until the share is stopped.</summary>
+    private void CaptureScreen()
+    {
+        try
+        {
+            using var screen = VideoCapture.OpenScreen(wholeDesktop: false, width: 1280, height: 720, framesPerSecond: 8);
+            using var encoder = VideoCodecs.CreateH264Encoder(new VideoEncoderOptions
+            {
+                Width = screen.Width,
+                Height = screen.Height,
+                FramesPerSecond = 8,
+                BitsPerSecond = 1_200_000,
+                Content = VideoContent.Detail,
+            });
+
+            while (_sharing && _running && _call.IsActive)
+            {
+                if (screen.Read() is not { } picture)
+                {
+                    return;
+                }
+
+                foreach (var frame in encoder.Encode(picture))
+                {
+                    if (!_sharing || !_call.IsActive)
+                    {
+                        return;
+                    }
+
+                    _call.SendVideoFrame((uint)(picture.Timestamp.TotalSeconds * 90_000), frame.Data.Span, "slides");
+                }
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException)
+        {
+            // No screen to read here: the call carries on with the camera alone.
+            _sharing = false;
         }
     }
 

@@ -75,6 +75,9 @@ public sealed partial class CallViewModel : ObservableObject
     public partial bool IsCameraOn { get; set; }
 
     [ObservableProperty]
+    public partial bool IsSharingScreen { get; set; }
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowVideo), nameof(HasRemotePicture))]
     public partial Bitmap? RemotePicture { get; set; }
 
@@ -229,8 +232,30 @@ public sealed partial class CallViewModel : ObservableObject
             _video.Dispose();
             _video = null;
             IsCameraOn = false;
+            IsSharingScreen = false;
             LocalPicture = null;
         }
+    }
+
+    /// <summary>Adds the screen to the call as a second stream, or takes it away again.</summary>
+    [RelayCommand]
+    private void ToggleScreenShare()
+    {
+        if (_video is null)
+        {
+            return;
+        }
+
+        if (IsSharingScreen)
+        {
+            _video.StopSharingScreen();
+        }
+        else
+        {
+            _video.ShareScreen();
+        }
+
+        IsSharingScreen = _video.IsSharingScreen;
     }
 
     private void OnPictureChanged()
