@@ -290,6 +290,8 @@ struct VideoTrack {
     layers: Vec<(String, Layer)>,
     /// Which encoding is being handed on; the others are dropped as they arrive.
     selected: Option<String>,
+    /// When that last changed, so a noisy estimate cannot flip the picture back and forth.
+    layer_changed_at: Option<Instant>,
     /// Incomplete frames already reported, so only new losses ask for a keyframe.
     incomplete_seen: u64,
     /// Whole frames handed to the application, and what was already counted towards an estimate.
@@ -346,6 +348,10 @@ impl VideoTrack {
 
 /// Losses come in bursts; one request per interval is enough to get a fresh keyframe.
 const KEYFRAME_REQUEST_INTERVAL: Duration = Duration::from_millis(500);
+
+/// How long an encoding is kept before another may be chosen. Every change costs a keyframe and a
+/// moment of still picture, so changing often is worse than staying on a size that nearly fits.
+const LAYER_DWELL: Duration = Duration::from_secs(3);
 
 struct TxState {
     codec: Option<Box<dyn AudioCodec>>,
@@ -1035,6 +1041,7 @@ impl MediaSession {
             rid_extension: None,
             layers: Vec::new(),
             selected: None,
+            layer_changed_at: None,
             incomplete_seen: 0,
             frames: 0,
             reported_frames: 0,
@@ -1620,10 +1627,29 @@ fn start_sctp(sh: &Arc<Shared>) {
     process_sctp_events(sh, events);
 }
 
-/// The best encoding for a budget: the largest that leaves a tenth of it spare, or the smallest
+/// The encoding to keep for a budget: the largest that leaves a tenth of it spare, or the smallest
 /// there is when none of them fit, because some picture beats none.
-fn best_layer(measured: &[(String, u64)], budget_bps: u64) -> Option<String> {
+///
+/// What is already playing gets the benefit of the doubt. A measured bitrate moves about — a keyframe
+/// alone can double a second's worth — so an encoding that fits is only given up once it stops
+/// fitting, and a larger one has to fit with a third of the budget to spare before it is taken. Both
+/// margins exist because changing encoding freezes the picture until a keyframe arrives.
+fn best_layer(measured: &[(String, u64)], budget_bps: u64, current: Option<&str>) -> Option<String> {
     let headroom = budget_bps * 9 / 10;
+    if let Some((_, rate)) = current.and_then(|name| measured.iter().find(|(n, _)| n == name)) {
+        let step_up = measured
+            .iter()
+            .filter(|(_, other)| *other > *rate && *other <= budget_bps * 2 / 3)
+            .max_by_key(|(_, other)| *other);
+        if let Some((name, _)) = step_up {
+            return Some(name.clone());
+        }
+
+        if *rate <= headroom {
+            return current.map(str::to_owned);
+        }
+    }
+
     measured
         .iter()
         .filter(|(_, rate)| *rate <= headroom)
@@ -1656,10 +1682,15 @@ fn choose_layer(sh: &Arc<Shared>, budget_bps: u64) {
             return;
         }
 
-        let Some(name) = best_layer(&measured, budget_bps) else { return };
+        if track.layer_changed_at.is_some_and(|at| at.elapsed() < LAYER_DWELL) {
+            return;
+        }
+
+        let Some(name) = best_layer(&measured, budget_bps, track.selected.as_deref()) else { return };
         let changed = track.selected.as_deref() != Some(name.as_str());
         if changed {
             track.selected = Some(name.clone());
+            track.layer_changed_at = Some(now);
         }
 
         (changed, name)
@@ -2489,12 +2520,29 @@ mod tests {
     fn the_encoding_kept_is_the_biggest_that_fits() {
         let layers = [("h".to_owned(), 900_000u64), ("m".to_owned(), 300_000), ("l".to_owned(), 90_000)];
 
-        assert_eq!(best_layer(&layers, 2_000_000).as_deref(), Some("h"), "plenty of room: the best picture");
-        assert_eq!(best_layer(&layers, 500_000).as_deref(), Some("m"), "enough for the middle one");
-        assert_eq!(best_layer(&layers, 120_000).as_deref(), Some("l"));
+        assert_eq!(best_layer(&layers, 2_000_000, None).as_deref(), Some("h"), "plenty of room: the best picture");
+        assert_eq!(best_layer(&layers, 500_000, None).as_deref(), Some("m"), "enough for the middle one");
+        assert_eq!(best_layer(&layers, 120_000, None).as_deref(), Some("l"));
         // Nothing fits: the smallest encoding is still better than a blank screen.
-        assert_eq!(best_layer(&layers, 40_000).as_deref(), Some("l"));
-        assert_eq!(best_layer(&[], 500_000), None);
+        assert_eq!(best_layer(&layers, 40_000, None).as_deref(), Some("l"));
+        assert_eq!(best_layer(&[], 500_000, None), None);
+    }
+
+    #[test]
+    fn an_encoding_that_nearly_fits_is_kept_rather_than_swapped_back_and_forth() {
+        // A budget of 600 kbit/s with an encoding measured either side of it: whichever way the
+        // estimate moves, the viewer keeps the picture they already have rather than losing it to a
+        // keyframe wait every second.
+        let over = [("h".to_owned(), 620_000u64), ("l".to_owned(), 90_000)];
+        let under = [("h".to_owned(), 540_000u64), ("l".to_owned(), 90_000)];
+        assert_eq!(best_layer(&under, 600_000, Some("h")).as_deref(), Some("h"), "it still fits");
+        assert_eq!(best_layer(&over, 600_000, Some("h")).as_deref(), Some("l"), "it no longer does");
+        // Going back up waits until the bigger encoding fits with room to spare, not the moment it
+        // squeezes in, so one good second does not undo the decision.
+        let squeezed = [("h".to_owned(), 530_000u64), ("l".to_owned(), 90_000)];
+        assert_eq!(best_layer(&squeezed, 600_000, Some("l")).as_deref(), Some("l"), "not yet");
+        let roomy = [("h".to_owned(), 380_000u64), ("l".to_owned(), 90_000)];
+        assert_eq!(best_layer(&roomy, 600_000, Some("l")).as_deref(), Some("h"), "now there is room");
     }
 
     #[test]
@@ -2508,6 +2556,7 @@ mod tests {
             rid_extension: Some(10),
             layers: Vec::new(),
             selected: None,
+            layer_changed_at: None,
             incomplete_seen: 0,
             frames: 0,
             reported_frames: 0,
