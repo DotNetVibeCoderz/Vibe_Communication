@@ -14,7 +14,7 @@ voipnet --help
 | `voipnet version` | versi SDK, engine, dan runtime |
 | `voipnet sip ping <uri> [--count 4]` | waktu tempuh OPTIONS dan User-Agent penjawab |
 | `voipnet sip register -d pbx -u 1001 -p rahasia` | menguji kredensial ke registrar |
-| `voipnet sip call <uri> [--duration 10] [--tone 440] [--dtmf 123] [--record out.wav] [--register] [--video clip.h264] [--video-fps 15]` | panggilan uji dengan pemantauan MOS, loss, jitter secara langsung |
+| `voipnet sip call <uri> [--duration 10] [--tone 440] [--dtmf 123] [--record out.wav] [--register] [--video clip.h264 \| --camera \| --screen] [--video-fps 15]` | panggilan uji dengan pemantauan MOS, loss, jitter secara langsung; `--video` mengirim file H.264, `--camera` dan `--screen` meng-encode gambar mesin ini sendiri |
 | `voipnet sip listen [--sip-port 5060] [--echo] [--video]` | menjawab panggilan; `--echo` menjadikannya layanan uji gema, `--video` menerima (dan memantulkan) video |
 | `voipnet sip message <uri> "teks"` | mengirim SIP MESSAGE |
 | `voipnet load <uri> [-n 20] [--concurrency 4] [--cps 2] [--duration 5]` | membuat panggilan dengan laju tetap dan melaporkan waktu setup, kegagalan, serta kualitas media |
@@ -70,6 +70,7 @@ Contoh — uji echo video dengan klip buatan ffmpeg:
 ffmpeg -f lavfi -i testsrc=size=320x240:rate=15:duration=3 -c:v libx264 -g 15 -f h264 clip.h264
 voipnet sip listen --echo --video
 voipnet sip call sip:echo@127.0.0.1:5060 --duration 4 --tone 0 --video clip.h264
+voipnet sip call sip:echo@127.0.0.1:5060 --duration 10 --screen --video-fps 10
 ```
 
 File dibaca sebagai Annex B dan dikirim satu access unit per frame, berulang sampai panggilan selesai;

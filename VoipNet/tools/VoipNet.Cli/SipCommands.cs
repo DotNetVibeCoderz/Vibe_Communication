@@ -1,6 +1,7 @@
 using System.CommandLine;
 using Spectre.Console;
 using VoipNet.Audio;
+using VoipNet.Video;
 using VoipNet.Diagnostics;
 
 namespace VoipNet.Cli;
@@ -202,16 +203,19 @@ internal static class SipCommands
         var dtmf = new Option<string?>("--dtmf") { Description = "DTMF digits to send after answer." };
         var record = new Option<string?>("--record") { Description = "Record the call; the extension picks the format (.wav, .mp3, .avi with video)." };
         var video = new Option<string?>("--video") { Description = "Send this H.264 file (Annex B, as ffmpeg writes with -f h264) as video, looping until the call ends." };
-        var videoFps = new Option<int>("--video-fps") { Description = "Frame rate for --video.", DefaultValueFactory = _ => 15 };
+        var videoFps = new Option<int>("--video-fps") { Description = "Frame rate for --video, --camera and --screen.", DefaultValueFactory = _ => 15 };
+        var camera = new Option<bool>("--camera") { Description = "Send this machine's camera, encoded to H.264 (needs a platform codec)." };
+        var screen = new Option<bool>("--screen") { Description = "Send this machine's screen, encoded to H.264 (needs a platform codec)." };
         var register = new Option<bool>("--register") { Description = "Register before calling." };
-        var command = new Command("call", "Place a test call and report media quality.") { target, duration, tone, dtmf, record, register, video, videoFps };
+        var command = new Command("call", "Place a test call and report media quality.") { target, duration, tone, dtmf, record, register, video, videoFps, camera, screen };
         account.AddTo(command);
 
         command.SetAction(async (result, cancellationToken) =>
         {
             // Video is negotiated in the first offer, so it has to be on before the client starts.
             var videoFile = result.GetValue(video);
-            var (client, capture) = account.CreateClient(result, configure: o => o.Video = videoFile is { Length: > 0 });
+            var live = result.GetValue(camera) || result.GetValue(screen);
+            var (client, capture) = account.CreateClient(result, configure: o => o.Video = videoFile is { Length: > 0 } || live);
             await using var _ = client;
             using var __ = capture;
             await client.StartAsync(cancellationToken);
@@ -243,10 +247,12 @@ internal static class SipCommands
             AnsiConsole.MarkupLine($"[green]Connected[/] codec [bold]{call.Codec}[/] @ {call.SampleRate} Hz");
             var inbound = new VideoStreamStats();
             Task videoSender = Task.CompletedTask;
-            if (videoFile is { Length: > 0 })
+            if (videoFile is { Length: > 0 } || live)
             {
                 call.VideoFrameReceived += (_, _, keyframe, frame, _) => inbound.Add(frame.Length, keyframe);
-                videoSender = SendVideoAsync(call, videoFile, result.GetValue(videoFps), cancellationToken);
+                videoSender = live
+                    ? SendLiveVideoAsync(call, result.GetValue(screen), result.GetValue(videoFps), cancellationToken)
+                    : SendVideoAsync(call, videoFile!, result.GetValue(videoFps), cancellationToken);
                 AnsiConsole.MarkupLine($"Video: [bold]{call.VideoCodec ?? "not negotiated"}[/]");
             }
             // The extension says what to write: WAV, MP3, or MP4/AVI when the call carries video.
@@ -406,9 +412,63 @@ internal static class SipCommands
     }
 
     /// <summary>
-    /// Streams an H.264 file into the call at a fixed rate, looping until the call ends. Real video
-    /// would come from a camera and an encoder; a file is what makes the path testable from a shell.
+    /// Streams an H.264 file into the call at a fixed rate, looping until the call ends. A file is
+    /// what makes the path testable from a shell on a machine with no camera and no codec.
     /// </summary>
+    /// <summary>
+    /// Sends the camera or the screen, encoded here. Both are read by pulling: the device paces the
+    /// loop, so nothing queues up behind a slow encoder, and a keyframe goes out whenever the far end
+    /// asks for one.
+    /// </summary>
+    private static async Task SendLiveVideoAsync(VoipCall call, bool screen, int fps, CancellationToken cancellationToken)
+    {
+        if (!VideoCodecs.IsH264Available)
+        {
+            AnsiConsole.MarkupLine("[yellow]This machine has no H.264 encoder, so there is nothing to send. Use --video with a file instead.[/]");
+            return;
+        }
+
+        await Task.Yield();
+        try
+        {
+            using var source = screen
+                ? VideoCapture.OpenScreen(wholeDesktop: false, width: 1280, height: 720, framesPerSecond: fps)
+                : VideoCapture.OpenCamera(width: 640, height: 360, framesPerSecond: fps);
+            using var encoder = VideoCodecs.CreateH264Encoder(new VideoEncoderOptions
+            {
+                Width = source.Width,
+                Height = source.Height,
+                FramesPerSecond = Math.Clamp(fps, 1, 60),
+                BitsPerSecond = screen ? 1_500_000 : 800_000,
+            });
+
+            call.KeyframeRequested += (_, _) => encoder.RequestKeyframe();
+            AnsiConsole.MarkupLine($"Sending [bold]{Markup.Escape(source.Name)}[/] at {source.Width}x{source.Height} · {Markup.Escape(encoder.Implementation)}");
+
+            while (!cancellationToken.IsCancellationRequested && call.IsActive)
+            {
+                if (source.Read() is not { } picture)
+                {
+                    return;
+                }
+
+                foreach (var frame in encoder.Encode(picture))
+                {
+                    if (!call.IsActive)
+                    {
+                        return;
+                    }
+
+                    call.SendVideoFrame((uint)(picture.Timestamp.TotalSeconds * 90000), frame.Data.Span);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException)
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(ex.Message)}[/]");
+        }
+    }
+
     private static async Task SendVideoAsync(VoipCall call, string path, int fps, CancellationToken cancellationToken)
     {
         var frames = AnnexB.Frames(File.ReadAllBytes(path));

@@ -14,7 +14,7 @@ voipnet --help
 | `voipnet version` | SDK, engine and runtime versions |
 | `voipnet sip ping <uri> [--count 4]` | OPTIONS round-trip times and the responder's User-Agent |
 | `voipnet sip register -d pbx -u 1001 -p secret` | test credentials against a registrar |
-| `voipnet sip call <uri> [--duration 10] [--tone 440] [--dtmf 123] [--record out.wav] [--register] [--video clip.h264] [--video-fps 15]` | place a test call and watch MOS, loss, jitter live; `--video` streams an H.264 file and reports the video that comes back |
+| `voipnet sip call <uri> [--duration 10] [--tone 440] [--dtmf 123] [--record out.wav] [--register] [--video clip.h264 \| --camera \| --screen] [--video-fps 15]` | place a test call and watch MOS, loss, jitter live; `--video` streams an H.264 file, `--camera` and `--screen` encode this machine's own picture (needs a platform codec), and all three report the video that comes back |
 | `voipnet sip listen [--sip-port 5060] [--echo] [--video]` | answer calls; `--echo` turns it into an echo test service, `--video` accepts (and echoes) video |
 | `voipnet sip message <uri> "text"` | send a SIP MESSAGE |
 | `voipnet load <uri> [-n 20] [--concurrency 4] [--cps 2] [--duration 5]` | place calls at a steady rate and report setup times, failures and media quality |
@@ -70,6 +70,7 @@ Example — a video echo test, with a clip made by ffmpeg:
 ffmpeg -f lavfi -i testsrc=size=320x240:rate=15:duration=3 -c:v libx264 -g 15 -f h264 clip.h264
 voipnet sip listen --echo --video
 voipnet sip call sip:echo@127.0.0.1:5060 --duration 4 --tone 0 --video clip.h264
+voipnet sip call sip:echo@127.0.0.1:5060 --duration 10 --screen --video-fps 10
 ```
 
 ```
