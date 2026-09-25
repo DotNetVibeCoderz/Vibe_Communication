@@ -330,9 +330,8 @@ disediakan.
 ## Encode video
 
 Sampai sekarang aplikasi harus menyiapkan frame terenkode sendiri. `VoipNet.Video` melakukan encode
-dan decode H.264 memakai codec yang sudah ada di platform — Media Foundation di Windows, yang memakai
-GPU bila drivernya menyediakan — sehingga kamera, layar, atau apa pun yang bisa menghasilkan piksel
-dapat dikirim ke panggilan:
+dan decode H.264 memakai codec yang sudah ada di platform — Media Foundation di Windows — sehingga
+kamera, layar, atau apa pun yang bisa menghasilkan piksel dapat dikirim ke panggilan:
 
 ```csharp
 using var encoder = VideoCodecs.CreateH264Encoder(new VideoEncoderOptions
@@ -375,9 +374,16 @@ sekaligus. Gambar berformat NV12 — kecerahan resolusi penuh, warna setengah re
 semua codec perangkat keras tanpa konversi tambahan; `VideoPictures` mengubahnya ke dan dari BGRA yang
 dipakai layar.
 
+Encoder milik kartu grafis dipakai lebih dulu bila mau menerima gambar dari memori biasa; kebanyakan
+hanya menyediakan diri sebagai transform asinkron atau meminta surface Direct3D, dan itu belum
+disentuh — pekerjaannya diambil encoder software bawaan Windows. `encoder.Implementation` menyebut yang
+mana yang menjawab, berguna dicatat ketika sebuah panggilan memakan CPU lebih dari perkiraan.
+
 Baru Windows yang codecnya tersambung. `VideoCodecs.IsH264Available` memberi tahu apakah mesin ini
-punya, dan membuat encoder di platform lain melempar `PlatformNotSupportedException` alih-alih
-berpura-pura. VideoToolbox dan VA-API ada di [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
+punya — ia bertanya ke platform, bukan menebak, karena Windows Server terpasang tanpa Media Foundation
+— dan membuat encoder di platform lain melempar `PlatformNotSupportedException` alih-alih berpura-pura.
+VideoToolbox, VA-API, dan jalur asinkron ke encoder kartu grafis ada di
+[PLAN 1.3](../../PLAN.md#13---video--fitur-video).
 
 ### Kamera
 

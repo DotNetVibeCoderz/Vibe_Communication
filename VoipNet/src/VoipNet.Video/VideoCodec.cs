@@ -37,6 +37,13 @@ public interface IVideoEncoder : IDisposable
     /// <summary>Picture height.</summary>
     int Height { get; }
 
+    /// <summary>
+    /// Which encoder is doing the work, as the platform names it — a card's own where there is one,
+    /// otherwise the operating system's. Worth logging when a call turns out to cost more CPU than
+    /// expected.
+    /// </summary>
+    string Implementation { get; }
+
     /// <summary>Asks for the next picture to be a keyframe, which is what answering a PLI means.</summary>
     void RequestKeyframe();
 
@@ -118,8 +125,9 @@ public static class VideoCodecs
 
     /// <summary>
     /// Creates an H.264 encoder using the platform's own codec: Media Foundation on Windows, which
-    /// uses the GPU where the driver offers it and falls back to the software encoder where it does
-    /// not. VideoToolbox and VA-API are not wired up yet, so other platforms have none.
+    /// prefers a graphics card's encoder where one will take pictures from ordinary memory and uses
+    /// the software encoder otherwise. VideoToolbox and VA-API are not wired up, so other platforms
+    /// have none.
     /// </summary>
     /// <param name="options">Size, rate and bitrate.</param>
     /// <exception cref="PlatformNotSupportedException">No H.264 encoder on this platform.</exception>

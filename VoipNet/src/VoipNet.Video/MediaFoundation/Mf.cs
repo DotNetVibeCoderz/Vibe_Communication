@@ -87,6 +87,29 @@ internal static unsafe partial class Mf
     [LibraryImport("mf.dll")]
     internal static partial int MFEnumDeviceSources(nint attributes, out nint* devices, out uint count);
 
+    [LibraryImport("mfplat.dll")]
+    internal static partial int MFTEnumEx(Guid category, uint flags, TypeInfo* input, TypeInfo* output, out nint* transforms, out uint count);
+
+    /// <summary><c>MFT_REGISTER_TYPE_INFO</c>: what a transform takes, or what it produces.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct TypeInfo
+    {
+        internal Guid MajorType;
+        internal Guid Subtype;
+    }
+
+    internal static readonly Guid VideoEncoderCategory = new("f79eac7d-e545-4387-bdee-d647d7bde42a");
+    internal static readonly Guid TransformFriendlyName = new("314ffbae-5b41-4c95-9c19-4e7d586face3");
+
+    /// <summary>Transforms that run in the caller's thread, the model this package uses.</summary>
+    internal const uint EnumSync = 0x0000_0001;
+
+    /// <summary>Transforms that live on the graphics card.</summary>
+    internal const uint EnumHardware = 0x0000_0004;
+
+    /// <summary>Sorted best first, and filtered to what this machine is allowed to use.</summary>
+    internal const uint EnumSortAndFilter = 0x0000_0040;
+
     [LibraryImport("mfreadwrite.dll")]
     internal static partial int MFCreateSourceReaderFromMediaSource(nint source, nint attributes, out nint reader);
 

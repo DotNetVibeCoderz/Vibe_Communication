@@ -3,8 +3,8 @@ using System.Runtime.Versioning;
 namespace VoipNet.Video.MediaFoundation;
 
 /// <summary>
-/// H.264 encoding through the Media Foundation transform Windows ships with, which uses the GPU
-/// where the driver offers one and its own software encoder where it does not.
+/// H.264 encoding through Media Foundation: a graphics card's own encoder where one will take
+/// pictures from ordinary memory, and the encoder Windows ships in software otherwise.
 /// </summary>
 /// <remarks>
 /// The transform is set up for a call rather than for a file: low latency on, constant bitrate, and
@@ -35,8 +35,29 @@ internal sealed unsafe class MediaFoundationH264Encoder : IVideoEncoder
 
         _options = options;
         Mf.EnsureStarted();
-        Mf.Check(Mf.CoCreateInstance(Mf.H264EncoderClass, 0, InprocServer, Mf.TransformInterface, out _transform), "creating the H.264 encoder");
 
+        // A card's own encoder first, on the terms this package works in. Several of them advertise
+        // themselves and then refuse plain memory frames, wanting a Direct3D surface instead, so a
+        // refusal here is ordinary and the software encoder takes over.
+        var (hardware, name) = OpenHardwareEncoder();
+        if (hardware != 0)
+        {
+            _transform = hardware;
+            Implementation = name;
+            try
+            {
+                Configure();
+                return;
+            }
+            catch (InvalidOperationException)
+            {
+                Mf.Release(ref _codec);
+                Mf.Release(ref _transform);
+            }
+        }
+
+        Mf.Check(Mf.CoCreateInstance(Mf.H264EncoderClass, 0, InprocServer, Mf.TransformInterface, out _transform), "creating the H.264 encoder");
+        Implementation = "Microsoft H.264 Video Encoder (software)";
         try
         {
             Configure();
@@ -48,8 +69,59 @@ internal sealed unsafe class MediaFoundationH264Encoder : IVideoEncoder
         }
     }
 
+    /// <summary>
+    /// The first encoder on the graphics card that runs in the calling thread, if there is one.
+    /// </summary>
+    /// <remarks>
+    /// Most cards offer their encoder as an asynchronous transform instead, which is driven by events
+    /// rather than by calls and is not wired up here (PLAN 1.3); those are skipped, and the encoder
+    /// Windows ships in software takes the work. Nothing about the interface changes either way —
+    /// <see cref="Implementation"/> says which one answered.
+    /// </remarks>
+    private static (nint Transform, string Name) OpenHardwareEncoder()
+    {
+        var input = new Mf.TypeInfo { MajorType = Mf.MediaTypeVideo, Subtype = Mf.VideoFormatNv12 };
+        var output = new Mf.TypeInfo { MajorType = Mf.MediaTypeVideo, Subtype = Mf.VideoFormatH264 };
+        nint* found;
+        uint count;
+        if (Mf.MFTEnumEx(Mf.VideoEncoderCategory, Mf.EnumSync | Mf.EnumHardware | Mf.EnumSortAndFilter, &input, &output, out found, out count) != Mf.SOk)
+        {
+            return (0, string.Empty);
+        }
+
+        try
+        {
+            for (var i = 0; i < count; i++)
+            {
+                var activate = found[i];
+                var name = Mf.GetItemString(activate, Mf.TransformFriendlyName);
+                var hr = Mf.ActivateObject(activate, Mf.TransformInterface, out var transform);
+                Mf.Release(ref activate);
+                if (hr == Mf.SOk && transform != 0)
+                {
+                    for (var rest = i + 1; rest < count; rest++)
+                    {
+                        var other = found[rest];
+                        Mf.Release(ref other);
+                    }
+
+                    return (transform, name.Length > 0 ? name : "hardware H.264 encoder");
+                }
+            }
+
+            return (0, string.Empty);
+        }
+        finally
+        {
+            Mf.CoTaskMemFree((nint)found);
+        }
+    }
+
     /// <inheritdoc />
     public string Codec => "H264";
+
+    /// <summary>Which encoder answered: a card's own, or the one Windows ships in software.</summary>
+    public string Implementation { get; } = string.Empty;
 
     /// <inheritdoc />
     public int Width => _options.Width;

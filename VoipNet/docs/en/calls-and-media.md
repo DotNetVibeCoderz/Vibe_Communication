@@ -325,9 +325,8 @@ mid-picture. A grid view needs one stream per participant and is not offered.
 ## Encoding video
 
 Until now the application had to bring its own encoded frames. `VoipNet.Video` encodes and decodes
-H.264 with the codec the platform already has — Media Foundation on Windows, which uses the GPU when
-the driver offers one — so a camera, a screen or anything else that can produce pixels can be put on
-a call:
+H.264 with the codec the platform already has — Media Foundation on Windows — so a camera, a screen or
+anything else that can produce pixels can be put on a call:
 
 ```csharp
 using var encoder = VideoCodecs.CreateH264Encoder(new VideoEncoderOptions
@@ -369,9 +368,16 @@ Both give back a list, because a codec may hold a picture back or hand over seve
 are NV12 — full-resolution brightness, half-resolution colour — which is what every hardware codec
 takes without a conversion of its own; `VideoPictures` converts to and from the BGRA a screen uses.
 
+A graphics card's own encoder is preferred where it will take pictures from ordinary memory; most
+offer themselves only as asynchronous transforms, or want a Direct3D surface, and those are left alone
+for now, with the encoder Windows ships in software doing the work instead. `encoder.Implementation`
+says which one answered, which is worth logging when a call costs more CPU than expected.
+
 Only Windows has a codec wired up so far. `VideoCodecs.IsH264Available` says whether this machine has
-one, and creating an encoder elsewhere throws `PlatformNotSupportedException` rather than pretending.
-VideoToolbox and VA-API are in [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
+one — it asks the platform rather than assuming, since Windows Server installs without Media
+Foundation — and creating an encoder elsewhere throws `PlatformNotSupportedException` rather than
+pretending. VideoToolbox, VA-API and the asynchronous path to a card's encoder are in
+[PLAN 1.3](../../PLAN.md#13---video--fitur-video).
 
 ### The camera
 
