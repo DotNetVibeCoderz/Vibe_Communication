@@ -159,6 +159,8 @@ Berikan `ILogger<VoipClient>`; event log engine (deteksi NAT, kegagalan kirim, e
 
 ![Gallery](../images/gallery-call-center.png)
 
+![Halaman video](../images/gallery-video.png)
+
 Empat belas halaman langsung: overview, melakukan panggilan, codec, DTMF, hold dan transfer, konferensi, video (di-encode, dikirim lewat panggilan nyata, lalu dibandingkan dengan yang kembali), perekaman, SRTP, model bahasa (dengan tool call nyata), voice agent, builder IVR, antrean dan agen, diagnostik. Setiap halaman menampilkan kode C# yang melakukan hal yang sama. Atur model dengan `VOIPNET_AI_ENDPOINT`, `VOIPNET_AI_KEY`, `VOIPNET_AI_MODEL`.
 
 ### Call Centre (Blazor Server)

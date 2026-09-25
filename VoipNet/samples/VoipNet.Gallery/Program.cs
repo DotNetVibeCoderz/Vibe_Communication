@@ -34,6 +34,7 @@ internal static class Program
             ("Overview", -1, 0.3, "gallery-overview.png"),
             ("Place a call", 0, 3.5, "gallery-call.png"),
             ("Conference", 0, 3.5, "gallery-conference.png"),
+            ("Video", 0, 12, "gallery-video.png"),
             ("Language models", 1, 25, "gallery-ai-models.png"),
             ("Voice agent", 0, 90, "gallery-voice-agent.png"),
             ("IVR builder", 0, 17, "gallery-ivr.png"),
