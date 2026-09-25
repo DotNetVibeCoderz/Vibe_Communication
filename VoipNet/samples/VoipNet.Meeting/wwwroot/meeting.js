@@ -33,7 +33,10 @@ function parse(text) {
 const uriOf = value => (/<([^>]+)>/.exec(value) ?? [null, value.split(";")[0]])[1];
 
 async function collectStats(pc) {
-    const out = { level: 0, videoIn: 0, videoOut: 0, size: "", codec: "", srtp: "", pair: "", pli: 0, keyframesOut: 0, allowance: 0 };
+    const out = {
+        level: 0, videoIn: 0, videoOut: 0, videoPackets: 0, videoAssembled: 0, videoAsked: 0,
+        size: "", codec: "", srtp: "", pair: "", pli: 0, keyframesOut: 0, allowance: 0,
+    };
     const report = await pc.getStats();
     const byId = new Map();
     report.forEach(s => byId.set(s.id, s));
@@ -47,6 +50,10 @@ async function collectStats(pc) {
         }
         if (s.type === "inbound-rtp" && s.kind === "video") {
             out.videoIn = s.framesDecoded ?? 0;
+            // What arrived but could not be shown, which is what a black stage needs explaining with.
+            out.videoPackets = s.packetsReceived ?? 0;
+            out.videoAssembled = s.framesReceived ?? 0;
+            out.videoAsked = s.pliCount ?? 0;
             if (s.frameWidth) out.size = `${s.frameWidth}×${s.frameHeight}`;
             const codec = byId.get(s.codecId);
             if (codec) out.codec = codec.mimeType.replace("video/", "");

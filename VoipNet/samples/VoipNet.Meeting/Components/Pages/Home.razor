@@ -27,7 +27,7 @@
                 <span class="eyebrow">@(Room.Pinned ? "Pinned" : "Speaking")</span>
                 <div class="display on-screen">@(Room.OnScreen?.Name ?? (InRoom ? "Nobody yet" : "The room is quiet"))</div>
             </div>
-            <span class="mono soft small">@(_stats is { VideoIn: > 0 } s ? $"{s.Codec} {s.Size} · {s.VideoIn} frames in / {s.VideoOut} out" : "—")</span>
+            <span class="mono soft small">@Caption()</span>
         </figcaption>
     </article>
 
@@ -175,7 +175,18 @@
 
 @code {
     /// <summary>What the page script reads from <c>RTCPeerConnection.getStats()</c>.</summary>
-    public sealed record BrowserStats(double Level, long VideoIn, long VideoOut, string Size, string Codec, string Srtp, string Pair, long Pli, long KeyframesOut, long Allowance);
+    /// <summary>What the browser made of the picture it is being sent, including when it made nothing.</summary>
+    private string Caption() => _stats switch
+    {
+        null => "—",
+        { VideoIn: > 0 } s => $"{s.Codec} {s.Size} · {s.VideoIn} frames in / {s.VideoOut} out",
+        { VideoPackets: > 0 } s => $"nothing decoded yet · {s.VideoPackets} packets, {s.VideoAssembled} frames, {s.VideoAsked} asked for",
+        _ => "—",
+    };
+
+    public sealed record BrowserStats(
+        double Level, long VideoIn, long VideoOut, long VideoPackets, long VideoAssembled, long VideoAsked,
+        string Size, string Codec, string Srtp, string Pair, long Pli, long KeyframesOut, long Allowance);
 
     private IJSObjectReference? _module;
     private DotNetObjectReference<Home>? _self_ref;

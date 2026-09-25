@@ -268,6 +268,14 @@ impl MediaSink for SinkAdapter {
         self.handler.on_encoded(call_id, payload_type, timestamp, marker, payload);
     }
     fn on_media_event(&self, call_id: u64, kind: &str, detail: &str) {
+        if kind == "keyframe-request" {
+            // In a room this is not about the stream it arrived on: the browser is asking for a
+            // picture of whoever it is being shown, and that is who has to be asked.
+            if let Some(inner) = self.inner.lock().upgrade() {
+                inner.relay_keyframe_request(call_id);
+            }
+        }
+
         let _ = self.tx.lock().send(Dispatch::Event(Event::MediaEvent { call_id, kind: kind.into(), detail: detail.into() }));
     }
     fn on_video_frame(&self, call_id: u64, timestamp: u32, keyframe: bool, frame: &[u8], content: &str) {
@@ -2167,6 +2175,36 @@ impl Inner {
             kind: "video".into(),
             detail: format!("{content} {} {}", n.codec.encoding, n.direction.as_str()),
         }]
+    }
+
+    /// Passes a viewer's keyframe request on to the participant it is watching.
+    ///
+    /// A browser that joins a room mid-stream, or loses the picture, asks its peer — us — for a
+    /// keyframe. We have none to give: the pictures are somebody else's, and they only make one when
+    /// asked. Without this the viewer waits for the sender's next keyframe of its own, which on a call
+    /// may never come.
+    fn relay_keyframe_request(&self, viewer: u64) {
+        let (conference, source) = {
+            let state = self.state.lock();
+            let Some(call) = state.calls.get(&viewer) else { return };
+            let Some(media) = call.media.as_ref() else { return };
+            let Some(conference) = media.conference() else { return };
+            let Some(source) = conference.source_for_restart(viewer) else { return };
+            (conference, source)
+        };
+        let _ = conference;
+
+        let session = {
+            let state = self.state.lock();
+            state
+                .calls
+                .get(&source)
+                .and_then(|call| call.videos.iter().find(|v| v.content == "main"))
+                .and_then(|v| v.session.clone())
+        };
+        if let Some(session) = session {
+            session.request_keyframe(false);
+        }
     }
 
     /// Sends a conference participant's video on to whoever the layout says should see it.

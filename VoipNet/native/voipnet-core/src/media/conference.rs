@@ -164,6 +164,18 @@ impl Conference {
         (targets, wants_keyframe)
     }
 
+    /// Who a viewer is being shown, and marks them as needing a picture to start on again.
+    ///
+    /// This is what a viewer's own keyframe request means in a room: the browser cannot decode what it
+    /// is being sent, so the participant it is watching has to be asked, and nothing more is forwarded
+    /// until that arrives — a delta frame a decoder cannot use is worse than nothing.
+    pub fn source_for_restart(&self, viewer: u64) -> Option<u64> {
+        let mut views = self.views.lock();
+        let view = views.get_mut(&viewer)?;
+        view.needs_keyframe = true;
+        Some(view.source)
+    }
+
     pub fn len(&self) -> usize {
         self.participants.lock().len()
     }
@@ -272,6 +284,30 @@ mod tests {
             c.contribute(2, &[6000; 160]);
             assert_eq!(c.active_speaker(), Some(1));
         }
+    }
+
+    #[test]
+    fn a_viewer_asking_for_a_keyframe_names_who_it_is_watching() {
+        let c = Conference::new();
+        for id in [1, 2, 3] {
+            c.join(id);
+        }
+
+        c.set_layout(ConferenceLayout::Pinned(1));
+        let (targets, _) = c.video_targets(1, true);
+        assert_eq!(targets.len(), 2, "both viewers are being sent the pinned participant");
+
+        // A browser that cannot decode what it is being sent asks for a keyframe. The room turns that
+        // into a request to whoever it is watching, and holds the stream until the keyframe arrives.
+        assert_eq!(c.source_for_restart(2), Some(1));
+        let (targets, wants_keyframe) = c.video_targets(1, false);
+        assert!(wants_keyframe, "the source is asked");
+        assert_eq!(targets, vec![3], "the viewer that asked is held back, the other carries on");
+
+        let (targets, _) = c.video_targets(1, true);
+        assert_eq!(targets.len(), 2, "the keyframe goes to both, and the stream is whole again");
+
+        assert_eq!(c.source_for_restart(9), None, "somebody who is watching nothing names nobody");
     }
 
     #[test]
