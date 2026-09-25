@@ -102,6 +102,40 @@ client.MediaNotification += (_, e) =>
 };
 ```
 
+### Sinkronisasi bibir
+
+Audio dan video berjalan sebagai stream terpisah dengan clock yang tidak berhubungan, jadi timestamp
+sebuah frame tidak menyatakan apa pun tentang audio mana yang menyertainya. Sender report RTCP membawa
+kedua clock pada instan yang sama (RFC 3550 §6.4.1), dan SDK mengubah timestamp apa pun menjadi waktu
+bersama itu:
+
+```csharp
+call.VideoFrameReceived += (c, timestamp, keyframe, frame, content) =>
+{
+    var sentAt = c.PresentationTime(MediaStream.Video, timestamp);   // saat pengirim mengambilnya
+    var hearing = c.AudioPlayoutTime;                                // audio yang sedang diputar
+    if (sentAt is null || hearing is null)
+    {
+        decoder.Feed(frame, keyframe);                               // belum ada report: tampilkan
+        return;
+    }
+
+    var ahead = sentAt.Value - hearing.Value;
+    if (ahead > TimeSpan.Zero)
+    {
+        queue.HoldFor(ahead, frame);                                 // suaranya belum sampai
+    }
+    else
+    {
+        decoder.Feed(frame, keyframe);
+    }
+};
+```
+
+Keduanya `null` sampai lawan bicara mengirim report untuk stream itu, beberapa detik setelah panggilan
+dimulai. Engine yang memutar audionya sendiri, jadi `AudioPlayoutTime` adalah momen yang sedang
+terdengar di speaker; menahan frame sampai audionya menyusul — itulah sinkronisasi bibir.
+
 ### Berapa banyak yang boleh dikirim
 
 Penerima video mengukur berapa yang sanggup diterimanya lalu memberi tahu pengirim lewat RTCP (REMB);

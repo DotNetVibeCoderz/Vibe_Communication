@@ -802,6 +802,34 @@ impl Endpoint {
         Ok(())
     }
 
+    /// When a timestamp on one of the call's streams was sent, as NTP time (seconds since 1900 in
+    /// the high 32 bits). `stream` is `audio`, or what a video stream shows (`main`, `slides`).
+    ///
+    /// Audio and video arrive on separate streams with unrelated clocks; this is what lines them up.
+    /// Returns nothing until the peer has sent an RTCP sender report for that stream.
+    pub fn presentation_time(&self, call_id: u64, stream: &str, rtp_timestamp: u32) -> Result<Option<u64>> {
+        let session = {
+            let st = self.inner.state.lock();
+            let call = st.calls.get(&call_id).ok_or(EndpointError::NotFound)?;
+            match stream {
+                "audio" => call.media.clone(),
+                content => call.videos.iter().find(|v| v.content == content).and_then(|v| v.session.clone()),
+            }
+        };
+        let session = session.ok_or(EndpointError::InvalidState("the call has no such stream"))?;
+        Ok(session.presentation_ntp(rtp_timestamp))
+    }
+
+    /// When the audio the call is playing right now was sent, as NTP time. Zero until the peer has
+    /// sent a report and audio is flowing.
+    pub fn playout_time(&self, call_id: u64) -> Result<Option<u64>> {
+        let media = {
+            let st = self.inner.state.lock();
+            st.calls.get(&call_id).ok_or(EndpointError::NotFound)?.media.clone()
+        };
+        Ok(media.and_then(|m| m.playout_ntp()))
+    }
+
     /// The codec negotiated for the call's camera stream, if it has one.
     pub fn video_codec(&self, call_id: u64) -> Result<Option<String>> {
         let st = self.inner.state.lock();
@@ -4083,6 +4111,58 @@ m=audio {} RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n",
 
         a.hangup(a_call).unwrap();
         ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("terminated");
+    }
+
+    #[test]
+    fn audio_and_video_timestamps_map_onto_the_senders_clock() {
+        // Lip sync: each stream reports its RTP clock against NTP time, so a viewer can tell which
+        // frame belongs with which audio.
+        let video = |user: &str| EndpointConfig { video: true, ..cfg(user) };
+        let (a, ra, b, rb) = pair(video("alice"), video("bob"));
+        let (a_call, b_call) = establish(&a, &b, &rb, &ra);
+
+        let mut frame = vec![0, 0, 0, 1, 0x67, 0x42, 0xe0, 0x1f];
+        frame.extend_from_slice(&[0, 0, 0, 1, 0x65]);
+        frame.extend((0..900).map(|i| (i % 251) as u8 | 1));
+
+        // Sender reports go out every few seconds, so keep both streams busy until they arrive.
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let mut audio_at = None;
+        let mut video_at = None;
+        let mut timestamp = 180_000u32;
+        while Instant::now() < deadline && (audio_at.is_none() || video_at.is_none()) {
+            a.send_audio(a_call, &tone(), 16000).unwrap();
+            for _ in 0..10 {
+                let _ = a.send_video_frame(a_call, timestamp, &frame, "main");
+                timestamp = timestamp.wrapping_add(3000);
+                std::thread::sleep(Duration::from_millis(30));
+            }
+
+            audio_at = b.presentation_time(b_call, "audio", 0).ok().flatten();
+            let attempt = b.presentation_time(b_call, "main", timestamp);
+            let sent = a.send_video_frame(a_call, timestamp, &frame, "main");
+            eprintln!("video sync attempt: {attempt:?}, sent {sent:?}, audio {:?}", b.presentation_time(b_call, "audio", 0));
+            video_at = attempt.ok().flatten();
+        }
+
+        assert!(audio_at.is_some(), "the audio stream maps onto the sender clock");
+        let video_at = video_at.expect("the video stream maps onto the sender clock");
+
+        // Two frames a 90 kHz clock apart are 33 ms apart on the wall clock as well.
+        let later = b.presentation_time(b_call, "main", timestamp.wrapping_add(3000)).unwrap().unwrap();
+        let gap_ms = ((later.wrapping_sub(video_at) as f64) / 4_294_967_296.0) * 1000.0;
+        assert!((gap_ms - 33.3).abs() < 1.0, "expected about 33 ms between frames, got {gap_ms}");
+
+        // And a timestamp before the report maps to a time before it, rather than wrapping around.
+        let earlier = b.presentation_time(b_call, "main", timestamp.wrapping_sub(90_000)).unwrap().unwrap();
+        assert!(earlier < video_at, "a second earlier should be earlier");
+
+        // The audio being played is a moment on the same clock, which is what a frame is held against.
+        let playing = b.playout_time(b_call).unwrap().expect("audio is playing");
+        let apart_s = (playing as i64 - video_at as i64).abs() as f64 / 4_294_967_296.0;
+        assert!(apart_s < 10.0, "audio and video should be seconds apart at most, not {apart_s}");
+
+        a.hangup(a_call).unwrap();
     }
 
     #[test]

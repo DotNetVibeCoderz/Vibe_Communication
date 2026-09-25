@@ -104,6 +104,19 @@ public delegate void VideoFrameHandler(VoipCall call, uint timestamp, bool keyfr
 /// <param name="data">The message; it is only valid for the duration of the call to this handler.</param>
 public delegate void DataMessageHandler(VoipCall call, ushort stream, bool text, ReadOnlySpan<byte> data);
 
+/// <summary>One of the streams a call carries.</summary>
+public enum MediaStream
+{
+    /// <summary>The audio stream.</summary>
+    Audio,
+
+    /// <summary>The camera stream (<c>a=content:main</c>).</summary>
+    Video,
+
+    /// <summary>A shared screen (<c>a=content:slides</c>).</summary>
+    Screen,
+}
+
 /// <summary>An open data channel on a call.</summary>
 /// <param name="Stream">The SCTP stream number, used to send on the channel.</param>
 /// <param name="Label">The name the side that opened it chose.</param>

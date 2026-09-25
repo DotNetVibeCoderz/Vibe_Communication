@@ -101,6 +101,39 @@ client.MediaNotification += (_, e) =>
 };
 ```
 
+### Lip sync
+
+Audio and video travel as separate streams with unrelated clocks, so a frame's timestamp says nothing
+about which audio it belongs with. RTCP sender reports carry both clocks at the same instant
+(RFC 3550 §6.4.1), and the SDK turns any timestamp into that shared time:
+
+```csharp
+call.VideoFrameReceived += (c, timestamp, keyframe, frame, content) =>
+{
+    var sentAt = c.PresentationTime(MediaStream.Video, timestamp);   // when the sender captured it
+    var hearing = c.AudioPlayoutTime;                                // the audio being played now
+    if (sentAt is null || hearing is null)
+    {
+        decoder.Feed(frame, keyframe);                               // no reports yet: show it
+        return;
+    }
+
+    var ahead = sentAt.Value - hearing.Value;
+    if (ahead > TimeSpan.Zero)
+    {
+        queue.HoldFor(ahead, frame);                                 // the sound has not caught up
+    }
+    else
+    {
+        decoder.Feed(frame, keyframe);
+    }
+};
+```
+
+Both are `null` until the peer has sent a report for that stream, which is a few seconds into a call.
+The engine plays the audio itself, so `AudioPlayoutTime` is the moment being heard through the
+speakers; holding a frame until the audio reaches it is all lip sync is.
+
 ### How much to send
 
 A video receiver measures what it can take and tells the sender over RTCP (REMB), which is how a

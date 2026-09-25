@@ -226,6 +226,31 @@ public sealed class VoipCall
     public void SendVideoFrame(uint timestamp, ReadOnlySpan<byte> frame, string content = "main") =>
         _client.SendVideoFrame(Id, timestamp, frame, content);
 
+    /// <summary>When a timestamp from one of the call's streams was sent, on the sender's clock.</summary>
+    /// <remarks>
+    /// Audio and video travel as separate streams with unrelated clocks, so a frame's timestamp says
+    /// nothing about which audio it belongs with. RTCP sender reports carry both clocks at the same
+    /// instant (RFC 3550 6.4.1), and this turns any timestamp into that shared time, which is what
+    /// lip sync is: present the frame when the audio for the same moment plays.
+    /// </remarks>
+    /// <param name="stream">Which stream the timestamp came from.</param>
+    /// <param name="rtpTimestamp">The timestamp, as carried by <see cref="VideoFrameReceived"/> or an encoded frame.</param>
+    /// <returns>The sender's wall-clock time, or <c>null</c> until the peer has sent a report for that stream.</returns>
+    public DateTimeOffset? PresentationTime(MediaStream stream, uint rtpTimestamp) =>
+        _client.PresentationTime(Id, stream switch
+        {
+            MediaStream.Audio => "audio",
+            MediaStream.Screen => "slides",
+            _ => "main",
+        }, rtpTimestamp);
+
+    /// <summary>When the audio the call is playing right now was sent, on the sender's clock.</summary>
+    /// <remarks>
+    /// The other half of lip sync: hold a frame until <see cref="PresentationTime"/> for it is no
+    /// later than this. Null until the peer has sent a report and audio is flowing.
+    /// </remarks>
+    public DateTimeOffset? AudioPlayoutTime => _client.PlayoutTime(Id);
+
     /// <summary>Opens a data channel on the call (RFC 8831). The channel is usable once it appears in
     /// <see cref="DataChannels"/>, which happens after the peer acknowledges the label; asking for one
     /// before the association is up is fine, it opens as soon as it is.</summary>

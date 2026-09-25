@@ -285,6 +285,8 @@ struct TxState {
     was_silent: bool,
     octets: u32,
     packets: u32,
+    /// When `timestamp` was last set, so a sender report can say what it is *now*.
+    timestamp_at: Instant,
     conf_resampler_in: Option<Resampler>,
     conf_resampler_out: Option<Resampler>,
     dtmf_mode: DtmfMode,
@@ -316,6 +318,10 @@ struct RxState {
     reported_received: u64,
     /// Middle 32 bits of the last sender report's NTP time, and when it arrived.
     last_sr: Option<(u32, Instant)>,
+    /// The last sender report's two clocks: NTP time and the RTP timestamp of that same instant.
+    sync: Option<(u64, u32)>,
+    /// Timestamp of the frame being played out now, which is the moment video should line up with.
+    playing: Option<u32>,
     /// How losses cluster, for the RTCP XR burst and gap metrics.
     burst_gap: BurstGapTracker,
 }
@@ -471,6 +477,7 @@ impl MediaSession {
                 was_silent: true,
                 octets: 0,
                 packets: 0,
+                timestamp_at: Instant::now(),
                 conf_resampler_in: None,
                 conf_resampler_out: None,
                 dtmf_mode: DtmfMode::Rfc4733,
@@ -490,6 +497,8 @@ impl MediaSession {
                 reported_expected: 0,
                 reported_received: 0,
                 last_sr: None,
+                sync: None,
+                playing: None,
                 burst_gap: BurstGapTracker::default(),
             }),
             ice: Mutex::new(IceAgent::new(&candidates, IceRole::Controlled)),
@@ -984,6 +993,13 @@ impl MediaSession {
             return;
         }
         send_raw(sh, &tx.packet);
+        // Video and pass-through payloads go out here rather than through the audio path, and they
+        // are still a stream the peer expects reports about: without these a video stream sends no
+        // sender report at all, so the peer can measure neither its round trip nor its lip sync.
+        tx.packets = tx.packets.wrapping_add(1);
+        tx.octets = tx.octets.wrapping_add(payload.len() as u32);
+        tx.timestamp = timestamp;
+        tx.timestamp_at = Instant::now();
         sh.packets_sent.fetch_add(1, Ordering::Relaxed);
         sh.bytes_sent.fetch_add(payload.len() as u64, Ordering::Relaxed);
     }
@@ -1014,6 +1030,34 @@ impl MediaSession {
     pub fn join_conference(&self, conference: Arc<Conference>) {
         conference.join(self.shared.call_id);
         *self.shared.conference.lock() = Some(conference);
+    }
+
+    /// Turns an RTP timestamp from this stream into the sender's wall clock, as NTP time.
+    ///
+    /// Sender reports carry the same instant on both clocks (RFC 3550 6.4.1), which is how audio and
+    /// video are lined up: ask each stream when its timestamp was sent and present them in that order.
+    /// Returns nothing until the peer has sent a report.
+    pub fn presentation_ntp(&self, rtp_timestamp: u32) -> Option<u64> {
+        let rx = self.shared.rx.lock();
+        let (ntp, reference) = rx.sync?;
+        let rate = match self.shared.video.lock().is_some() {
+            // Video always runs on the 90 kHz clock (RFC 6184 8.2.1); audio on the codec's rate.
+            true => 90_000,
+            false => rx.codec.as_ref().map_or(8000, |c| c.clock_rate()),
+        };
+        // The difference is signed: a timestamp before the report is a time before it.
+        let elapsed = rtp_timestamp.wrapping_sub(reference) as i32 as i64;
+        let ticks = (elapsed << 32) / i64::from(rate.max(1));
+        Some((ntp as i64).wrapping_add(ticks) as u64)
+    }
+
+    /// When the audio being played right now was sent, as NTP time.
+    ///
+    /// This is the other half of lip sync: compare a frame's [`presentation_ntp`](Self::presentation_ntp)
+    /// with this, and show the frame when the audio for the same moment is heard.
+    pub fn playout_ntp(&self) -> Option<u64> {
+        let playing = self.shared.rx.lock().playing?;
+        self.presentation_ntp(playing)
     }
 
     /// The conference this session is mixed into, if any.
@@ -1193,10 +1237,11 @@ fn handle_rtcp(sh: &Arc<Shared>, data: &[u8]) {
     let mut quality = None;
     for packet in parse_rtcp(&plain) {
         let reports = match packet {
-            RtcpPacket::SenderReport { ssrc, ntp, reports } => {
+            RtcpPacket::SenderReport { ssrc, ntp, rtp_ts, reports } => {
                 let mut rx = sh.rx.lock();
                 rx.remote_ssrc.get_or_insert(ssrc);
                 rx.last_sr = Some(((ntp >> 16) as u32, now));
+                rx.sync = Some((ntp, rtp_ts));
                 reports
             }
             RtcpPacket::ReceiverReport { reports, .. } => reports,
@@ -1575,7 +1620,8 @@ fn playout_loop(sh: &Arc<Shared>) {
                 let samples = rx.codec.as_ref().map_or(160, |c| (c.sample_rate() * sh.config.ptime_ms / 1000) as usize);
                 rate = rx.codec.as_ref().map_or(8000, |c| c.sample_rate());
                 match rx.jitter.pop() {
-                    Playout::Frame { payload, .. } => {
+                    Playout::Frame { payload, timestamp, .. } => {
+                        rx.playing = Some(timestamp);
                         if let Some(codec) = rx.codec.as_mut() {
                             codec.decode(&payload, &mut decoded);
                         }
@@ -1748,6 +1794,7 @@ fn transmit_frame(sh: &Arc<Shared>, direction: Direction, tap: &mut Vec<i16>) ->
     let muted = sh.muted.load(Ordering::Relaxed);
     let timestamp = tx.timestamp;
     tx.timestamp = tx.timestamp.wrapping_add(ts_step);
+    tx.timestamp_at = Instant::now();
 
     if !has_audio || !direction.can_send() || tx.codec.is_none() {
         tx.was_silent = true;
@@ -1798,9 +1845,14 @@ fn write_and_send(sh: &Shared, tx: &mut TxState, pt: u8, timestamp: u32, marker:
 /// received from the peer.
 fn send_sender_report(sh: &Arc<Shared>) {
     let report = reception_report(sh);
+    let video = sh.video.lock().is_some();
     let mut tx = sh.tx.lock();
     let mut packet = if tx.packets > 0 {
-        build_sender_report(tx.ssrc, ntp_now(), tx.timestamp, tx.packets, tx.octets, "voipnet", report)
+        // The two timestamps have to be the same instant, so the last one sent is carried forward
+        // to now at the stream's own clock rate (RFC 3550 6.4.1).
+        let rate = if video { 90_000 } else { tx.codec.as_ref().map_or(8000, |c| c.clock_rate()) };
+        let ticks = (tx.timestamp_at.elapsed().as_secs_f64() * f64::from(rate)) as u32;
+        build_sender_report(tx.ssrc, ntp_now(), tx.timestamp.wrapping_add(ticks), tx.packets, tx.octets, "voipnet", report)
     } else if let Some(block) = report {
         build_receiver_report(tx.ssrc, block)
     } else {

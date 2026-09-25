@@ -227,7 +227,9 @@ fn parse_voip_metrics(b: &[u8]) -> Option<VoipMetrics> {
 /// An RTCP packet the engine cares about.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RtcpPacket {
-    SenderReport { ssrc: u32, ntp: u64, reports: Vec<ReportBlock> },
+    /// A sender report: its NTP and RTP timestamps are the same instant on two clocks, which is
+    /// what lets a receiver line audio up with video (RFC 3550 6.4.1).
+    SenderReport { ssrc: u32, ntp: u64, rtp_ts: u32, reports: Vec<ReportBlock> },
     ReceiverReport { ssrc: u32, reports: Vec<ReportBlock> },
     ExtendedReport { ssrc: u32, metrics: VoipMetrics },
     Bye { ssrc: u32 },
@@ -260,6 +262,7 @@ pub fn parse_rtcp(data: &[u8]) -> Vec<RtcpPacket> {
             200 if packet.len() >= 28 => out.push(RtcpPacket::SenderReport {
                 ssrc,
                 ntp: u64::from_be_bytes(packet[8..16].try_into().expect("8 bytes")),
+                rtp_ts: u32::from_be_bytes(packet[16..20].try_into().expect("4 bytes")),
                 reports: blocks(28),
             }),
             201 => out.push(RtcpPacket::ReceiverReport { ssrc, reports: blocks(8) }),
@@ -435,8 +438,8 @@ mod tests {
         let parsed = parse_rtcp(&sr);
         assert_eq!(parsed.len(), 1, "the SDES packet is ignored");
         match &parsed[0] {
-            RtcpPacket::SenderReport { ssrc, ntp, reports } => {
-                assert_eq!((*ssrc, *ntp), (7, 0x1122_3344_5566_7788));
+            RtcpPacket::SenderReport { ssrc, ntp, rtp_ts, reports } => {
+                assert_eq!((*ssrc, *ntp, *rtp_ts), (7, 0x1122_3344_5566_7788, 900));
                 assert_eq!(reports, &[block]);
             }
             other => panic!("unexpected {other:?}"),

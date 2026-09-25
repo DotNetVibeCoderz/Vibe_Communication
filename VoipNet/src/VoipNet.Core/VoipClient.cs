@@ -424,6 +424,28 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
         return [.. open];
     }
 
+    internal DateTimeOffset? PresentationTime(ulong id, string stream, uint rtpTimestamp)
+    {
+        Check(NativeMethods.PresentationTime(_handle, id, stream, rtpTimestamp, out var ntp), "read the presentation time");
+        if (ntp == 0)
+        {
+            return null;
+        }
+
+        return FromNtp(ntp);
+    }
+
+    /// <summary>NTP counts seconds since 1900 in the high half, fractions of a second in the low half.</summary>
+    private static DateTimeOffset FromNtp(ulong ntp) =>
+        DateTimeOffset.FromUnixTimeSeconds((long)(ntp >> 32) - 2_208_988_800L)
+        + TimeSpan.FromSeconds((ntp & 0xFFFF_FFFF) / 4_294_967_296.0);
+
+    internal DateTimeOffset? PlayoutTime(ulong id)
+    {
+        Check(NativeMethods.PlayoutTime(_handle, id, out var ntp), "read the playout time");
+        return ntp == 0 ? null : FromNtp(ntp);
+    }
+
     internal void ShareScreen(ulong id, bool on) =>
         Check(NativeMethods.ShareScreen(_handle, id, on ? 1 : 0), on ? "start the screen share" : "stop the screen share");
 

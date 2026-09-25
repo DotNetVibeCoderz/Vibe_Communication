@@ -450,6 +450,54 @@ pub unsafe extern "C" fn voipnet_data_channels(handle: *mut c_void, call_id: u64
     }
 }
 
+/// Writes when a timestamp on one of the call's streams was sent, as NTP time, or zero when the peer
+/// has not reported yet. `stream` is `audio`, `main` or `slides`.
+///
+/// # Safety
+/// `stream` must be a NUL-terminated UTF-8 string and `out_ntp` must be writable.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_presentation_time(
+    handle: *mut c_void,
+    call_id: u64,
+    stream: *const c_char,
+    rtp_timestamp: u32,
+    out_ntp: *mut u64,
+) -> c_int {
+    let Some(ep) = endpoint(handle) else { return VN_ERR_INVALID_ARGUMENT };
+    let Some(stream) = str_from(stream) else { return VN_ERR_INVALID_ARGUMENT };
+    if out_ntp.is_null() {
+        return VN_ERR_INVALID_ARGUMENT;
+    }
+
+    match ep.presentation_time(call_id, stream, rtp_timestamp) {
+        Ok(ntp) => {
+            *out_ntp = ntp.unwrap_or(0);
+            VN_OK
+        }
+        Err(e) => map_error(e),
+    }
+}
+
+/// Writes when the audio being played right now was sent, as NTP time, or zero when it is not known.
+///
+/// # Safety
+/// `out_ntp` must be writable.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_playout_time(handle: *mut c_void, call_id: u64, out_ntp: *mut u64) -> c_int {
+    let Some(ep) = endpoint(handle) else { return VN_ERR_INVALID_ARGUMENT };
+    if out_ntp.is_null() {
+        return VN_ERR_INVALID_ARGUMENT;
+    }
+
+    match ep.playout_time(call_id) {
+        Ok(ntp) => {
+            *out_ntp = ntp.unwrap_or(0);
+            VN_OK
+        }
+        Err(e) => map_error(e),
+    }
+}
+
 /// Offers a screen-share stream on a call, or withdraws it when `on` is zero.
 ///
 /// # Safety
