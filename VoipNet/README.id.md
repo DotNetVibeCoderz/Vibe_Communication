@@ -65,7 +65,7 @@ Daftar lengkap, termasuk yang masih direncanakan, ada di [PLAN.md](PLAN.md) dan 
 
 | Sample | Jenis | Menampilkan |
 | --- | --- | --- |
-| [VoipNet.Softphone](samples/VoipNet.Softphone) | Desktop Avalonia | Dial pad, panggilan dengan trace audio langsung, hold/mute/transfer/rekam, ringkasan panggilan dengan AI, jalur demo bawaan. |
+| [VoipNet.Softphone](samples/VoipNet.Softphone) | Desktop Avalonia | Dial pad, panggilan dengan trace audio langsung, kamera masuk dan keluar, hold/mute/transfer/rekam, ringkasan panggilan dengan AI, jalur demo bawaan. |
 | [VoipNet.Gallery](samples/VoipNet.Gallery) | Desktop Avalonia | Setiap fitur SDK sebagai demo langsung beserta kode C#-nya. |
 | [VoipNet.CallCenter](samples/VoipNet.CallCenter) | Blazor Server | Wallboard: antrean, agen, kualitas panggilan langsung, rekaman, supervisor AI. |
 | [VoipNet.IvrStudio](samples/VoipNet.IvrStudio) | Blazor Server | Rancang IVR, telepon dari browser, serahkan penelepon ke agen AI. |

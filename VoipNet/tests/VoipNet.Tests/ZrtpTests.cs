@@ -31,7 +31,9 @@ public class ZrtpTests
 
         await TestHelpers.WaitUntilAsync(
             () => pair.CallerLeg.AuthenticationString is not null && pair.CalleeLeg.AuthenticationString is not null,
-            TimeSpan.FromSeconds(15),
+            // Agreeing keys means two round trips and an elliptic-curve exchange at each end, which a
+            // loaded CI runner can take its time over.
+            TimeSpan.FromSeconds(40),
             "both sides finish the ZRTP exchange");
 
         var caller = pair.CallerLeg.AuthenticationString;

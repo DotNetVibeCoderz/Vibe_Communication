@@ -133,6 +133,8 @@ public sealed partial class SoftphoneViewModel : ObservableObject, IAsyncDisposa
                 DisplayName = DisplayName,
                 Transport = UseTcp ? SipTransport.Tcp : SipTransport.Udp,
                 Srtp = UseSrtp ? SrtpMode.Optional : SrtpMode.Disabled,
+                // Offer video only where there is a codec to encode it with.
+                Video = Services.CallVideo.IsSupported,
                 EventSynchronizationContext = SynchronizationContext.Current,
             };
 

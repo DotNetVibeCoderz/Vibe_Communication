@@ -65,7 +65,7 @@ The full list, including what is planned, lives in [PLAN.md](PLAN.md) and [Progr
 
 | Sample | Kind | Shows |
 | --- | --- | --- |
-| [VoipNet.Softphone](samples/VoipNet.Softphone) | Avalonia desktop | Dial pad, live call with audio traces, hold/mute/transfer/record, AI call summaries, built-in demo lines. |
+| [VoipNet.Softphone](samples/VoipNet.Softphone) | Avalonia desktop | Dial pad, live call with audio traces, camera in and out, hold/mute/transfer/record, AI call summaries, built-in demo lines. |
 | [VoipNet.Gallery](samples/VoipNet.Gallery) | Avalonia desktop | Every SDK feature as a live demo with its C#. |
 | [VoipNet.CallCenter](samples/VoipNet.CallCenter) | Blazor Server | Wallboard: queues, agents, live call quality, recordings, AI supervisor. |
 | [VoipNet.IvrStudio](samples/VoipNet.IvrStudio) | Blazor Server | Design an IVR, call it from the browser, hand the caller to an AI agent. |

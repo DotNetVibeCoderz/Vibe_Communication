@@ -117,6 +117,85 @@ public sealed class VideoCodecTests
     }
 
     [Fact]
+    public async Task EncodedPicturesSurviveARealCall()
+    {
+        Assert.SkipUnless(VideoCodecs.IsH264Available, "No platform H.264 codec on this OS.");
+
+        await using var pair = await LoopbackPair.ConnectAsync("camera", "screen", o => o.Video = true);
+        Assert.Equal("H264", pair.CallerLeg.VideoCodec);
+
+        var decoded = new List<VideoPicture>();
+        using var decoder = VideoCodecs.CreateH264Decoder();
+        var arrived = new List<byte[]>();
+        pair.CalleeLeg.VideoFrameReceived += (_, _, _, frame, _) =>
+        {
+            lock (arrived)
+            {
+                arrived.Add(frame.ToArray());
+            }
+        };
+
+        using var encoder = VideoCodecs.CreateH264Encoder(new VideoEncoderOptions
+        {
+            Width = Width,
+            Height = Height,
+            FramesPerSecond = 25,
+            BitsPerSecond = 600_000,
+        });
+
+        var nv12 = new byte[VideoPicture.Nv12Length(Width, Height)];
+        var sent = 0;
+        for (var i = 0; i < 25; i++)
+        {
+            VideoPictures.FromBgra(Pattern(i), Width, Height, nv12);
+            foreach (var frame in encoder.Encode(new VideoPicture(Width, Height, nv12, TimeSpan.FromSeconds(i / 25.0))))
+            {
+                pair.CallerLeg.SendVideoFrame((uint)(90000 + (sent * 3600)), frame.Data.Span);
+                sent++;
+            }
+
+            await Task.Delay(40);
+        }
+
+        Assert.True(sent > 0, "the encoder produced nothing to send");
+        await TestHelpers.WaitAsync(
+            () =>
+            {
+                lock (arrived)
+                {
+                    return arrived.Count >= sent - 3 ? "enough" : null;
+                }
+            },
+            TimeSpan.FromSeconds(20),
+            "video frames to arrive");
+
+        byte[][] frames;
+        lock (arrived)
+        {
+            frames = [.. arrived];
+        }
+
+        foreach (var frame in frames)
+        {
+            decoded.AddRange(decoder.Decode(frame, TimeSpan.Zero));
+        }
+
+        // The pictures came back through packetisation, RTP and reassembly, and are still the pictures.
+        Assert.True(decoded.Count >= frames.Length - 2, $"{frames.Length} frames arrived, {decoded.Count} decoded");
+        Assert.Equal(Width, decoded[0].Width);
+        VideoPictures.FromBgra(Pattern(decoded.Count - 1), Width, Height, nv12);
+        double error = 0;
+        for (var i = 0; i < Width * Height; i++)
+        {
+            var difference = decoded[^1].Data.Span[i] - nv12[i];
+            error += difference * difference;
+        }
+
+        var psnr = 10 * Math.Log10(255.0 * 255.0 / (error / (Width * Height)));
+        Assert.True(psnr > 25, $"the picture arrived at {psnr:F1} dB, which is not the one that was sent");
+    }
+
+    [Fact]
     public void CamerasCanBeListedWithoutOpeningOne()
     {
         // Listing is safe to run anywhere: it never opens a device, so no light goes on and a machine

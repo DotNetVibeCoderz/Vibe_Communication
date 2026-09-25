@@ -1,7 +1,9 @@
+using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using VoipNet.Audio;
 using VoipNet.Samples.Theme;
+using VoipNet.Softphone.Services;
 
 namespace VoipNet.Softphone.ViewModels;
 
@@ -12,6 +14,7 @@ public sealed partial class CallViewModel : ObservableObject
     private readonly LevelHistory _outbound = new(140);
     private CallAudioBridge? _bridge;
     private CallRecorder? _recorder;
+    private CallVideo? _video;
 
     public CallViewModel(VoipCall call, string? displayName)
     {
@@ -68,6 +71,26 @@ public sealed partial class CallViewModel : ObservableObject
     [ObservableProperty]
     public partial string? RecordingPath { get; set; }
 
+    [ObservableProperty]
+    public partial bool IsCameraOn { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowVideo), nameof(HasRemotePicture))]
+    public partial Bitmap? RemotePicture { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowVideo))]
+    public partial Bitmap? LocalPicture { get; set; }
+
+    /// <summary>Whether this machine can do video at all, and the call agreed to carry it.</summary>
+    public bool VideoAvailable => CallVideo.IsSupported && Call.VideoCodec is { Length: > 0 };
+
+    /// <summary>Whether to give the picture the middle of the panel.</summary>
+    public bool ShowVideo => RemotePicture is not null || LocalPicture is not null;
+
+    /// <summary>Whether the far end's picture has arrived, as opposed to only ours going out.</summary>
+    public bool HasRemotePicture => RemotePicture is not null;
+
     public bool IsRinging => State is CallState.Calling or CallState.Ringing or CallState.EarlyMedia;
 
     public bool IsIncoming => State == CallState.Incoming;
@@ -105,6 +128,7 @@ public sealed partial class CallViewModel : ObservableObject
         InboundLevels = _inbound.Snapshot();
         OutboundLevels = _outbound.Snapshot();
         Duration = Call.Duration.ToString(Call.Duration.TotalHours >= 1 ? @"hh\:mm\:ss" : @"mm\:ss");
+        OnPropertyChanged(nameof(VideoAvailable));
         if (Call.Codec is { } codec)
         {
             CodecLabel = $"{codec} · {Call.SampleRate / 1000.0:0.#} kHz";
@@ -183,6 +207,43 @@ public sealed partial class CallViewModel : ObservableObject
         }
     }
 
+    /// <summary>Turns the camera on, which starts sending it, or off, which puts its light out.</summary>
+    [RelayCommand]
+    private void ToggleCamera()
+    {
+        if (_video is null)
+        {
+            if (!VideoAvailable)
+            {
+                return;
+            }
+
+            _video = new CallVideo(Call);
+            _video.Changed += OnPictureChanged;
+            _video.Start();
+            IsCameraOn = true;
+        }
+        else
+        {
+            _video.Changed -= OnPictureChanged;
+            _video.Dispose();
+            _video = null;
+            IsCameraOn = false;
+            LocalPicture = null;
+        }
+    }
+
+    private void OnPictureChanged()
+    {
+        if (_video is null)
+        {
+            return;
+        }
+
+        RemotePicture = _video.Remote;
+        LocalPicture = _video.Local;
+    }
+
     [RelayCommand]
     private void ToggleRecording()
     {
@@ -206,6 +267,13 @@ public sealed partial class CallViewModel : ObservableObject
     public void Release()
     {
         Call.AudioReceived -= OnAudio;
+        if (_video is not null)
+        {
+            _video.Changed -= OnPictureChanged;
+            _video.Dispose();
+            _video = null;
+        }
+
         _bridge?.Dispose();
         _recorder?.Dispose();
     }

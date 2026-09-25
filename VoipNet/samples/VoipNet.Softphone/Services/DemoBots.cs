@@ -29,6 +29,7 @@ public sealed class DemoBots : IAsyncDisposable
             DisplayName = "Voip.NET Demo",
             RtpPortMin = 46000,
             RtpPortMax = 46999,
+            Video = CallVideo.IsSupported,
         });
         await client.StartAsync();
         var bots = new DemoBots(client);
@@ -59,6 +60,16 @@ public sealed class DemoBots : IAsyncDisposable
             if (direction == AudioDirection.Inbound)
             {
                 c.SendAudio(samples, rate);
+            }
+        };
+
+        // The picture goes back the way it came, frame for frame, so a camera can be seen coming home
+        // over real RTP rather than out of the same process's memory.
+        call.VideoFrameReceived += (c, timestamp, keyframe, frame, content) =>
+        {
+            if (content == "main")
+            {
+                c.SendVideoFrame(timestamp, frame);
             }
         };
         await call.AnswerAsync();

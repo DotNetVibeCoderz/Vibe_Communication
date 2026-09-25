@@ -169,6 +169,8 @@
                     <ToggleButton Margin="0,0,8,8" Content="Hold" IsChecked="{Binding ActiveCall.IsOnHold, Mode=OneWay}" Command="{Binding ActiveCall.ToggleHoldCommand}" />
                     <ToggleButton Margin="0,0,8,8" Content="Keypad" IsChecked="{Binding ActiveCall.ShowKeypad, Mode=OneWay}" Command="{Binding ActiveCall.ToggleKeypadCommand}" />
                     <ToggleButton Margin="0,0,8,8" Content="Record" IsChecked="{Binding ActiveCall.IsRecording, Mode=OneWay}" Command="{Binding ActiveCall.ToggleRecordingCommand}" />
+                    <ToggleButton Margin="0,0,8,8" Content="Camera" IsVisible="{Binding ActiveCall.VideoAvailable}"
+                                  IsChecked="{Binding ActiveCall.IsCameraOn, Mode=OneWay}" Command="{Binding ActiveCall.ToggleCameraCommand}" />
                   </WrapPanel>
                   <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding ActiveCall.CanControl}">
                     <TextBox Classes="mono" Text="{Binding ActiveCall.TransferTarget}" PlaceholderText="Transfer to sip:colleague@pbx" />
@@ -184,13 +186,39 @@
                   </Grid>
                 </StackPanel>
 
-                <!-- The signature: what each side is saying, drawn from the real audio. -->
-                <StackPanel VerticalAlignment="Center" Spacing="8" Margin="0,18">
+                <!-- The middle of the panel: the picture when there is one, the sound when there is not.
+                     Both live in one container so whichever is showing gets the space that is left. -->
+                <Panel>
+                <StackPanel VerticalAlignment="Center" Spacing="8" Margin="0,18" IsVisible="{Binding !ActiveCall.ShowVideo}">
                   <TextBlock Classes="eyebrow" Text="THEM" />
                   <theme:TraceLine Levels="{Binding ActiveCall.InboundLevels}" Stroke="{StaticResource CableGreenBrush}" />
                   <TextBlock Classes="eyebrow" Text="YOU" Margin="0,6,0,0" />
                   <theme:TraceLine Levels="{Binding ActiveCall.OutboundLevels}" Stroke="{StaticResource CobaltBrush}" />
                 </StackPanel>
+
+                <!-- The picture, once the camera is on: their face large, yours in the corner, and the
+                     sound still drawn underneath so both are in one glance. -->
+                <Grid IsVisible="{Binding ActiveCall.ShowVideo}" RowDefinitions="*,Auto" Margin="0,16,0,8">
+                  <Border Background="#0A0C0F" CornerRadius="10" ClipToBounds="True" MinHeight="220"
+                          BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1">
+                    <Panel>
+                      <Image Source="{Binding ActiveCall.RemotePicture}" Stretch="Uniform" />
+                      <TextBlock Classes="eyebrow" Text="WAITING FOR THEIR PICTURE" Opacity="0.6"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center"
+                                 IsVisible="{Binding !ActiveCall.HasRemotePicture}" />
+                      <Border Width="148" Margin="14" CornerRadius="6" ClipToBounds="True"
+                              HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                              BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1">
+                        <Image Source="{Binding ActiveCall.LocalPicture}" Stretch="Uniform" />
+                      </Border>
+                    </Panel>
+                  </Border>
+                  <StackPanel Grid.Row="1" Spacing="6" Margin="0,12,0,0">
+                    <theme:TraceLine Levels="{Binding ActiveCall.InboundLevels}" Stroke="{StaticResource CableGreenBrush}" Height="26" />
+                    <theme:TraceLine Levels="{Binding ActiveCall.OutboundLevels}" Stroke="{StaticResource CobaltBrush}" Height="26" />
+                  </StackPanel>
+                </Grid>
+                </Panel>
               </DockPanel>
             </Grid>
           </Panel>

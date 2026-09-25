@@ -21,6 +21,7 @@
     <ProjectReference Include="..\..\src\VoipNet.Core\VoipNet.Core.csproj" />
     <ProjectReference Include="..\..\src\VoipNet.Audio\VoipNet.Audio.csproj" />
     <ProjectReference Include="..\..\src\VoipNet.AI\VoipNet.AI.csproj" />
+    <ProjectReference Include="..\..\src\VoipNet.Video\VoipNet.Video.csproj" />
     <ProjectReference Include="..\Shared\VoipNet.Samples.Theme\VoipNet.Samples.Theme.csproj" />
   </ItemGroup>
 

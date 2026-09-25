@@ -161,6 +161,7 @@ Pass an `ILogger<VoipClient>`; engine log events (NAT discovery, send failures, 
 
 - Demo mode starts two in-process lines: **echo** (hear yourself) and **music** (a melody that answers keypad presses with tones).
 - Live audio traces for both directions, codec and MOS, mute/hold/keypad/record/transfer.
+- **Camera** turns the webcam on where there is a platform codec (Windows so far): it is captured, encoded to H.264, sent over RTP and shown back decoded, with the far end large and the self-view in the corner. The echo line sends the picture back frame for frame, so the whole path can be seen on one machine.
 - Notes panel with **Summarise with AI** (any OpenAI-compatible endpoint).
 - `dotnet run --project samples/VoipNet.Softphone -- --screenshot docs/images` renders the documentation screenshots headlessly.
 

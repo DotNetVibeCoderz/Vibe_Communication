@@ -224,7 +224,11 @@ static async Task<int> MeetingAsync(string baseUrl, string output)
         """));
     await first.ScreenshotAsync(Path.Combine(output, "meeting-room.png"), fullPage: true);
     Console.WriteLine($"frames decoded after pinning: {pinnedIn}");
-    Console.WriteLine(await first.EvaluateAsync("[...document.querySelectorAll('.roster tbody tr')].map(r => r.innerText.replace(/\n/g, ' ')).join('\n')"));
+    // The roster and the log say what the engine made of the call, which is what a failure needs.
+    Console.WriteLine(await first.EvaluateAsync(
+        "[...document.querySelectorAll('.roster tbody tr')].map(r => 'roster: ' + r.innerText.split(String.fromCharCode(10)).join(' ')).join(String.fromCharCode(10))"));
+    Console.WriteLine(await first.EvaluateAsync(
+        "[...document.querySelectorAll('.events li')].map(e => 'log: ' + e.innerText.split(String.fromCharCode(10)).join(' ')).join(String.fromCharCode(10))"));
     Console.WriteLine(await first.EvaluateAsync("document.querySelector('.on-screen')?.innerText ?? ''"));
     var width = Number(await first.EvaluateAsync("document.querySelector('.stage-frame video').videoWidth"));
 
