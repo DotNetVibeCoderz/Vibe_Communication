@@ -231,7 +231,19 @@ public sealed class VoipCall
     /// <param name="frame">The encoded frame; it is split across as many RTP packets as it needs.</param>
     /// <param name="content">Which stream to send on: <c>main</c> for the camera, <c>slides</c> for a shared screen.</param>
     public void SendVideoFrame(uint timestamp, ReadOnlySpan<byte> frame, string content = "main") =>
-        _client.SendVideoFrame(Id, timestamp, frame, content);
+        _client.SendVideoFrame(Id, timestamp, frame, content, null);
+
+    /// <summary>
+    /// Sends a frame as one of several encodings of the same picture (simulcast, RFC 8853). The name
+    /// must be one of <see cref="VoipClientOptions.VideoEncodings"/>; the receiver reads it off each
+    /// packet and keeps whichever encoding fits what it can take.
+    /// </summary>
+    /// <param name="timestamp">The frame's timestamp on the 90 kHz video clock.</param>
+    /// <param name="frame">The encoded access unit.</param>
+    /// <param name="encoding">Which encoding this frame is.</param>
+    /// <param name="content">Which stream: <c>main</c> for the camera, <c>slides</c> for a screen.</param>
+    public void SendVideoFrameAs(uint timestamp, ReadOnlySpan<byte> frame, string encoding, string content = "main") =>
+        _client.SendVideoFrame(Id, timestamp, frame, content, encoding);
 
     /// <summary>When a timestamp from one of the call's streams was sent, on the sender's clock.</summary>
     /// <remarks>

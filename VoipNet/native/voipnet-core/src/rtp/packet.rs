@@ -95,6 +95,38 @@ impl<'a> RtpPacketRef<'a> {
 
 impl RtpHeader {
     pub fn write(&self, payload: &[u8], out: &mut Vec<u8>) {
+        self.write_with(payload, None, out);
+    }
+
+    /// Writes the packet with one header extension (RFC 8285 one-byte profile), such as the name of
+    /// the encoding a simulcast packet belongs to (RFC 8852).
+    pub fn write_with(&self, payload: &[u8], extension: Option<(u8, &[u8])>, out: &mut Vec<u8>) {
+        let Some((id, value)) = extension.filter(|(id, value)| {
+            // The one-byte profile holds ids 1..=14 and lengths 1..=16; anything else goes without.
+            (1..=14).contains(id) && (1..=16).contains(&value.len())
+        }) else {
+            self.write_plain(payload, out);
+            return;
+        };
+
+        // Header, then 'BEDE', a length in whole words, the element, and zero padding to the word.
+        let content = 1 + value.len();
+        let words = content.div_ceil(4);
+        out.reserve(RTP_HEADER_LEN + 4 + (words * 4) + payload.len());
+        out.push(0x90); // version 2, extension present
+        out.push((u8::from(self.marker) << 7) | (self.payload_type & 0x7F));
+        out.extend_from_slice(&self.sequence.to_be_bytes());
+        out.extend_from_slice(&self.timestamp.to_be_bytes());
+        out.extend_from_slice(&self.ssrc.to_be_bytes());
+        out.extend_from_slice(&[0xBE, 0xDE]);
+        out.extend_from_slice(&(words as u16).to_be_bytes());
+        out.push((id << 4) | (value.len() as u8 - 1));
+        out.extend_from_slice(value);
+        out.resize(out.len() + (words * 4) - content, 0);
+        out.extend_from_slice(payload);
+    }
+
+    fn write_plain(&self, payload: &[u8], out: &mut Vec<u8>) {
         out.reserve(RTP_HEADER_LEN + payload.len());
         out.push(0x80);
         out.push((u8::from(self.marker) << 7) | (self.payload_type & 0x7F));

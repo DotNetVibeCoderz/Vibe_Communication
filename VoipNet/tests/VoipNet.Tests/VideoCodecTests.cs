@@ -276,6 +276,82 @@ public sealed class VideoCodecTests
     }
 
     [Fact]
+    public async Task SeveralEncodingsOfOnePictureTravelSeparately()
+    {
+        Assert.SkipUnless(VideoCodecs.IsH264Available, "No platform H.264 codec on this OS.");
+
+        // Two sizes of the same picture, sent on one stream and told apart at the far end by the
+        // label on each packet. The receiver keeps one of them, which is what simulcast is for.
+        await using var pair = await LoopbackPair.ConnectAsync(
+            "camera",
+            "viewer",
+            o => o.Video = true,
+            caller => caller.VideoEncodings = ["h", "l"]);
+
+        using var big = Encoder(Width, Height, 700_000);
+        using var small = Encoder(Width / 2, Height / 2, 150_000);
+        var arrived = 0;
+        pair.CalleeLeg.VideoFrameReceived += (_, _, _, _, _) => Interlocked.Increment(ref arrived);
+
+        var large = new byte[VideoPicture.Nv12Length(Width, Height)];
+        var tiny = new byte[VideoPicture.Nv12Length(Width / 2, Height / 2)];
+        for (var i = 0; i < 20; i++)
+        {
+            VideoPictures.FromBgra(Pattern(i), Width, Height, large);
+            VideoPictures.FromBgra(Half(Pattern(i)), Width / 2, Height / 2, tiny);
+            var at = TimeSpan.FromSeconds(i / 25.0);
+            foreach (var frame in big.Encode(new VideoPicture(Width, Height, large, at)))
+            {
+                pair.CallerLeg.SendVideoFrameAs((uint)(90000 + (i * 3600)), frame.Data.Span, "h");
+            }
+
+            foreach (var frame in small.Encode(new VideoPicture(Width / 2, Height / 2, tiny, at)))
+            {
+                pair.CallerLeg.SendVideoFrameAs((uint)(90000 + (i * 3600)), frame.Data.Span, "l");
+            }
+
+            await Task.Delay(40);
+        }
+
+        await TestHelpers.WaitAsync(
+            () => pair.CalleeLeg.VideoLayers.Count >= 2 ? "both" : null,
+            TimeSpan.FromSeconds(15),
+            "both encodings to be seen");
+
+        var layers = pair.CalleeLeg.VideoLayers;
+        Assert.Contains(layers, l => l.Name == "h");
+        Assert.Contains(layers, l => l.Name == "l");
+        Assert.Single(layers, l => l.Selected);
+        Assert.True(Volatile.Read(ref arrived) > 0, "no pictures were passed on");
+    }
+
+    private static IVideoEncoder Encoder(int width, int height, int bitrate) =>
+        VideoCodecs.CreateH264Encoder(new VideoEncoderOptions
+        {
+            Width = width,
+            Height = height,
+            FramesPerSecond = 25,
+            BitsPerSecond = bitrate,
+        });
+
+    /// <summary>The same picture at half the size, by taking every other pixel of every other row.</summary>
+    private static byte[] Half(byte[] bgra)
+    {
+        var half = new byte[Width / 2 * (Height / 2) * 4];
+        for (var y = 0; y < Height / 2; y++)
+        {
+            for (var x = 0; x < Width / 2; x++)
+            {
+                var from = ((y * 2 * Width) + (x * 2)) * 4;
+                var to = ((y * (Width / 2)) + x) * 4;
+                bgra.AsSpan(from, 4).CopyTo(half.AsSpan(to));
+            }
+        }
+
+        return half;
+    }
+
+    [Fact]
     public void CamerasCanBeListedWithoutOpeningOne()
     {
         // Listing is safe to run anywhere: it never opens a device, so no light goes on and a machine

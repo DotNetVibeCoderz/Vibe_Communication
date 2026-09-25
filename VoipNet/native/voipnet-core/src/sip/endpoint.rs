@@ -31,6 +31,9 @@ use crate::stun::Candidate;
 
 /// The header extension that names which encoding a simulcast packet belongs to (RFC 8852).
 const RID_EXTENSION: &str = "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id";
+
+/// The extension id this endpoint offers for it; an answer keeps whatever the offer used.
+const RID_EXTENSION_ID: u8 = 10;
 /// The one that names the m-line a packet belongs to (RFC 9143). Browsers expect it alongside the
 /// stream identifier before they will send several encodings.
 const MID_EXTENSION: &str = "urn:ietf:params:rtp-hdrext:sdes:mid";
@@ -114,6 +117,11 @@ pub struct EndpointConfig {
     /// Offer and accept data channels (RFC 8831) alongside the call. They need DTLS, which carries them.
     pub data_channels: bool,
     pub video_codecs: Vec<String>,
+    /// Names of the encodings this side will send of the same picture (RFC 8853 simulcast), largest
+    /// first, for example `["h", "m", "l"]`. Empty means one encoding, which is the usual case. The
+    /// application encodes each one and labels its frames; this only negotiates and marks them.
+    #[serde(default)]
+    pub video_encodings: Vec<String>,
     pub srtp: SrtpMode,
     pub srtp_keying: SrtpKeying,
     pub dtmf_mode: DtmfModeConfig,
@@ -177,6 +185,7 @@ impl Default for EndpointConfig {
             video: false,
             data_channels: false,
             video_codecs: vec!["H264".into(), "VP8".into()],
+            video_encodings: Vec::new(),
             srtp: SrtpMode::Disabled,
             srtp_keying: SrtpKeying::Sdes,
             dtmf_mode: DtmfModeConfig::Rfc4733,
@@ -793,8 +802,16 @@ impl Endpoint {
     /// shared screen. `timestamp` is in the 90 kHz video clock and the frame is split across as many
     /// RTP packets as it needs.
     pub fn send_video_frame(&self, call_id: u64, timestamp: u32, frame: &[u8], content: &str) -> Result<()> {
+        self.send_video_frame_as(call_id, timestamp, frame, content, None)
+    }
+
+    /// The same, saying which of several encodings of the same picture this frame is (RFC 8853).
+    ///
+    /// The name must be one of `EndpointConfig::video_encodings` and one the peer agreed to receive;
+    /// anything else is sent unlabelled, which is what a call with one encoding does anyway.
+    pub fn send_video_frame_as(&self, call_id: u64, timestamp: u32, frame: &[u8], content: &str, encoding: Option<&str>) -> Result<()> {
         let session = self.inner.video_session(call_id, content)?;
-        if !session.send_video_frame(timestamp, frame) {
+        if !session.send_video_frame_as(timestamp, frame, encoding) {
             return Err(EndpointError::InvalidState("video stream cannot send"));
         }
         Ok(())
@@ -1562,6 +1579,21 @@ impl Inner {
                 // RFC 4796: say what the stream shows, so the peer can label it.
                 line.other_attributes.push(format!("content:{}", video.content));
             }
+            else if self.cfg.video_encodings.len() > 1
+                && line.port != 0
+                // In an answer, only if the offer asked to receive several; in an offer, always.
+                && offered.is_none_or(|o| o.other_attributes.iter().any(|a| a.starts_with("simulcast:recv")))
+            {
+                // Several encodings of the camera (RFC 8853), offered on the picture stream only: a
+                // shared screen is one picture, and the extension names which encoding a packet is.
+                let id = offered.and_then(|o| extension_id(o, RID_EXTENSION)).unwrap_or(RID_EXTENSION_ID);
+                line.other_attributes.push(format!("extmap:{id} {RID_EXTENSION}"));
+                for rid in &self.cfg.video_encodings {
+                    line.other_attributes.push(format!("rid:{rid} send"));
+                }
+
+                line.other_attributes.push(format!("simulcast:send {}", self.cfg.video_encodings.join(";")));
+            }
 
             lines.push(line);
         }
@@ -2021,6 +2053,42 @@ impl Inner {
         }
     }
 
+    /// The other direction of the same thing: an offer that asks to receive several encodings is
+    /// answered with ours, so from the answer onwards our frames carry their labels.
+    fn answer_simulcast(session: &Arc<MediaSession>, offered: &MediaDescription, ours: &[String]) {
+        if ours.len() < 2 || !offered.other_attributes.iter().any(|a| a.starts_with("simulcast:recv")) {
+            return;
+        }
+
+        let id = extension_id(offered, RID_EXTENSION).unwrap_or(RID_EXTENSION_ID);
+        session.send_simulcast(id, ours);
+    }
+
+    /// Turns the peer's answer into the list of encodings this side may actually send.
+    ///
+    /// A peer takes some or none of what was offered, and names them in `a=simulcast:recv`; anything
+    /// it left out is not sent, and a peer that says nothing gets one encoding like any other call.
+    fn send_simulcast(session: &Arc<MediaSession>, answered: &MediaDescription, offered: &[String]) {
+        if offered.len() < 2 {
+            return;
+        }
+
+        let accepted: Vec<String> = answered
+            .other_attributes
+            .iter()
+            .find_map(|a| a.strip_prefix("simulcast:recv "))
+            .map(|list| {
+                list.split(';')
+                    .map(|r| r.trim().trim_end_matches(";send").to_owned())
+                    .filter(|r| offered.iter().any(|o| o == r))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let (false, Some(id)) = (accepted.is_empty(), extension_id(answered, RID_EXTENSION)) {
+            session.send_simulcast(id, &accepted);
+        }
+    }
+
     /// Negotiates the video stream of an offer we are answering. Clears `call.video_formats` when the
     /// offer has no video we can use, so the answer rejects that m-line with port 0.
     fn negotiate_video_offers(&self, offer: &SessionDescription, call: &mut Call) -> (Vec<(usize, NegotiatedMedia)>, Vec<Event>) {
@@ -2059,11 +2127,13 @@ impl Inner {
                 Some(session) => {
                     session.enable_video(&codec.encoding, codec.payload_type, &call.videos[index].content);
                     Self::expect_simulcast(&session, video);
+                    Self::answer_simulcast(&session, video, &self.cfg.video_encodings);
                     session
                 }
                 None => match self.new_video_media(call.id, &codec, &call.videos[index].content) {
                     Ok(session) => {
                         Self::expect_simulcast(&session, video);
+                        Self::answer_simulcast(&session, video, &self.cfg.video_encodings);
                         call.videos[index].session = Some(session.clone());
                         session
                     }
@@ -2137,6 +2207,7 @@ impl Inner {
 
             let session = call.videos[index].session.clone().expect("a stream we offered has a session");
             session.enable_video(&codec.encoding, codec.payload_type, &content);
+            Self::send_simulcast(&session, video, &self.cfg.video_encodings);
             call.videos[index].formats = vec![codec.clone()];
             let n = NegotiatedMedia {
                 remote: Some(SocketAddr::new(remote_ip, video.port)).filter(|a| !a.ip().is_unspecified()),
@@ -4023,6 +4094,47 @@ mod tests {
         b.answer(b_call).unwrap();
         ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "connected", .. })).expect("caller connected");
         (a_call, b_call)
+    }
+
+    #[test]
+    fn several_encodings_of_one_picture_are_offered_and_labelled() {
+        // The caller encodes the same camera twice and says so; the callee takes both, tells them
+        // apart by the label on each packet, and keeps the one that fits — which is the whole point
+        // of simulcast, done here between two of these endpoints rather than against a browser.
+        let (mut ca, mut cb) = (cfg("alice"), cfg("bob"));
+        ca.video = true;
+        ca.video_encodings = vec!["h".into(), "l".into()];
+        cb.video = true;
+        let (a, ra, b, rb) = pair(ca, cb);
+        let (a_call, b_call) = establish(&a, &b, &rb, &ra);
+        let is_video = |e: &Event| matches!(e, Event::MediaEvent { kind, detail, .. } if kind == "video" && detail.starts_with("main H264"));
+        ra.wait_for(3000, is_video).expect("caller video stream");
+        rb.wait_for(3000, is_video).expect("callee video stream");
+
+        // The callee was told to expect two encodings.
+        let expected = rb.wait_for(3000, |e| matches!(e, Event::MediaEvent { kind, .. } if kind == "simulcast"));
+        assert!(expected.is_some(), "the callee reported the offered encodings");
+
+        let mut frame = vec![0, 0, 0, 1, 0x67, 0x42, 0xe0, 0x1f];
+        frame.extend_from_slice(&[0, 0, 0, 1, 0x65]);
+        frame.extend((0..3000).map(|i| (i % 251) as u8 | 1));
+
+        let mut seen = Vec::new();
+        for i in 0..20u32 {
+            a.send_video_frame_as(a_call, 90_000 + (i * 3000), &frame, "main", Some("h")).unwrap();
+            a.send_video_frame_as(a_call, 90_000 + (i * 3000), &frame, "main", Some("l")).unwrap();
+            seen = rb.wait_video(1, 200);
+            if !seen.is_empty() && b.video_layers(b_call).unwrap().len() > 1 {
+                break;
+            }
+        }
+
+        assert!(!seen.is_empty(), "the callee received a picture");
+        let layers = b.video_layers(b_call).unwrap();
+        assert_eq!(layers.len(), 2, "both encodings arrived and were told apart: {layers:?}");
+        assert!(layers.iter().any(|(name, _, _)| name == "h") && layers.iter().any(|(name, _, _)| name == "l"), "{layers:?}");
+
+        let _ = a.hangup(a_call);
     }
 
     #[test]

@@ -145,7 +145,7 @@ internal static unsafe partial class NativeMethods
     internal static partial int SendEncoded(nint handle, ulong callId, byte payloadType, uint timestamp, int marker, byte* data, int length);
 
     [LibraryImport(Library, EntryPoint = "voipnet_send_video_frame", StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial int SendVideoFrame(nint handle, ulong callId, uint timestamp, byte* data, int length, string content);
+    internal static partial int SendVideoFrame(nint handle, ulong callId, uint timestamp, byte* data, int length, string content, string encoding);
 
     [LibraryImport(Library, EntryPoint = "voipnet_open_data_channel", StringMarshalling = StringMarshalling.Utf8)]
     internal static partial int OpenDataChannel(nint handle, ulong callId, string label);

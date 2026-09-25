@@ -84,6 +84,7 @@
 | `RequestKeyframe(full)` | Meminta keyframe video ke lawan (RTCP PLI atau FIR). |
 | `SetAudioDelay(ms)` | Melaporkan waktu tempuh speaker ke mikrofon kepada pembatal gema. |
 | `VideoLayers` | Encoding yang dikirim lawan bicara simulcast, dengan yang diteruskan ditandai. |
+| `SendVideoFrameAs(timestamp, frame, encoding)` | Mengirim frame sebagai salah satu `VideoEncodings` (RFC 8853). |
 | `RequestKeyframe(full)`, `KeyframeRequested` | Minta gambar awal ke lawan bicara, dan tahu saat ia meminta. |
 | `PresentationTime(stream, timestamp)`, `AudioPlayoutTime` | Kapan sebuah timestamp dikirim dan momen mana yang sedang terdengar, untuk sinkronisasi bibir. |
 | `GetStatistics()`, `FinalStatistics` | Kualitas, termasuk laporan lawan lewat RTCP (`RoundTripMs`, `RemoteLossPercent`, `RemoteJitterMs`, `RemoteMos`, `RemoteEstimateBps`). |

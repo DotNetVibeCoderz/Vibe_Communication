@@ -378,13 +378,15 @@ pub unsafe extern "C" fn voipnet_send_video_frame(
     data: *const u8,
     len: c_int,
     content: *const c_char,
+    encoding: *const c_char,
 ) -> c_int {
     let Some(ep) = endpoint(handle) else { return VN_ERR_INVALID_ARGUMENT };
     if data.is_null() || len < 0 {
         return VN_ERR_INVALID_ARGUMENT;
     }
     let slice = std::slice::from_raw_parts(data, len as usize);
-    match ep.send_video_frame(call_id, timestamp, slice, str_from(content).unwrap_or("main")) {
+    let encoding = str_from(encoding).filter(|s| !s.is_empty());
+    match ep.send_video_frame_as(call_id, timestamp, slice, str_from(content).unwrap_or("main"), encoding) {
         Ok(()) => VN_OK,
         Err(e) => map_error(e),
     }

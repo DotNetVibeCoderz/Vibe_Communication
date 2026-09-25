@@ -140,8 +140,31 @@ beats none. In a conference the smallest viewer budget decides, since everyone i
 frames, and each change asks the sender for a keyframe — a decoder cannot start mid-picture. An
 encoding that stops arriving loses the selection within two seconds.
 
-Sending simulcast is not implemented: the engine chooses between the encodings a peer sends, it does
-not produce them.
+Encoding the sizes is the application's work; the engine negotiates them, labels the packets and
+chooses between a peer's.
+
+Sending several encodings works the other way round. Name them in the options, encode each one, and
+say which is which as the frames go out:
+
+```csharp
+var options = new VoipClientOptions { Video = true, VideoEncodings = ["h", "l"] };
+
+foreach (var frame in big.Encode(picture))
+{
+    call.SendVideoFrameAs(timestamp, frame.Data.Span, "h");
+}
+
+foreach (var frame in small.Encode(smaller))
+{
+    call.SendVideoFrameAs(timestamp, frame.Data.Span, "l");
+}
+```
+
+The offer then carries `a=rid:h send`, `a=rid:l send` and `a=simulcast:send h;l`, and every packet is
+labelled with the encoding it belongs to. A peer that accepts fewer than were offered gets only those;
+a peer that says nothing gets one encoding, and an encoding it never agreed to is sent unlabelled
+rather than dropped. Encoding each size is the application's work — `VoipNet.Video` does it on
+Windows — and only the camera stream carries them, since a shared screen is one picture.
 
 ### Lip sync
 

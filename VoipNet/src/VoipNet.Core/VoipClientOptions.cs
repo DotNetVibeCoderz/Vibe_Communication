@@ -156,6 +156,14 @@ public sealed class VoipClientOptions
     /// <summary>Video codecs to offer, in preference order. Payload formats: H264 (RFC 6184), VP8 (RFC 7741).</summary>
     public IList<string> VideoCodecs { get; set; } = ["H264", "VP8"];
 
+    /// <summary>
+    /// Names of the encodings this side will send of the same picture (simulcast, RFC 8853), largest
+    /// first — <c>["h", "m", "l"]</c> by convention. Empty, the usual case, means one encoding. The
+    /// application encodes each one and labels its frames with <c>VoipCall.SendVideoFrameAs</c>;
+    /// this only negotiates them and marks the packets.
+    /// </summary>
+    public IList<string> VideoEncodings { get; set; } = [];
+
     /// <summary>Offer and accept data channels next to the call (RFC 8831): SCTP inside the call's DTLS
     /// tunnel, for chat, files or application messages. Needs <see cref="SrtpKeying.Dtls"/>.</summary>
     public bool DataChannels { get; set; }

@@ -290,6 +290,9 @@ struct VideoTrack {
     /// The header extension that names the encoding a packet belongs to (RFC 8852), when the peer
     /// said it would send several.
     rid_extension: Option<u8>,
+    /// The same extension on the way out, with the encodings the peer agreed to receive.
+    send_rid_extension: Option<u8>,
+    send_rids: Vec<String>,
     /// One reassembler per encoding, in the order the peer offered them.
     layers: Vec<(String, Layer)>,
     /// Which encoding is being handed on; the others are dropped as they arrive.
@@ -1057,6 +1060,8 @@ impl MediaSession {
             depacketizer: VideoDepacketizer::new(format),
             format,
             rid_extension: None,
+            send_rid_extension: None,
+            send_rids: Vec::new(),
             layers: Vec::new(),
             selected: None,
             layer_changed_at: None,
@@ -1087,6 +1092,21 @@ impl MediaSession {
     }
 
     /// The encodings this stream carries, with what each is measured at in bits per second.
+    /// Says which encodings this side may send, and under which header extension id, after the peer
+    /// has agreed to receive them (RFC 8853).
+    pub fn send_simulcast(&self, extension_id: u8, rids: &[String]) {
+        let mut track = self.shared.video.lock();
+        if let Some(track) = track.as_mut() {
+            track.send_rid_extension = Some(extension_id);
+            track.send_rids = rids.to_vec();
+        }
+    }
+
+    /// The encodings this side agreed to send, in the order they were offered.
+    pub fn sending_encodings(&self) -> Vec<String> {
+        self.shared.video.lock().as_ref().map(|t| t.send_rids.clone()).unwrap_or_default()
+    }
+
     pub fn video_layers(&self) -> Vec<(String, u64)> {
         self.shared.video.lock().as_ref().map(VideoTrack::measured).unwrap_or_default()
     }
@@ -1141,9 +1161,23 @@ impl MediaSession {
     /// Sends one encoded video frame, split across as many RTP packets as it needs. `timestamp` is in
     /// the 90 kHz video clock.
     pub fn send_video_frame(&self, timestamp: u32, frame: &[u8]) -> bool {
-        let Some((payload_type, packets)) = ({
+        self.send_video_frame_as(timestamp, frame, None)
+    }
+
+    /// Sends a frame as one of several encodings of the same picture (RFC 8853).
+    ///
+    /// Each packet carries the encoding's name in a header extension, which is the only thing that
+    /// tells the receiver which stream a packet belongs to. An encoding the peer did not agree to
+    /// receive is sent without the label, exactly as a single-encoding call would be.
+    pub fn send_video_frame_as(&self, timestamp: u32, frame: &[u8], rid: Option<&str>) -> bool {
+        let Some((payload_type, packets, extension)) = ({
             let mut track = self.shared.video.lock();
-            track.as_mut().map(|t| (t.payload_type, t.packetizer.packetize(frame)))
+            track.as_mut().map(|t| {
+                let extension = rid.filter(|name| t.send_rids.iter().any(|r| r == name)).and_then(|name| {
+                    t.send_rid_extension.map(|id| (id, name.as_bytes().to_vec()))
+                });
+                (t.payload_type, t.packetizer.packetize(frame), extension)
+            })
         }) else {
             return false;
         };
@@ -1152,7 +1186,8 @@ impl MediaSession {
         }
         let last = packets.len().saturating_sub(1);
         for (i, payload) in packets.iter().enumerate() {
-            self.send_encoded(payload_type, timestamp, i == last, payload);
+            let label = extension.as_ref().map(|(id, name)| (*id, name.as_slice()));
+            self.send_encoded_labelled(payload_type, timestamp, i == last, payload, label);
         }
         !packets.is_empty()
     }
@@ -1174,13 +1209,25 @@ impl MediaSession {
 
     /// Sends an already-encoded payload (pass-through codecs and video).
     pub fn send_encoded(&self, payload_type: u8, timestamp: u32, marker: bool, payload: &[u8]) {
+        self.send_encoded_labelled(payload_type, timestamp, marker, payload, None);
+    }
+
+    /// The same, with a header extension naming the encoding the packet belongs to.
+    pub fn send_encoded_labelled(
+        &self,
+        payload_type: u8,
+        timestamp: u32,
+        marker: bool,
+        payload: &[u8],
+        extension: Option<(u8, &[u8])>,
+    ) {
         let sh = &self.shared;
         let mut tx = sh.tx.lock();
         let tx = &mut *tx;
         tx.packet.clear();
         let header = RtpHeader { marker, payload_type, sequence: tx.sequence, timestamp, ssrc: tx.ssrc };
         tx.sequence = tx.sequence.wrapping_add(1);
-        header.write(payload, &mut tx.packet);
+        header.write_with(payload, extension, &mut tx.packet);
         let secured = match tx.srtp.as_mut() {
             Some(ctx) => ctx.protect_rtp(&mut tx.packet).is_ok(),
             None => !sh.secure_required.load(Ordering::Relaxed),
@@ -2590,6 +2637,8 @@ mod tests {
             depacketizer: VideoDepacketizer::new(VideoFormat::Vp8),
             format: VideoFormat::Vp8,
             rid_extension: Some(10),
+            send_rid_extension: None,
+            send_rids: Vec::new(),
             layers: Vec::new(),
             selected: None,
             layer_changed_at: None,
@@ -2636,6 +2685,8 @@ mod tests {
             depacketizer: VideoDepacketizer::new(VideoFormat::Vp8),
             format: VideoFormat::Vp8,
             rid_extension: Some(10),
+            send_rid_extension: None,
+            send_rids: Vec::new(),
             layers: Vec::new(),
             selected: None,
             layer_changed_at: None,

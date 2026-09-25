@@ -84,6 +84,7 @@
 | `RequestKeyframe(full)` | Asks the peer for a video keyframe (RTCP PLI or FIR). |
 | `SetAudioDelay(ms)` | Reports the speaker-to-microphone round trip to the echo canceller. |
 | `VideoLayers` | The encodings a simulcast peer is sending, with the one being forwarded marked. |
+| `SendVideoFrameAs(timestamp, frame, encoding)` | Sends a frame as one of `VideoEncodings` (RFC 8853). |
 | `RequestKeyframe(full)`, `KeyframeRequested` | Ask the far end for a picture to start on, and hear when it asks you. |
 | `PresentationTime(stream, timestamp)`, `AudioPlayoutTime` | When a timestamp was sent and which moment is being heard, for lip sync. |
 | `GetStatistics()`, `FinalStatistics` | Quality, including what the peer reports over RTCP (`RoundTripMs`, `RemoteLossPercent`, `RemoteJitterMs`, `RemoteMos`, `RemoteEstimateBps`). |

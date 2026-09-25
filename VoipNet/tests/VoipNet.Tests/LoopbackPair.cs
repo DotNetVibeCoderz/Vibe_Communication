@@ -21,12 +21,21 @@ public sealed class LoopbackPair : IAsyncDisposable
     /// <summary>The call as the callee sees it.</summary>
     public VoipCall CalleeLeg { get; }
 
-    public static async Task<LoopbackPair> ConnectAsync(string callerName = "caller", string calleeName = "callee", Action<VoipClientOptions>? configure = null)
+    /// <param name="callerName">SIP user name of the calling side.</param>
+    /// <param name="calleeName">SIP user name of the answering side.</param>
+    /// <param name="configure">Applied to both sides.</param>
+    /// <param name="configureCaller">Applied to the caller only, for tests where the two differ.</param>
+    public static async Task<LoopbackPair> ConnectAsync(
+        string callerName = "caller",
+        string calleeName = "callee",
+        Action<VoipClientOptions>? configure = null,
+        Action<VoipClientOptions>? configureCaller = null)
     {
         var callerOptions = TestHelpers.LoopbackOptions(callerName);
         var calleeOptions = TestHelpers.LoopbackOptions(calleeName);
         configure?.Invoke(callerOptions);
         configure?.Invoke(calleeOptions);
+        configureCaller?.Invoke(callerOptions);
         var caller = new VoipClient(callerOptions);
         var callee = new VoipClient(calleeOptions);
         await caller.StartAsync();

@@ -141,8 +141,31 @@ daripada tidak ada. Di konferensi, anggaran penonton terkecil yang menentukan, s
 dikirimi frame yang sama, dan setiap pergantian meminta keyframe ke pengirim — decoder tidak bisa
 mulai di tengah gambar. Encoding yang berhenti datang kehilangan pilihannya dalam dua detik.
 
-Mengirim simulcast belum ada: engine memilih di antara encoding yang dikirim lawan bicara, bukan
-membuatnya sendiri.
+Meng-encode tiap ukuran adalah tugas aplikasi; engine yang menegosiasikan, memberi label pada paket,
+dan memilih di antara encoding lawan bicara.
+
+Mengirim beberapa encoding berjalan sebaliknya. Sebutkan namanya di opsi, encode masing-masing, lalu
+sebutkan yang mana ketika frame dikirim:
+
+```csharp
+var options = new VoipClientOptions { Video = true, VideoEncodings = ["h", "l"] };
+
+foreach (var frame in big.Encode(picture))
+{
+    call.SendVideoFrameAs(timestamp, frame.Data.Span, "h");
+}
+
+foreach (var frame in small.Encode(smaller))
+{
+    call.SendVideoFrameAs(timestamp, frame.Data.Span, "l");
+}
+```
+
+Offer-nya kemudian membawa `a=rid:h send`, `a=rid:l send`, dan `a=simulcast:send h;l`, dan setiap paket
+diberi label encoding-nya. Lawan bicara yang menerima sebagian saja hanya dikirimi yang itu; yang tidak
+berkata apa-apa dikirimi satu encoding, dan encoding yang tidak disetujui dikirim tanpa label alih-alih
+dibuang. Meng-encode tiap ukuran adalah tugas aplikasi — `VoipNet.Video` melakukannya di Windows — dan
+hanya stream kamera yang membawanya, karena layar yang dibagikan adalah satu gambar.
 
 ### Sinkronisasi bibir
 

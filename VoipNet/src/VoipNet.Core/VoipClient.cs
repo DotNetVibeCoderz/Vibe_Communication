@@ -380,11 +380,11 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
         }
     }
 
-    internal unsafe void SendVideoFrame(ulong id, uint timestamp, ReadOnlySpan<byte> frame, string content)
+    internal unsafe void SendVideoFrame(ulong id, uint timestamp, ReadOnlySpan<byte> frame, string content, string? encoding)
     {
         fixed (byte* data = frame)
         {
-            Check(NativeMethods.SendVideoFrame(_handle, id, timestamp, data, frame.Length, content), "send video frame");
+            Check(NativeMethods.SendVideoFrame(_handle, id, timestamp, data, frame.Length, content, encoding ?? string.Empty), "send video frame");
         }
     }
 
