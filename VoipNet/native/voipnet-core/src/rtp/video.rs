@@ -136,6 +136,15 @@ impl VideoDepacketizer {
     /// Feeds one RTP packet. Returns a frame once the last packet of a complete frame arrives.
     pub fn push(&mut self, sequence: u16, timestamp: u32, marker: bool, payload: &[u8]) -> Option<VideoFrame> {
         if payload.is_empty() {
+            // A packet with nothing but padding: a browser probing for bandwidth sends these between
+            // frames, and they carry a sequence number like any other. Counting it is the whole point
+            // — skip it and every packet after it looks like it arrived after a loss, which throws
+            // away a perfectly good frame and asks the sender for a keyframe that will not help.
+            if self.started && self.expected_sequence.is_some_and(|expected| expected != sequence) {
+                self.damaged = true;
+            }
+
+            self.expected_sequence = Some(sequence.wrapping_add(1));
             return None;
         }
         let gap = self.expected_sequence.is_some_and(|expected| expected != sequence);
@@ -318,6 +327,31 @@ mod tests {
             frame = frame.or(out);
         }
         frame
+    }
+
+    #[test]
+    fn padding_between_frames_does_not_spoil_the_next_one() {
+        // Chrome pads a stream to probe for bandwidth: RTP packets with a sequence number, a marker,
+        // and no payload at all. The frame that follows one is whole and must be delivered.
+        let mut depacketizer = VideoDepacketizer::new(VideoFormat::H264);
+        let unit = |kind: u8| {
+            let mut nal = vec![kind];
+            nal.extend((0..30).map(|i| i as u8 | 1));
+            nal
+        };
+
+        assert!(depacketizer.push(100, 9000, true, &unit(0x65)).is_some(), "the first frame arrives");
+        // Two padding-only packets, which the parser hands on with an empty payload.
+        assert!(depacketizer.push(101, 9000, false, &[]).is_none());
+        assert!(depacketizer.push(102, 9000, false, &[]).is_none());
+
+        let frame = depacketizer.push(103, 12_000, true, &unit(0x65));
+        assert!(frame.is_some(), "the frame after the padding is whole");
+        assert_eq!(depacketizer.incomplete_frames, 0, "nothing was counted as lost");
+
+        // A real gap is still a real gap, padding or no padding.
+        assert!(depacketizer.push(110, 15_000, true, &unit(0x65)).is_none(), "the head of this one was lost");
+        assert_eq!(depacketizer.incomplete_frames, 1);
     }
 
     #[test]

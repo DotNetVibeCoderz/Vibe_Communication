@@ -299,6 +299,9 @@ struct VideoTrack {
     reported_frames: u64,
     reported_incomplete: u64,
     last_request: Option<Instant>,
+    /// How long to wait before asking again. It doubles while the asking does not help, so a stream
+    /// that is losing packets is not buried under keyframes it cannot receive either.
+    request_backoff: Duration,
     /// Sequence number carried by Full Intra Requests (RFC 5104) so repeats can be told apart.
     fir_sequence: u8,
 }
@@ -348,6 +351,9 @@ impl VideoTrack {
 
 /// Losses come in bursts; one request per interval is enough to get a fresh keyframe.
 const KEYFRAME_REQUEST_INTERVAL: Duration = Duration::from_millis(500);
+
+/// How far apart the asking is allowed to get while it keeps not working.
+const KEYFRAME_REQUEST_MAX: Duration = Duration::from_secs(4);
 
 /// How long an encoding is kept before another may be chosen. Every change costs a keyframe and a
 /// moment of still picture, so changing often is worse than staying on a size that nearly fits.
@@ -1047,6 +1053,7 @@ impl MediaSession {
             reported_frames: 0,
             reported_incomplete: 0,
             last_request: None,
+            request_backoff: KEYFRAME_REQUEST_INTERVAL,
             fir_sequence: 0,
         });
         true
@@ -1842,10 +1849,17 @@ fn handle_rtp(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
                 Some(t) => {
                     let (frame, lost) = t.push(rid.as_deref(), h, payload, Instant::now());
                     t.frames += u64::from(frame.is_some());
+                    if frame.as_ref().is_some_and(|f| f.keyframe) {
+                        // The asking worked: a whole picture to start from. Ask quickly again if the
+                        // next one is damaged.
+                        t.request_backoff = KEYFRAME_REQUEST_INTERVAL;
+                    }
+
                     // A frame that lost packets is dropped, so ask the sender to start again from a keyframe.
-                    let due = lost && t.last_request.is_none_or(|at| at.elapsed() >= KEYFRAME_REQUEST_INTERVAL);
+                    let due = lost && t.last_request.is_none_or(|at| at.elapsed() >= t.request_backoff);
                     if due {
                         t.last_request = Some(Instant::now());
+                        t.request_backoff = (t.request_backoff * 2).min(KEYFRAME_REQUEST_MAX);
                         t.fir_sequence = t.fir_sequence.wrapping_add(1);
                     }
                     (Some(frame), due.then_some(t.fir_sequence), t.content.clone())
@@ -2562,6 +2576,7 @@ mod tests {
             reported_frames: 0,
             reported_incomplete: 0,
             last_request: None,
+            request_backoff: KEYFRAME_REQUEST_INTERVAL,
             fir_sequence: 0,
         };
 
