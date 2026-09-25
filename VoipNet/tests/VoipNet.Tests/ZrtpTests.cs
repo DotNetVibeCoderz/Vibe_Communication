@@ -15,6 +15,7 @@ public class ZrtpTests
         });
 
         var announced = new List<string>();
+        string? failed = null;
         void Watch(object? _, MediaEventArgs e)
         {
             if (e.Kind == "zrtp-connected")
@@ -24,13 +25,22 @@ public class ZrtpTests
                     announced.Add(e.Detail);
                 }
             }
+            else if (e.Kind == "zrtp-failed")
+            {
+                // Without this a failure looks exactly like a slow machine, which wastes an afternoon.
+                Volatile.Write(ref failed, e.Detail);
+            }
         }
 
         pair.Caller.MediaNotification += Watch;
         pair.Callee.MediaNotification += Watch;
 
         await TestHelpers.WaitUntilAsync(
-            () => pair.CallerLeg.AuthenticationString is not null && pair.CalleeLeg.AuthenticationString is not null,
+            () =>
+            {
+                Assert.Null(Volatile.Read(ref failed));
+                return pair.CallerLeg.AuthenticationString is not null && pair.CalleeLeg.AuthenticationString is not null;
+            },
             // Agreeing keys means two round trips and an elliptic-curve exchange at each end, which a
             // loaded CI runner can take its time over.
             TimeSpan.FromSeconds(40),

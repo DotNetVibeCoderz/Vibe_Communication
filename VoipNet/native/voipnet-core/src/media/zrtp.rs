@@ -23,9 +23,15 @@ const MAGIC: u32 = 0x5a52_5450;
 /// Messages start with "PZ".
 const PREAMBLE: u16 = 0x505a;
 /// How long to wait before sending a handshake message again.
-const RETRY: Duration = Duration::from_millis(500);
+const RETRY: Duration = Duration::from_millis(300);
+
+/// The longest wait between repeats, once the backoff has grown into it.
+const RETRY_MAX: Duration = Duration::from_secs(3);
 /// How many times, before the exchange is given up on.
-const MAX_RETRIES: u8 = 8;
+/// How many times a message is repeated before the exchange is given up. With the backoff below
+/// that is around half a minute, which is what RFC 6189 asks for: the other end may still be setting
+/// its media up, and a call that answers slowly is not a call that has failed.
+const MAX_RETRIES: u8 = 20;
 
 /// What the agreement wants the caller to do, or tells it happened.
 pub enum ZrtpEvent {
@@ -203,7 +209,10 @@ impl ZrtpSession {
     /// Sends the outstanding message again when the peer has not answered.
     pub fn poll_timeout(&mut self, now: Instant, events: &mut Vec<ZrtpEvent>) {
         let Some(pending) = self.pending.clone() else { return };
-        if now.duration_since(self.sent_at) < RETRY {
+        // Quickly at first, in case a packet was simply lost, then slower: if the peer has not
+        // started yet, asking it four times a second for half a minute helps nobody.
+        let wait = (RETRY * (1 << self.retries.min(4))).min(RETRY_MAX);
+        if now.duration_since(self.sent_at) < wait {
             return;
         }
 
@@ -681,16 +690,26 @@ mod tests {
     /// Runs two sessions against each other until neither has anything left to say.
     fn pump(a: &mut ZrtpSession, b: &mut ZrtpSession) -> (Vec<ZrtpEvent>, Vec<ZrtpEvent>) {
         let now = Instant::now();
-        let (mut for_a, mut for_b) = (Vec::new(), Vec::new());
-        let mut start = Vec::new();
-        a.start(now, &mut start);
-        b.start(now, &mut for_b);
-        let mut pending: Vec<(bool, ZrtpEvent)> = start
+        let mut seed = Vec::new();
+        let mut from_b = Vec::new();
+        a.start(now, &mut seed);
+        b.start(now, &mut from_b);
+        let pending: Vec<(bool, ZrtpEvent)> = seed
             .into_iter()
             .map(|e| (true, e))
-            .chain(std::mem::take(&mut for_b).into_iter().map(|e| (false, e)))
+            .chain(from_b.into_iter().map(|e| (false, e)))
             .collect();
+        exchange(a, b, pending, now)
+    }
 
+    /// Carries messages between two sessions until they run out, without starting either one.
+    fn exchange(
+        a: &mut ZrtpSession,
+        b: &mut ZrtpSession,
+        mut pending: Vec<(bool, ZrtpEvent)>,
+        now: Instant,
+    ) -> (Vec<ZrtpEvent>, Vec<ZrtpEvent>) {
+        let (mut for_a, mut for_b) = (Vec::new(), Vec::new());
         for _ in 0..40 {
             let mut next = Vec::new();
             for (from_a, event) in pending {
@@ -773,6 +792,42 @@ mod tests {
         b.handle_packet(&hello, now, &mut out);
 
         assert!(out.is_empty(), "a packet that fails its CRC is not answered");
+    }
+
+    #[test]
+    fn a_peer_that_starts_late_still_gets_keys() {
+        // The other end may take its time: a slow machine, a call answered late, media set up after
+        // the first Hello has already gone out. Giving up after a couple of seconds means a call that
+        // would have been encrypted is not, which is the one thing this must not do.
+        let (mut a, mut b) = (ZrtpSession::new(0x1111_1111), ZrtpSession::new(0x2222_2222));
+        let start = Instant::now();
+        let mut ignored = Vec::new();
+        a.start(start, &mut ignored);
+        ignored.clear();
+
+        let mut now = start;
+        for _ in 0..200 {
+            now += Duration::from_millis(100);
+            let mut events = Vec::new();
+            a.poll_timeout(now, &mut events);
+            assert!(
+                !events.iter().any(|e| matches!(e, ZrtpEvent::Failed(_))),
+                "the exchange was given up after {:?} of nobody answering",
+                now.duration_since(start)
+            );
+        }
+
+        // Twenty seconds later the callee is ready, and the two still agree on keys.
+        let mut seed = Vec::new();
+        b.start(now, &mut seed);
+        let mut pending: Vec<(bool, ZrtpEvent)> = seed.into_iter().map(|e| (false, e)).collect();
+        let mut hello = Vec::new();
+        a.poll_timeout(now + Duration::from_secs(4), &mut hello);
+        pending.extend(hello.into_iter().map(|e| (true, e)));
+
+        exchange(&mut a, &mut b, pending, now);
+        assert!(a.is_secure() && b.is_secure(), "both sides finished the exchange");
+        assert_eq!(a.sas(), b.sas());
     }
 
     #[test]
