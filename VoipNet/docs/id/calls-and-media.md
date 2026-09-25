@@ -102,7 +102,33 @@ client.MediaNotification += (_, e) =>
 };
 ```
 
-Estimasi bandwidth dan penangkapan kamera belum ada — lihat
+### Berapa banyak yang boleh dikirim
+
+Penerima video mengukur berapa yang sanggup diterimanya lalu memberi tahu pengirim lewat RTCP (REMB);
+begitulah browser menentukan bitrate encodingnya. Engine ini melakukan keduanya: mengirim perkiraan
+untuk setiap stream video yang diterimanya, dan melaporkan perkiraan dari lawan bicara supaya aplikasi
+yang meng-encode bisa mengikutinya.
+
+```csharp
+client.MediaNotification += (_, e) =>
+{
+    if (e.Kind == "bandwidth-estimate")
+    {
+        Console.WriteLine(e.Detail);                     // "450 kbit/s", saat berubah sepersepuluh
+    }
+};
+
+var allowed = call.GetStatistics().RemoteEstimateBps;    // 0 sampai lawan bicara memberitahu
+encoder.SetBitrate((int)(allowed * 0.9));                // sisakan ruang untuk audio dan overhead
+```
+
+Perkiraan dimulai dari 600 kbit/s, naik 8 % selama frame tiba utuh, bertahan saat loss kecil, dan
+dipotong sebanding dengan loss yang berat — tidak pernah lebih dari satu setengah kali yang benar-benar
+tiba, dan tidak pernah di bawah 64 kbit/s. `a=rtcp-fb:<pt> goog-remb` ditawarkan di baris video dan
+dipertahankan pada answer yang menawarkannya, bersama `nack`, `nack pli`, dan `ccm fir`; lawan bicara
+yang tidak menegosiasikannya tidak pernah dikirimi umpan balik yang tidak dimintanya.
+
+Penangkapan kamera dan encoding tetap urusan aplikasi — lihat
 [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
 
 ## Kanal data

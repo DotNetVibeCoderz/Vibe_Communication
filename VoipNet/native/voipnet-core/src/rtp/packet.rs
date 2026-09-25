@@ -233,6 +233,8 @@ pub enum RtcpPacket {
     Bye { ssrc: u32 },
     /// The peer asks for a keyframe: Picture Loss Indication (RFC 4585) or Full Intra Request (RFC 5104).
     KeyframeRequest { ssrc: u32, full: bool },
+    /// The peer says how much it can receive (REMB), in bits per second.
+    ReceiverEstimate { ssrc: u32, bitrate: u64 },
 }
 
 /// Parses a compound RTCP packet, ignoring types the engine does not use.
@@ -275,6 +277,12 @@ pub fn parse_rtcp(data: &[u8]) -> Vec<RtcpPacket> {
             203 => out.push(RtcpPacket::Bye { ssrc }),
             // Payload-specific feedback (RFC 4585 6.3): FMT 1 is PLI, FMT 4 is FIR (RFC 5104 4.3.1).
             206 if matches!(count, 1 | 4) => out.push(RtcpPacket::KeyframeRequest { ssrc, full: count == 4 }),
+            // FMT 15 with the identifier "REMB" carries the receiver's estimate of what it can take.
+            206 if count == 15 && packet.len() >= 20 && &packet[12..16] == b"REMB" => {
+                let exponent = u32::from(packet[17] >> 2);
+                let mantissa = u32::from_be_bytes([0, packet[17] & 0x03, packet[18], packet[19]]);
+                out.push(RtcpPacket::ReceiverEstimate { ssrc, bitrate: u64::from(mantissa) << exponent });
+            }
             _ => {}
         }
         rest = tail;
@@ -330,6 +338,30 @@ pub fn build_keyframe_request(ssrc: u32, media_ssrc: u32, full: bool, sequence: 
     out
 }
 
+/// Tells the sender how much this side can receive (REMB, draft-alvestrand-rmcat-remb).
+///
+/// The bitrate travels as a 6-bit exponent and an 18-bit mantissa, so it is rounded up to the next
+/// value that fits rather than reported as something smaller than the estimate.
+pub fn build_receiver_estimate(ssrc: u32, media_ssrc: u32, bitrate: u64) -> Vec<u8> {
+    let mut exponent = 0u32;
+    let mut mantissa = bitrate;
+    while mantissa >= 0x0003_FFFF {
+        mantissa = mantissa.div_ceil(2);
+        exponent += 1;
+    }
+
+    let mantissa = mantissa as u32;
+    let mut out = vec![0x80 | 15, 206, 0, 5];
+    out.extend_from_slice(&ssrc.to_be_bytes());
+    out.extend_from_slice(&0u32.to_be_bytes()); // unused in REMB: the streams are named below
+    out.extend_from_slice(b"REMB");
+    out.push(1); // one SSRC follows
+    out.push(((exponent as u8) << 2) | ((mantissa >> 16) & 0x03) as u8);
+    out.extend_from_slice(&((mantissa & 0xFFFF) as u16).to_be_bytes());
+    out.extend_from_slice(&media_ssrc.to_be_bytes());
+    out
+}
+
 pub fn build_bye(ssrc: u32) -> Vec<u8> {
     let mut out = vec![0x81, 203, 0, 1];
     out.extend_from_slice(&ssrc.to_be_bytes());
@@ -339,6 +371,21 @@ pub fn build_bye(ssrc: u32) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn receiver_estimates_round_trip() {
+        for bitrate in [64_000u64, 300_000, 1_500_000, 12_000_000] {
+            let packet = build_receiver_estimate(0x1111_2222, 0x3333_4444, bitrate);
+            let Some(RtcpPacket::ReceiverEstimate { ssrc, bitrate: parsed }) = parse_rtcp(&packet).into_iter().next() else {
+                panic!("expected a REMB for {bitrate}");
+            };
+
+            assert_eq!(ssrc, 0x1111_2222);
+            // The wire format is lossy above 18 bits, so it may round up but never below the estimate.
+            assert!(parsed >= bitrate, "{parsed} < {bitrate}");
+            assert!(parsed <= bitrate + bitrate / 100, "{parsed} is more than a percent above {bitrate}");
+        }
+    }
 
     #[test]
     fn keyframe_requests_round_trip() {

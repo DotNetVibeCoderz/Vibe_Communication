@@ -865,7 +865,22 @@ impl Endpoint {
         let st = self.inner.state.lock();
         let call = st.calls.get(&call_id).ok_or(EndpointError::NotFound)?;
         match (&call.media, call.final_stats) {
-            (Some(media), _) => Ok(media.stats()),
+            (Some(media), _) => {
+                let mut stats = media.stats();
+                // The bandwidth estimate arrives on the video stream, where a peer has something to
+                // lower; the call reports it beside the audio numbers so an encoder can read one place.
+                if stats.remote_estimate_bps == 0 {
+                    stats.remote_estimate_bps = call
+                        .videos
+                        .iter()
+                        .filter_map(|v| v.session.as_ref())
+                        .map(|s| s.stats().remote_estimate_bps)
+                        .max()
+                        .unwrap_or(0);
+                }
+
+                Ok(stats)
+            }
             (None, Some(stats)) => Ok(stats),
             (None, None) => Err(EndpointError::InvalidState("no media")),
         }
@@ -1579,7 +1594,7 @@ impl Inner {
                 .map(|o| o.other_attributes.iter().filter_map(|a| a.strip_prefix("rtcp-fb:")).collect())
                 .unwrap_or_default();
             for format in &m.formats {
-                for feedback in ["nack", "nack pli", "ccm fir"] {
+                for feedback in ["nack", "nack pli", "ccm fir", "goog-remb"] {
                     let value = format!("{} {feedback}", format.payload_type);
                     // An answer only keeps what was offered; an offer advertises everything we act on.
                     if answer_to_line.is_none() || offered.contains(&value.as_str()) {
@@ -4068,6 +4083,39 @@ m=audio {} RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n",
 
         a.hangup(a_call).unwrap();
         ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("terminated");
+    }
+
+    #[test]
+    fn a_video_sender_is_told_how_much_the_receiver_can_take() {
+        // The receiver reports what it can take (RTCP REMB) and the sender hears it, which is what an
+        // application needs to pick an encoder bitrate.
+        let video = |user: &str| EndpointConfig { video: true, ..cfg(user) };
+        let (a, ra, b, rb) = pair(video("alice"), video("bob"));
+        let (a_call, _) = establish(&a, &b, &rb, &ra);
+
+        // Video has to flow before either side can estimate anything.
+        let mut frame = vec![0, 0, 0, 1, 0x67, 0x42, 0xe0, 0x1f];
+        frame.extend_from_slice(&[0, 0, 0, 1, 0x65]);
+        frame.extend((0..1200).map(|i| (i % 251) as u8 | 1));
+        let deadline = Instant::now() + Duration::from_secs(12);
+        let mut estimate = 0;
+        let mut timestamp = 90_000;
+        while Instant::now() < deadline && estimate == 0 {
+            for _ in 0..15 {
+                let _ = a.send_video_frame(a_call, timestamp, &frame, "main");
+                timestamp += 3000;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+
+            estimate = a.call_stats(a_call).map(|s| s.remote_estimate_bps).unwrap_or(0);
+        }
+
+        assert!(estimate > 0, "the sender learns what the receiver can take");
+        assert!(estimate >= 64_000, "and it is never below the floor, got {estimate}");
+        ra.wait_for(2000, |e| matches!(e, Event::MediaEvent { kind, .. } if kind == "bandwidth-estimate"))
+            .expect("the application is told about it");
+
+        a.hangup(a_call).unwrap();
     }
 
     #[test]

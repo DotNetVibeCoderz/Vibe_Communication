@@ -101,7 +101,33 @@ client.MediaNotification += (_, e) =>
 };
 ```
 
-Bandwidth estimation and camera capture are not implemented yet — see
+### How much to send
+
+A video receiver measures what it can take and tells the sender over RTCP (REMB), which is how a
+browser decides the bitrate to encode at. This engine does both ends of that: it sends an estimate
+for every video stream it receives, and reports the peer's estimate so an application that encodes
+can follow it.
+
+```csharp
+client.MediaNotification += (_, e) =>
+{
+    if (e.Kind == "bandwidth-estimate")
+    {
+        Console.WriteLine(e.Detail);                     // "450 kbit/s", when it changes by a tenth
+    }
+};
+
+var allowed = call.GetStatistics().RemoteEstimateBps;    // 0 until the peer says
+encoder.SetBitrate((int)(allowed * 0.9));                // leave room for audio and overhead
+```
+
+The estimate starts at 600 kbit/s, grows by 8 % while frames arrive whole, holds through a little
+loss, and is cut in proportion to heavy loss — never above one and a half times what is actually
+arriving, and never below 64 kbit/s. `a=rtcp-fb:<pt> goog-remb` is offered on video lines and kept in
+answers that offered it, alongside `nack`, `nack pli` and `ccm fir`; a peer that negotiates none of
+them is never sent feedback it did not ask for.
+
+Camera capture and encoding are still the application's own — see
 [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
 
 ## Data channels

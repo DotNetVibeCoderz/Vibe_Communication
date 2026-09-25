@@ -366,7 +366,8 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
             s.RemoteLossPercent,
             s.RemoteJitterMs,
             s.RoundTripMs,
-            s.RemoteMos);
+            s.RemoteMos,
+            (long)s.RemoteEstimateBps);
     }
 
     // ---- Native event plumbing ----------------------------------------------------------------

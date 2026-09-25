@@ -72,6 +72,7 @@
                 <div><dt class="eyebrow">SRTP</dt><dd class="mono">@Show(_stats?.Srtp)</dd></div>
                 <div><dt class="eyebrow">ICE pair</dt><dd class="mono">@Show(_stats?.Pair)</dd></div>
                 <div><dt class="eyebrow">Keyframes asked / sent</dt><dd class="mono">@(_stats is null ? "—" : $"{_stats.Pli} / {_stats.KeyframesOut}")</dd></div>
+                <div><dt class="eyebrow">Sending allowance</dt><dd class="mono">@(_stats is null or { Allowance: 0 } ? "—" : $"{_stats.Allowance} kbit/s")</dd></div>
             </dl>
         }
     </article>
@@ -96,6 +97,7 @@
                     <th class="num">Sent</th>
                     <th class="num">Received</th>
                     <th class="num">Frames</th>
+                    <th class="num">Can take</th>
                     <th class="num">MOS</th>
                     <th>On screen</th>
                 </tr>
@@ -114,6 +116,7 @@
                         <td class="num">@(stats?.PacketsSent.ToString() ?? "—")</td>
                         <td class="num">@(stats?.PacketsReceived.ToString() ?? "—")</td>
                         <td class="num">@(p.VideoFrames == 0 ? "—" : p.VideoFrames.ToString())</td>
+                        <td class="num">@(stats is null or { RemoteEstimateBps: 0 } ? "—" : $"{stats.RemoteEstimateBps / 1000} kbit/s")</td>
                         <td class="num">@(stats is null || stats.Mos <= 0 ? "—" : stats.Mos.ToString("0.00"))</td>
                         <td>
                             @if (onScreen)
@@ -158,7 +161,7 @@
 
 @code {
     /// <summary>What the page script reads from <c>RTCPeerConnection.getStats()</c>.</summary>
-    public sealed record BrowserStats(double Level, long VideoIn, long VideoOut, string Size, string Codec, string Srtp, string Pair, long Pli, long KeyframesOut);
+    public sealed record BrowserStats(double Level, long VideoIn, long VideoOut, string Size, string Codec, string Srtp, string Pair, long Pli, long KeyframesOut, long Allowance);
 
     private IJSObjectReference? _module;
     private DotNetObjectReference<Home>? _self_ref;

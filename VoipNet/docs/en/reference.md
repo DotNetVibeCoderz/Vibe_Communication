@@ -82,7 +82,7 @@
 | `VoipConference.FollowSpeaker()`, `Pin(call)`, `ActiveSpeaker`, `Layout` | Who conference participants see; video is forwarded, never mixed. |
 | `RequestKeyframe(full)` | Asks the peer for a video keyframe (RTCP PLI or FIR). |
 | `SetAudioDelay(ms)` | Reports the speaker-to-microphone round trip to the echo canceller. |
-| `GetStatistics()`, `FinalStatistics` | Quality, including what the peer reports over RTCP (`RoundTripMs`, `RemoteLossPercent`, `RemoteJitterMs`, `RemoteMos`). |
+| `GetStatistics()`, `FinalStatistics` | Quality, including what the peer reports over RTCP (`RoundTripMs`, `RemoteLossPercent`, `RemoteJitterMs`, `RemoteMos`, `RemoteEstimateBps`). |
 | `JoinConference(c)`, `LeaveConference()` | Conferencing. |
 | `Connected`, `Completion` | Tasks for linear async code. |
 | `Id`, `IsOutgoing`, `RemoteUri`, `RemoteDisplayName`, `State`, `Codec`, `SampleRate`, `Duration`, `Items` | Information. |

@@ -87,6 +87,7 @@ internal static unsafe partial class NativeMethods
         public double RemoteJitterMs;
         public double RoundTripMs;
         public double RemoteMos;
+        public ulong RemoteEstimateBps;
     }
 
     [LibraryImport(Library, EntryPoint = "voipnet_endpoint_create", StringMarshalling = StringMarshalling.Utf8)]

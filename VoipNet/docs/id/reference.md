@@ -82,7 +82,7 @@
 | `VoipConference.FollowSpeaker()`, `Pin(call)`, `ActiveSpeaker`, `Layout` | Siapa yang dilihat peserta konferensi; video diteruskan, bukan dicampur. |
 | `RequestKeyframe(full)` | Meminta keyframe video ke lawan (RTCP PLI atau FIR). |
 | `SetAudioDelay(ms)` | Melaporkan waktu tempuh speaker ke mikrofon kepada pembatal gema. |
-| `GetStatistics()`, `FinalStatistics` | Kualitas, termasuk laporan lawan lewat RTCP (`RoundTripMs`, `RemoteLossPercent`, `RemoteJitterMs`, `RemoteMos`). |
+| `GetStatistics()`, `FinalStatistics` | Kualitas, termasuk laporan lawan lewat RTCP (`RoundTripMs`, `RemoteLossPercent`, `RemoteJitterMs`, `RemoteMos`, `RemoteEstimateBps`). |
 | `JoinConference(c)`, `LeaveConference()` | Konferensi. |
 | `Connected`, `Completion` | Task untuk kode async yang linear. |
 | `Id`, `IsOutgoing`, `RemoteUri`, `RemoteDisplayName`, `State`, `Codec`, `SampleRate`, `Duration`, `Items` | Informasi. |

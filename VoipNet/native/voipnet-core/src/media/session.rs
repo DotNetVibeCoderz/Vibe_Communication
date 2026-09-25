@@ -23,7 +23,8 @@ use crate::rtp::jitter::{JitterBuffer, JitterStats, Playout};
 use crate::rtp::quality::BurstGapTracker;
 use crate::rtp::video::{VideoDepacketizer, VideoFormat, VideoPacketizer};
 use crate::rtp::packet::{
-    build_bye, build_keyframe_request, build_receiver_report, build_sender_report, build_xr_voip_metrics, classify, parse_rtcp, PacketClass, ReportBlock, RtcpPacket,
+    build_bye, build_keyframe_request, build_receiver_estimate, build_receiver_report, build_sender_report, build_xr_voip_metrics, classify, parse_rtcp,
+    PacketClass, ReportBlock, RtcpPacket,
     RtpHeader, RtpPacketRef, VoipMetrics,
 };
 use crate::sdp::{Direction, RtpMap};
@@ -181,6 +182,56 @@ pub struct MediaStats {
     pub round_trip_ms: f64,
     /// MOS the peer reports for the audio it receives (RTCP XR); zero when it sends no extended reports.
     pub remote_mos: f64,
+    /// What the peer says it can receive, in bits per second (RTCP REMB); zero when it never says.
+    /// An application that encodes video should keep its bitrate under this.
+    pub remote_estimate_bps: u64,
+}
+
+/// Receive-side estimate of what this side can take, from loss and the rate actually arriving.
+///
+/// The rule is the loss-based half of Google congestion control: grow slowly while the stream is
+/// clean, hold through moderate loss, and cut hard when loss is heavy. It is reported to the sender
+/// as REMB, and a browser obeys it by lowering the bitrate it encodes at.
+struct BandwidthEstimator {
+    bits_per_second: f64,
+    since: Instant,
+    bytes: u64,
+}
+
+/// Where an estimate starts before anything has been measured.
+const INITIAL_ESTIMATE: f64 = 600_000.0;
+const MIN_ESTIMATE: f64 = 64_000.0;
+const MAX_ESTIMATE: f64 = 8_000_000.0;
+
+impl BandwidthEstimator {
+    fn new() -> Self {
+        Self { bits_per_second: INITIAL_ESTIMATE, since: Instant::now(), bytes: 0 }
+    }
+
+    /// Folds in what arrived since the last call and returns the estimate in bits per second.
+    /// `loss` is the share of packets lost in that window, from 0 to 1.
+    fn update(&mut self, now: Instant, bytes_received: u64, loss: f64) -> u64 {
+        let elapsed = now.duration_since(self.since).as_secs_f64();
+        if elapsed < 0.2 {
+            return self.bits_per_second as u64;
+        }
+
+        let measured = (bytes_received.saturating_sub(self.bytes) as f64) * 8.0 / elapsed;
+        self.since = now;
+        self.bytes = bytes_received;
+        self.bits_per_second = match loss {
+            // Heavy loss: back off in proportion to it, as the sender is clearly sending too much.
+            l if l > 0.10 => self.bits_per_second * (1.0 - 0.5 * l),
+            // A little loss is normal on any path; hold the estimate steady.
+            l if l >= 0.02 => self.bits_per_second,
+            // Clean: allow a little more than is arriving, so the sender can find the ceiling.
+            _ => (self.bits_per_second * 1.08).max(measured * 1.08),
+        };
+        // Never invite far more than the sender is actually using: the number is a limit, not a target.
+        let ceiling = (measured * 1.5 + MIN_ESTIMATE).max(INITIAL_ESTIMATE);
+        self.bits_per_second = self.bits_per_second.clamp(MIN_ESTIMATE, ceiling.min(MAX_ESTIMATE));
+        self.bits_per_second as u64
+    }
 }
 
 /// A reflexive address being looked up while the call sets up.
@@ -200,6 +251,10 @@ struct VideoTrack {
     depacketizer: VideoDepacketizer,
     /// Incomplete frames already reported, so only new losses ask for a keyframe.
     incomplete_seen: u64,
+    /// Whole frames handed to the application, and what was already counted towards an estimate.
+    frames: u64,
+    reported_frames: u64,
+    reported_incomplete: u64,
     last_request: Option<Instant>,
     /// Sequence number carried by Full Intra Requests (RFC 5104) so repeats can be told apart.
     fir_sequence: u8,
@@ -311,6 +366,10 @@ struct Shared {
     secure_required: AtomicBool,
     /// When this stream sent its first forwarded frame, so relayed video keeps one rising clock.
     video_epoch: Mutex<Option<Instant>>,
+    /// What this side can receive, reported to the peer as REMB.
+    estimator: Mutex<BandwidthEstimator>,
+    /// What the peer last said it can receive, in bits per second.
+    remote_estimate: AtomicU64,
     /// Data channels, which ride inside the same DTLS tunnel as the SRTP keying (RFC 8261).
     /// Created when the tunnel comes up, because only then is the role settled.
     sctp: Mutex<Option<SctpAssociation>>,
@@ -457,6 +516,8 @@ impl MediaSession {
             dtls: Mutex::new(None),
             dtls_start_pending: AtomicBool::new(false),
             video_epoch: Mutex::new(None),
+            estimator: Mutex::new(BandwidthEstimator::new()),
+            remote_estimate: AtomicU64::new(0),
             sctp: Mutex::new(None),
             data_channels: AtomicBool::new(false),
             pending_channels: Mutex::new(Vec::new()),
@@ -836,6 +897,9 @@ impl MediaSession {
             packetizer: VideoPacketizer::new(format),
             depacketizer: VideoDepacketizer::new(format),
             incomplete_seen: 0,
+            frames: 0,
+            reported_frames: 0,
+            reported_incomplete: 0,
             last_request: None,
             fir_sequence: 0,
         });
@@ -995,6 +1059,7 @@ impl MediaSession {
             remote_jitter_ms: remote.jitter_ms,
             round_trip_ms: remote.rtt_ms,
             remote_mos: remote.mos,
+            remote_estimate_bps: sh.remote_estimate.load(Ordering::Relaxed),
         }
     }
 
@@ -1143,6 +1208,15 @@ fn handle_rtcp(sh: &Arc<Shared>, data: &[u8]) {
             }
             RtcpPacket::KeyframeRequest { full, .. } => {
                 sh.sink.on_media_event(sh.call_id, "keyframe-request", if full { "fir" } else { "pli" });
+                continue;
+            }
+            RtcpPacket::ReceiverEstimate { bitrate, .. } => {
+                // Report a change worth acting on; a few percent either way is not worth re-encoding for.
+                let previous = sh.remote_estimate.swap(bitrate, Ordering::Relaxed);
+                if previous == 0 || bitrate.abs_diff(previous) * 10 > previous {
+                    sh.sink.on_media_event(sh.call_id, "bandwidth-estimate", &format!("{} kbit/s", bitrate / 1000));
+                }
+
                 continue;
             }
             RtcpPacket::Bye { .. } => continue,
@@ -1439,6 +1513,7 @@ fn handle_rtp(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
                     // A frame that lost packets is dropped, so ask the sender to start again from a keyframe.
                     let lost = t.depacketizer.incomplete_frames > t.incomplete_seen;
                     t.incomplete_seen = t.depacketizer.incomplete_frames;
+                    t.frames += u64::from(frame.is_some());
                     let due = lost && t.last_request.is_none_or(|at| at.elapsed() >= KEYFRAME_REQUEST_INTERVAL);
                     if due {
                         t.last_request = Some(Instant::now());
@@ -1584,6 +1659,8 @@ fn playout_loop(sh: &Arc<Shared>) {
         if last_sr.elapsed() >= Duration::from_secs(4) {
             last_sr = Instant::now();
             send_sender_report(sh);
+            // On its own path: a receive-only video stream sends no report blocks to hang it on.
+            send_receiver_estimate(sh);
         }
         if last_refresh.elapsed() >= Duration::from_secs(240) {
             last_refresh = Instant::now();
@@ -1737,7 +1814,45 @@ fn send_sender_report(sh: &Arc<Shared>) {
     if secured {
         send_raw(sh, &packet);
     }
+
     send_extended_report(sh);
+}
+
+/// Tells the sender of a video stream how much this side can take (REMB).
+///
+/// Only video streams get one: audio runs at a fixed bitrate the peer cannot usefully lower, while a
+/// browser reads REMB on video and encodes to fit.
+fn send_receiver_estimate(sh: &Arc<Shared>) {
+    if sh.video.lock().is_none() {
+        return;
+    }
+
+    let Some(media_ssrc) = sh.rx.lock().remote_ssrc else { return };
+    // Video does not go through the jitter buffer, so loss is measured the way it shows up here:
+    // frames that arrived with packets missing, as a share of the frames that arrived at all.
+    let loss = {
+        let mut track = sh.video.lock();
+        let Some(track) = track.as_mut() else { return };
+        let frames = track.frames.saturating_sub(track.reported_frames);
+        let incomplete = track.depacketizer.incomplete_frames.saturating_sub(track.reported_incomplete);
+        track.reported_frames = track.frames;
+        track.reported_incomplete = track.depacketizer.incomplete_frames;
+        match frames + incomplete {
+            0 => 0.0,
+            total => incomplete as f64 / total as f64,
+        }
+    };
+    let bitrate = sh.estimator.lock().update(Instant::now(), sh.bytes_received.load(Ordering::Relaxed), loss);
+    let mut tx = sh.tx.lock();
+    let mut packet = build_receiver_estimate(tx.ssrc, media_ssrc, bitrate);
+    let secured = match tx.srtp.as_mut() {
+        Some(ctx) => ctx.protect_rtcp(&mut packet).is_ok(),
+        None => !sh.secure_required.load(Ordering::Relaxed),
+    };
+    drop(tx);
+    if secured {
+        send_raw(sh, &packet);
+    }
 }
 
 /// Asks the peer to send a keyframe, over the same path and encryption as the other RTCP.
@@ -2057,6 +2172,37 @@ mod tests {
         b.stop();
     }
 
+
+    #[test]
+    fn the_bandwidth_estimate_grows_on_a_clean_stream_and_falls_under_loss() {
+        let start = Instant::now();
+        let mut estimator = BandwidthEstimator::new();
+        let mut bytes = 0u64;
+        // 1 Mbit/s arriving cleanly: the estimate climbs to a little over what is being sent.
+        let mut clean = 0;
+        for second in 1..=12 {
+            bytes += 125_000;
+            clean = estimator.update(start + Duration::from_secs(second), bytes, 0.0);
+        }
+
+        assert!(clean > 1_000_000, "a clean megabit should be allowed at least itself, got {clean}");
+        assert!(clean < 2_000_000, "and not far more than the sender is using, got {clean}");
+
+        // Heavy loss: the estimate is cut back rather than held.
+        let mut lossy = clean;
+        for second in 13..=16 {
+            bytes += 125_000;
+            lossy = estimator.update(start + Duration::from_secs(second), bytes, 0.30);
+        }
+
+        // The rule is a 15% cut a second at this loss rate, so four seconds take roughly half of it.
+        assert!(lossy < clean * 3 / 5, "{lossy} should be well below {clean}");
+        assert!(lossy >= 64_000, "but never below the floor, got {lossy}");
+
+        // A little loss is normal on any path and must not move the estimate.
+        let held = estimator.update(start + Duration::from_secs(17), bytes + 125_000, 0.05);
+        assert_eq!(held, lossy);
+    }
 
     #[test]
     fn rtcp_reports_carry_loss_and_round_trip() {

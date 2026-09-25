@@ -112,6 +112,8 @@ pub struct VideoDepacketizer {
     started: bool,
     damaged: bool,
     keyframe: bool,
+    /// True when the last frame was delivered whole, so a gap after it belongs to the next frame.
+    ended_cleanly: bool,
     /// Frames dropped because packets were missing; a caller may use this to ask for a keyframe.
     pub incomplete_frames: u64,
 }
@@ -126,6 +128,7 @@ impl VideoDepacketizer {
             started: false,
             damaged: false,
             keyframe: false,
+            ended_cleanly: false,
             incomplete_frames: 0,
         }
     }
@@ -147,9 +150,13 @@ impl VideoDepacketizer {
             self.started = true;
             self.timestamp = timestamp;
             self.keyframe = false;
-            // A gap before a frame only means the previous frame lost packets. This frame is damaged
-            // only if its own first packet is missing, which shows as a payload that does not start one.
-            self.damaged = !self.starts_a_frame(payload);
+            // A gap before a frame usually means the previous frame lost packets. But when that one
+            // arrived whole, the missing packets are this frame's own head — and in H.264 a head that
+            // is gone cannot be seen in the payload, because any whole NAL unit looks like the start
+            // of a frame. Losing it would hand the decoder an access unit without its parameter sets.
+            // VP8 says so in the payload itself, so it needs no help from the sequence number.
+            let head_lost = gap && self.ended_cleanly && self.format == VideoFormat::H264;
+            self.damaged = !self.starts_a_frame(payload) || head_lost;
         } else if gap {
             self.damaged = true;
         }
@@ -170,7 +177,10 @@ impl VideoDepacketizer {
         if frame.is_none() {
             self.incomplete_frames += 1;
         }
+
+        let complete = frame.is_some();
         self.discard();
+        self.ended_cleanly = complete;
         frame
     }
 
@@ -188,6 +198,7 @@ impl VideoDepacketizer {
         self.started = false;
         self.damaged = false;
         self.keyframe = false;
+        self.ended_cleanly = false;
     }
 
     fn push_h264(&mut self, payload: &[u8]) {
@@ -318,6 +329,31 @@ mod tests {
         let frame = deliver(&packets, &mut depacketizer, 9000, 1).expect("frame");
         assert_eq!(frame.data, access_unit);
         assert!(!frame.keyframe);
+    }
+
+    #[test]
+    fn a_frame_that_lost_its_first_packet_is_dropped_rather_than_truncated() {
+        // Parameter sets, then a picture: if the packet carrying them goes missing, what is left
+        // still looks like the start of a frame, so only the sequence number gives it away.
+        let mut access_unit = nal(7, 10);
+        access_unit.extend(nal(5, 2000));
+        let packets = VideoPacketizer::new(VideoFormat::H264).with_max_payload(500).packetize(&access_unit);
+        let mut depacketizer = VideoDepacketizer::new(VideoFormat::H264);
+
+        // One whole frame first, so the depacketizer knows the previous one ended on its marker.
+        deliver(&packets, &mut depacketizer, 9000, 1).expect("the first frame arrives");
+        let before = depacketizer.incomplete_frames;
+
+        let sequence = 1 + packets.len() as u16;
+        let last = packets.len() - 1;
+        let mut delivered = None;
+        for (i, packet) in packets.iter().enumerate().skip(1) {
+            let out = depacketizer.push(sequence.wrapping_add(i as u16), 12_000, i == last, packet);
+            delivered = delivered.or(out);
+        }
+
+        assert!(delivered.is_none(), "half a frame must not reach the decoder");
+        assert_eq!(depacketizer.incomplete_frames, before + 1, "and it is counted, so a keyframe is asked for");
     }
 
     #[test]

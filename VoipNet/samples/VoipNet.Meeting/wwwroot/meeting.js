@@ -33,7 +33,7 @@ function parse(text) {
 const uriOf = value => (/<([^>]+)>/.exec(value) ?? [null, value.split(";")[0]])[1];
 
 async function collectStats(pc) {
-    const out = { level: 0, videoIn: 0, videoOut: 0, size: "", codec: "", srtp: "", pair: "", pli: 0, keyframesOut: 0 };
+    const out = { level: 0, videoIn: 0, videoOut: 0, size: "", codec: "", srtp: "", pair: "", pli: 0, keyframesOut: 0, allowance: 0 };
     const report = await pc.getStats();
     const byId = new Map();
     report.forEach(s => byId.set(s.id, s));
@@ -55,6 +55,8 @@ async function collectStats(pc) {
             out.srtp = s.srtpCipher ?? "";
             const pair = byId.get(s.selectedCandidatePairId);
             if (pair) {
+                // What the browser thinks it may send, which is what it reads out of our REMB.
+                out.allowance = Math.round((pair.availableOutgoingBitrate ?? 0) / 1000);
                 const local = byId.get(pair.localCandidateId);
                 const remote = byId.get(pair.remoteCandidateId);
                 if (local && remote) out.pair = `${local.candidateType} ${local.address ?? local.ip}:${local.port} ⇄ ${remote.candidateType} ${remote.address ?? remote.ip}:${remote.port}`;
