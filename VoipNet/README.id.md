@@ -69,6 +69,7 @@ Daftar lengkap, termasuk yang masih direncanakan, ada di [PLAN.md](PLAN.md) dan 
 | [VoipNet.CallCenter](samples/VoipNet.CallCenter) | Blazor Server | Wallboard: antrean, agen, kualitas panggilan langsung, rekaman, supervisor AI. |
 | [VoipNet.IvrStudio](samples/VoipNet.IvrStudio) | Blazor Server | Rancang IVR, telepon dari browser, serahkan penelepon ke agen AI. |
 | [VoipNet.WebPhone](samples/VoipNet.WebPhone) | Blazor Server | Gateway WebRTC: browser menelepon lewat SIP WebSocket dan DTLS-SRTP, dengan video dan kanal data, dijembatani ke telepon SIP via UDP. |
+| [VoipNet.Meeting](samples/VoipNet.Meeting) | Blazor Server | Ruang rapat: setiap browser bergabung ke satu konferensi, audio dicampur tanpa suara sendiri dan kamera pembicara diteruskan ke yang lain. |
 | [VoipNet.RealtimeAgent](samples/VoipNet.RealtimeAgent) | Console | Agen AI yang menjawab panggilan SIP (pipeline atau model realtime). |
 
 | | |

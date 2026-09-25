@@ -309,6 +309,8 @@ struct Shared {
     dtls_start_pending: AtomicBool,
     /// Media must be encrypted (DTLS-SRTP): never send or accept plain RTP while keys are pending.
     secure_required: AtomicBool,
+    /// When this stream sent its first forwarded frame, so relayed video keeps one rising clock.
+    video_epoch: Mutex<Option<Instant>>,
     /// Data channels, which ride inside the same DTLS tunnel as the SRTP keying (RFC 8261).
     /// Created when the tunnel comes up, because only then is the role settled.
     sctp: Mutex<Option<SctpAssociation>>,
@@ -454,6 +456,7 @@ impl MediaSession {
             stream_delay_ms: AtomicU32::new(config.stream_delay_ms),
             dtls: Mutex::new(None),
             dtls_start_pending: AtomicBool::new(false),
+            video_epoch: Mutex::new(None),
             sctp: Mutex::new(None),
             data_channels: AtomicBool::new(false),
             pending_channels: Mutex::new(Vec::new()),
@@ -883,6 +886,21 @@ impl MediaSession {
             self.send_encoded(payload_type, timestamp, i == last, payload);
         }
         !packets.is_empty()
+    }
+
+    /// Sends a frame that came from another call, as a conference forwards one.
+    ///
+    /// The timestamp is this stream's own, not the sender's: when the room looks at somebody else the
+    /// source clock jumps to an unrelated base, and a receiver that sees time move backwards throws the
+    /// frame away, which is what tore the picture on every change of speaker.
+    pub fn forward_video_frame(&self, frame: &[u8]) -> bool {
+        let timestamp = {
+            let mut epoch = self.shared.video_epoch.lock();
+            let start = *epoch.get_or_insert_with(Instant::now);
+            // 90 kHz video clock (RFC 6184 8.2.1), from microseconds so short gaps still advance it.
+            (start.elapsed().as_micros() as u64 * 9 / 100) as u32
+        };
+        self.send_video_frame(timestamp, frame)
     }
 
     /// Sends an already-encoded payload (pass-through codecs and video).

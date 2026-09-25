@@ -2,7 +2,7 @@
 // over the DevTools protocol, or Firefox over WebDriver BiDi. It clicks, types and waits like a user would.
 //
 // Usage: dotnet run --project tools/VoipNet.DocShots -- <scenario> <baseUrl> <outputFolder> [--firefox [path]]
-//   scenarios: callcenter, ivrstudio, webphone
+//   scenarios: callcenter, ivrstudio, webphone, meeting
 //
 // The webphone scenario doubles as a browser interop test: it exits with 1 when the browser call does not
 // carry encrypted audio, video and a data channel message both ways.
@@ -12,13 +12,18 @@ using VoipNet.DocShots;
 
 if (args.Length < 3)
 {
-    Console.Error.WriteLine("usage: <callcenter|ivrstudio|webphone> <baseUrl> <outputFolder> [--firefox [path]]");
+    Console.Error.WriteLine("usage: <callcenter|ivrstudio|webphone|meeting> <baseUrl> <outputFolder> [--firefox [path]]");
     return 2;
 }
 
 var (scenario, baseUrl, output) = (args[0], args[1].TrimEnd('/'), args[2]);
 var firefoxIndex = Array.IndexOf(args, "--firefox");
 Directory.CreateDirectory(output);
+
+if (scenario == "meeting")
+{
+    return await MeetingAsync(baseUrl, output);
+}
 
 await using Browser browser = firefoxIndex < 0
     ? await Chromium.LaunchAsync()
@@ -105,3 +110,72 @@ switch (scenario)
 }
 
 static double Number(JsonNode? node) => node is JsonValue v && v.TryGetValue<double>(out var d) ? d : 0;
+
+// Two browsers join the same room, so the conference has somebody to mix and a camera to forward.
+// It doubles as an interop test: both participants must decode video that came from the other one.
+static async Task<int> MeetingAsync(string baseUrl, string output)
+{
+    await using var first = await Chromium.LaunchAsync();
+    await using var second = await Chromium.LaunchAsync(portOffset: 1);
+    var joined = 0;
+    foreach (var (browser, name) in new[] { (first, "Sari"), (second, "Budi") })
+    {
+        await browser.NavigateAsync($"{baseUrl}/");
+        await browser.WaitForAsync("document.querySelector('#name') !== null", TimeSpan.FromSeconds(15));
+        // The name only reaches the page once its circuit is interactive, and the button stays
+        // disabled until it does — so type until the button comes alive, then press it.
+        const string enabled = "[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Join the room' && !b.disabled)";
+        var ready = false;
+        for (var attempt = 0; attempt < 10 && !ready; attempt++)
+        {
+            await browser.TypeAsync("#name", name);
+            ready = await browser.WaitForAsync(enabled, TimeSpan.FromSeconds(3), quiet: true);
+        }
+
+        await browser.ClickTextAsync("button", "Join the room");
+        if (await browser.WaitForAsync("document.body.innerText.includes('In the room.')", TimeSpan.FromSeconds(40)))
+        {
+            joined++;
+        }
+        else
+        {
+            // Say what the page was doing, so a flaky browser is told apart from a broken room.
+            Console.WriteLine($"{name} did not join: {await browser.EvaluateAsync("document.querySelector('.status')?.innerText ?? document.body.innerText.slice(0, 120)")}");
+        }
+    }
+
+    // Everyone should end up watching the same participant: whoever the engine heard last.
+    await first.WaitForAsync("document.querySelectorAll('.roster tbody tr').length >= 2", TimeSpan.FromSeconds(20));
+    var picture = await first.WaitForAsync(
+        "(() => { const v = document.querySelector('.stage-frame video'); return v && v.videoWidth > 0; })()",
+        TimeSpan.FromSeconds(60));
+    var second_picture = await second.WaitForAsync(
+        "(() => { const v = document.querySelector('.stage-frame video'); return v && v.videoWidth > 0; })()",
+        TimeSpan.FromSeconds(60));
+
+    foreach (var (browser, name) in new[] { (first, "Sari"), (second, "Budi") })
+    {
+        Console.WriteLine($"{name} sees: {await browser.EvaluateAsync("(document.querySelector('.on-screen')?.innerText ?? '') + ' | ' + (document.querySelector('.stage-caption .mono')?.innerText ?? '') + ' | ' + [...document.querySelectorAll('.facts div')].map(d => d.innerText.replace(String.fromCharCode(10), ': ')).join(' ; ')")}");
+    }
+
+    // Pin the other participant: the floor stops moving, so the picture settles before the shot.
+    await first.EvaluateAsync("[...document.querySelectorAll('.roster tbody tr')].at(-1)?.querySelector('button')?.click()");
+    await Task.Delay(TimeSpan.FromSeconds(6));
+    var pinnedIn = Number(await first.EvaluateAsync("""
+        (() => {
+          const text = document.querySelector('.stage-caption .mono')?.innerText ?? '';
+          const match = /(\d+) frames in/.exec(text);
+          return match ? +match[1] : 0;
+        })()
+        """));
+    await first.ScreenshotAsync(Path.Combine(output, "meeting-room.png"), fullPage: true);
+    Console.WriteLine($"frames decoded after pinning: {pinnedIn}");
+    Console.WriteLine(await first.EvaluateAsync("[...document.querySelectorAll('.roster tbody tr')].map(r => r.innerText.replace(/\n/g, ' ')).join('\n')"));
+    Console.WriteLine(await first.EvaluateAsync("document.querySelector('.on-screen')?.innerText ?? ''"));
+    var width = Number(await first.EvaluateAsync("document.querySelector('.stage-frame video').videoWidth"));
+
+    var ok = joined == 2 && picture && second_picture;
+    Console.WriteLine($"forwarded video: {width}px wide");
+    Console.WriteLine(ok ? "meeting: OK" : $"meeting: FAILED (joined={joined}, first sees video={picture}, second sees video={second_picture})");
+    return ok ? 0 : 1;
+}

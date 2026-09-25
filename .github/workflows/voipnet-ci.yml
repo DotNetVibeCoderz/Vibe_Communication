@@ -121,9 +121,10 @@ jobs:
         with:
           name: native-linux-x64
           path: VoipNet/src/VoipNet.Core/runtimes/linux-x64/native
-      - name: Build sample and tool
+      - name: Build samples and tool
         run: |
           dotnet build samples/VoipNet.WebPhone -c Release
+          dotnet build samples/VoipNet.Meeting -c Release
           dotnet build tools/VoipNet.DocShots -c Release
       - name: Start the WebRTC gateway sample
         run: |
@@ -148,9 +149,24 @@ jobs:
             exit 0
           fi
           dotnet run --project tools/VoipNet.DocShots -c Release --no-build -- webphone http://localhost:5190 shots --firefox "$firefox"
+      # Two browsers join one conference: the engine mixes the audio and forwards the speaker's
+      # camera, and the run fails unless each browser decodes video that came from the other one.
+      - name: Start the meeting sample
+        run: |
+          dotnet run --project samples/VoipNet.Meeting -c Release --no-build --urls http://localhost:5195 > meeting.log 2>&1 &
+          for _ in $(seq 1 60); do
+            grep -q "Now listening" meeting.log && break
+            sleep 1
+          done
+          grep -q "Now listening" meeting.log
+      - name: Meet from two Chrome windows
+        run: dotnet run --project tools/VoipNet.DocShots -c Release --no-build -- meeting http://localhost:5195 shots
       - name: Gateway log
         if: always()
         run: cat webphone.log
+      - name: Meeting log
+        if: always()
+        run: cat meeting.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

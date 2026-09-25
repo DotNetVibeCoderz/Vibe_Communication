@@ -127,6 +127,7 @@ dotnet run --project samples/VoipNet.Gallery
 dotnet run --project samples/VoipNet.CallCenter        # http://localhost:5184
 dotnet run --project samples/VoipNet.IvrStudio
 dotnet run --project samples/VoipNet.WebPhone          # http://localhost:5190, browser menelepon SIP
+dotnet run --project samples/VoipNet.Meeting           # http://localhost:5195, browser rapat dalam satu konferensi
 dotnet run --project samples/VoipNet.RealtimeAgent -- --demo
 ```
 

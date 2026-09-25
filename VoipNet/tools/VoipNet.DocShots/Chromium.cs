@@ -9,6 +9,7 @@ namespace VoipNet.DocShots;
 /// <summary>Edge or Chrome over the DevTools protocol, with a fake microphone.</summary>
 internal sealed class Chromium : Browser
 {
+    /// <summary>Default DevTools port; a second browser (a second participant) takes the next one.</summary>
     private const int Port = 9333;
 
     private Chromium(ClientWebSocket socket, Process process)
@@ -16,8 +17,11 @@ internal sealed class Chromium : Browser
     {
     }
 
-    public static async Task<Chromium> LaunchAsync()
+    /// <summary>Starts a headless browser with a fake camera and microphone.</summary>
+    /// <param name="portOffset">Moves the DevTools port, so several browsers can run side by side.</param>
+    public static async Task<Chromium> LaunchAsync(int portOffset = 0)
     {
+        var port = Port + portOffset;
         var path = new[]
         {
             @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -30,7 +34,7 @@ internal sealed class Chromium : Browser
         // --no-sandbox is needed on CI images that run without user namespaces, and /dev/shm there is
         // too small for Chrome's default shared memory use.
         var process = Process.Start(new ProcessStartInfo(path,
-            $"--headless=new --disable-gpu --no-sandbox --disable-dev-shm-usage --hide-scrollbars --use-fake-device-for-media-stream --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required --no-first-run --remote-debugging-port={Port} --user-data-dir=\"{NewProfileFolder()}\" --window-size={Width},{Height} about:blank")
+            $"--headless=new --disable-gpu --no-sandbox --disable-dev-shm-usage --hide-scrollbars --use-fake-device-for-media-stream --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required --no-first-run --remote-debugging-port={port} --user-data-dir=\"{NewProfileFolder()}\" --window-size={Width},{Height} about:blank")
         {
             UseShellExecute = false,
             RedirectStandardOutput = true,
@@ -70,8 +74,12 @@ internal sealed class Chromium : Browser
         {
             try
             {
-                var targets = await http.GetFromJsonAsync<JsonArray>($"http://127.0.0.1:{Port}/json/list");
-                page = targets?.FirstOrDefault(t => t?["type"]?.GetValue<string>() == "page" && t["webSocketDebuggerUrl"] is not null);
+                var targets = await http.GetFromJsonAsync<JsonArray>($"http://127.0.0.1:{port}/json/list");
+                // A fresh profile can carry pages of its own — an extension options tab, a sign-in
+                // dialog — and attaching to one of those drives the wrong window. Take the blank tab
+                // the browser was started with, or any ordinary page if it has already been used.
+                var pages = targets?.Where(t => t?["type"]?.GetValue<string>() == "page" && t["webSocketDebuggerUrl"] is not null).ToArray() ?? [];
+                page = pages.FirstOrDefault(t => Ordinary(t?["url"]?.GetValue<string>()));
             }
             catch (HttpRequestException)
             {
@@ -107,6 +115,10 @@ internal sealed class Chromium : Browser
         });
         return browser;
     }
+
+    /// <summary>True for a page a sample can be opened in, rather than a browser or extension page.</summary>
+    private static bool Ordinary(string? url) =>
+        url is null || url.Length == 0 || url == "about:blank" || url.StartsWith("http", StringComparison.Ordinal);
 
     public override async Task NavigateAsync(string url)
     {

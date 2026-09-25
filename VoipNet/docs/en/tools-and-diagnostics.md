@@ -192,6 +192,25 @@ every stream has its own port here, so the page asks the browser for `max-compat
 runs with a fake camera and fails unless the video and the channel's answer come back as well as the
 audio.
 
+### Meeting (Blazor Server)
+
+![Meeting room](../images/meeting-room.png)
+
+A meeting room for browsers. Every tab calls the same SIP address over a WebSocket (`ws://host:5091`)
+with ICE and DTLS-SRTP, and each call joins one conference: the engine mixes the audio minus the
+listener's own voice and forwards the camera of whoever is speaking, since video is routed rather
+than mixed. The stage shows that one picture with your own camera in the corner, the roster lists
+everyone with their encryption, packets, reassembled frames and MOS, and **Pin** fixes the picture
+on one participant until **Follow the speaker** hands it back to the room.
+
+```bash
+dotnet run --project samples/VoipNet.Meeting        # http://localhost:5195, then open a second tab
+```
+
+`tools/VoipNet.DocShots meeting` drives two headless browsers into the room and fails unless each one
+decodes video that came from the other, which is how the conference's video routing is checked on
+every CI build.
+
 ### Realtime Agent (console)
 
 ```bash
@@ -203,11 +222,12 @@ Configure providers in `appsettings.json` (`AI:Chat`, `AI:SpeechToText`, `AI:Tex
 
 ### Documentation screenshots
 
-`tools/VoipNet.DocShots` drives headless Edge/Chrome (DevTools protocol) or Firefox (WebDriver BiDi, `--firefox [path]`) to capture the Blazor samples. The `webphone` scenario is also a browser interop test: it prints the browser's WebRTC statistics and exits with 1 when the call does not carry encrypted audio, video and a data channel message both ways.
+`tools/VoipNet.DocShots` drives headless Edge/Chrome (DevTools protocol) or Firefox (WebDriver BiDi, `--firefox [path]`) to capture the Blazor samples. The `webphone` and `meeting` scenarios are also browser interop tests: `webphone` prints the browser's WebRTC statistics and exits with 1 when the call does not carry encrypted audio, video and a data channel message both ways; `meeting` puts two browsers in one conference and exits with 1 unless each decodes the other's forwarded camera.
 
 ```bash
 dotnet run --project tools/VoipNet.DocShots -- ivrstudio http://127.0.0.1:5209 docs/images
 dotnet run --project tools/VoipNet.DocShots -- callcenter http://127.0.0.1:5184 docs/images
 dotnet run --project tools/VoipNet.DocShots -- webphone http://localhost:5190 docs/images
+dotnet run --project tools/VoipNet.DocShots -- meeting http://localhost:5195 docs/images
 dotnet run --project tools/VoipNet.DocShots -- webphone http://localhost:5190 out --firefox "C:\Program Files\Mozilla Firefox\firefox.exe"
 ```

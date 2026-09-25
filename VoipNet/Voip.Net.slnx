@@ -3,6 +3,7 @@
     <Project Path="samples/VoipNet.CallCenter/VoipNet.CallCenter.csproj" />
     <Project Path="samples/VoipNet.Gallery/VoipNet.Gallery.csproj" />
     <Project Path="samples/VoipNet.IvrStudio/VoipNet.IvrStudio.csproj" />
+    <Project Path="samples/VoipNet.Meeting/VoipNet.Meeting.csproj" />
     <Project Path="samples/VoipNet.RealtimeAgent/VoipNet.RealtimeAgent.csproj" />
     <Project Path="samples/VoipNet.Softphone/VoipNet.Softphone.csproj" />
     <Project Path="samples/VoipNet.WebPhone/VoipNet.WebPhone.csproj" />

@@ -69,6 +69,7 @@ The full list, including what is planned, lives in [PLAN.md](PLAN.md) and [Progr
 | [VoipNet.CallCenter](samples/VoipNet.CallCenter) | Blazor Server | Wallboard: queues, agents, live call quality, recordings, AI supervisor. |
 | [VoipNet.IvrStudio](samples/VoipNet.IvrStudio) | Blazor Server | Design an IVR, call it from the browser, hand the caller to an AI agent. |
 | [VoipNet.WebPhone](samples/VoipNet.WebPhone) | Blazor Server | WebRTC gateway: the browser calls over SIP WebSocket and DTLS-SRTP, with video and a data channel, bridged to a SIP phone over UDP. |
+| [VoipNet.Meeting](samples/VoipNet.Meeting) | Blazor Server | Meeting room: every browser joins one conference, audio mixed minus the listener and the speaker's camera forwarded to everyone else. |
 | [VoipNet.RealtimeAgent](samples/VoipNet.RealtimeAgent) | Console | An AI agent that answers SIP calls (pipeline or realtime model). |
 
 | | |

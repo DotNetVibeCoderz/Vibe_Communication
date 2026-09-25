@@ -261,7 +261,7 @@ impl MediaSink for SinkAdapter {
     }
     fn on_video_frame(&self, call_id: u64, timestamp: u32, keyframe: bool, frame: &[u8], content: &str) {
         if let Some(inner) = self.inner.lock().upgrade() {
-            inner.forward_conference_video(call_id, timestamp, keyframe, frame, content);
+            inner.forward_conference_video(call_id, keyframe, frame, content);
         }
 
         self.handler.on_video_frame(call_id, timestamp, keyframe, frame, content);
@@ -1571,6 +1571,24 @@ impl Inner {
                 m.mid = Some(default_mid.into());
             }
         }
+        // RTCP feedback has to be negotiated (RFC 4585 4): a peer that never saw `a=rtcp-fb` in the
+        // answer is entitled to ignore the keyframe requests this engine sends, and browsers do — the
+        // conference then has nothing to show a new viewer, who is waiting for a keyframe.
+        if kind == "video" {
+            let offered: Vec<&str> = answer_to_line
+                .map(|o| o.other_attributes.iter().filter_map(|a| a.strip_prefix("rtcp-fb:")).collect())
+                .unwrap_or_default();
+            for format in &m.formats {
+                for feedback in ["nack", "nack pli", "ccm fir"] {
+                    let value = format!("{} {feedback}", format.payload_type);
+                    // An answer only keeps what was offered; an offer advertises everything we act on.
+                    if answer_to_line.is_none() || offered.contains(&value.as_str()) {
+                        m.other_attributes.push(format!("rtcp-fb:{value}"));
+                    }
+                }
+            }
+        }
+
         // WebRTC peers require ICE, so DTLS offers and ICE offers are answered with candidates.
         let remote_ice = answer_to_line.is_some_and(|a| a.ice_ufrag.is_some()) || answer_to.is_some_and(|o| o.ice_ufrag.is_some());
         if self.cfg.ice || dtls || remote_ice {
@@ -2021,7 +2039,7 @@ impl Inner {
     /// Sends a conference participant's video on to whoever the layout says should see it.
     ///
     /// Forwarded, not mixed: the frame goes out on each viewer's own video stream exactly as it came in.
-    fn forward_conference_video(&self, from: u64, timestamp: u32, keyframe: bool, frame: &[u8], content: &str) {
+    fn forward_conference_video(&self, from: u64, keyframe: bool, frame: &[u8], content: &str) {
         // Screen shares are their own stream on their own call; only the camera is routed by layout.
         if content != "main" {
             return;
@@ -2057,7 +2075,7 @@ impl Inner {
                 .collect()
         };
         for session in sessions {
-            session.send_video_frame(timestamp, frame);
+            session.forward_video_frame(frame);
         }
     }
 
@@ -4050,6 +4068,83 @@ m=audio {} RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n",
 
         a.hangup(a_call).unwrap();
         ra.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("terminated");
+    }
+
+    #[test]
+    fn a_conference_asks_the_speaker_for_a_keyframe_so_a_new_viewer_can_start() {
+        // A browser only sends a keyframe when it is asked for one. This is that loop: the viewer
+        // cannot start mid-picture, the room asks the speaker over RTCP, and the answer opens the gate.
+        let mut host_cfg = cfg("host");
+        host_cfg.video = true;
+        let host_rec = Arc::new(Recorder::default());
+        let host = Endpoint::start(host_cfg, host_rec.clone()).unwrap();
+
+        let mut guests = Vec::new();
+        for name in ["speaker", "viewer"] {
+            let mut c = cfg(name);
+            c.video = true;
+            let rec = Arc::new(Recorder::default());
+            let endpoint = Endpoint::start(c, rec.clone()).unwrap();
+            guests.push((endpoint, rec, name));
+        }
+
+        let conference = host.conference_create();
+        let mut legs = Vec::new();
+        for (endpoint, rec, name) in &guests {
+            let target = format!("sip:{name}@{}", endpoint.local_address());
+            let leg = host.make_call(&target).unwrap();
+            let Some(Event::IncomingCall { call_id, .. }) = rec.wait_for(4000, |e| matches!(e, Event::IncomingCall { .. })) else {
+                panic!("{name} was not called");
+            };
+            endpoint.answer(call_id).unwrap();
+            host_rec
+                .wait_for(4000, |e| matches!(e, Event::CallState { call_id: id, state: "connected", .. } if *id == leg))
+                .expect("connected");
+            rec.wait_for(4000, |e| matches!(e, Event::MediaEvent { kind, detail, .. } if kind == "video" && detail.starts_with("main H264")))
+                .expect("video negotiated");
+            host.conference_add(conference, leg).unwrap();
+            legs.push(leg);
+        }
+
+        let (speaker, speaker_rec, _) = &guests[0];
+        let (_, viewer_rec, _) = &guests[1];
+        let speaker_call = speaker.calls()[0].call_id;
+
+        // The speaker talks, so the room puts them on screen.
+        let tone: Vec<i16> = (0..16000).map(|i| (9000.0 * (i as f64 / 6.0).sin()) as i16).collect();
+        speaker.send_audio(speaker_call, &tone, 16000).unwrap();
+
+        let mut delta = vec![0, 0, 0, 1, 0x41u8];
+        delta.extend((0..800).map(|i| (i % 251) as u8 | 1));
+        let mut keyframe = vec![0, 0, 0, 1, 0x67, 0x42, 0xe0, 0x1f];
+        keyframe.extend_from_slice(&[0, 0, 0, 1, 0x65]);
+        keyframe.extend((0..1200).map(|i| (i % 251) as u8 | 1));
+
+        // Only delta frames go out until the room asks for a keyframe, exactly as a browser behaves.
+        let mut asked = false;
+        let mut seen = Vec::new();
+        for i in 0..60u32 {
+            speaker.send_audio(speaker_call, &tone, 16000).unwrap();
+            let frame = if asked && i % 10 == 0 { &keyframe } else { &delta };
+            speaker.send_video_frame(speaker_call, 90_000 + i * 3000, frame, "main").unwrap();
+            asked |= speaker_rec
+                .events
+                .lock()
+                .iter()
+                .any(|e| matches!(e, Event::MediaEvent { kind, .. } if kind == "keyframe-request"));
+            seen = viewer_rec.wait_video(1, 150);
+            if !seen.is_empty() {
+                break;
+            }
+        }
+
+        assert!(asked, "the room asked the speaker for a keyframe");
+        assert!(!seen.is_empty(), "the viewer sees the speaker once the keyframe arrives");
+        assert_eq!(seen[0].2, keyframe, "the first forwarded frame is the keyframe");
+
+        for leg in legs {
+            let _ = host.hangup(leg);
+        }
     }
 
     #[test]

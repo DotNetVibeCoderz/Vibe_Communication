@@ -181,6 +181,25 @@ sendiri, bukan BUNDLE, karena setiap stream punya port sendiri di sini — jadi 
 `max-compat` ke browser. Uji interop di CI berjalan dengan kamera palsu dan gagal bila video serta
 jawaban di kanal data tidak ikut kembali.
 
+### Meeting (Blazor Server)
+
+![Ruang rapat](../images/meeting-room.png)
+
+Ruang rapat untuk browser. Setiap tab menelepon alamat SIP yang sama lewat WebSocket
+(`ws://host:5091`) dengan ICE dan DTLS-SRTP, lalu setiap panggilan bergabung ke satu konferensi:
+engine mencampur audio tanpa suara si pendengar sendiri dan meneruskan kamera orang yang sedang
+bicara, karena video dirutekan, bukan dicampur. Panggung menampilkan satu gambar itu dengan kamera
+Anda sendiri di sudut, daftar peserta menampilkan enkripsi, paket, frame yang dirakit ulang, dan MOS,
+dan **Pin** mengunci gambar pada satu peserta sampai **Follow the speaker** mengembalikannya ke ruangan.
+
+```bash
+dotnet run --project samples/VoipNet.Meeting        # http://localhost:5195, lalu buka tab kedua
+```
+
+`tools/VoipNet.DocShots meeting` menjalankan dua browser headless masuk ke ruangan dan gagal bila
+salah satu tidak berhasil men-decode video dari yang lain — begitulah perutean video konferensi
+diperiksa di setiap build CI.
+
 ### Realtime Agent (console)
 
 ```bash
@@ -192,7 +211,7 @@ Atur provider di `appsettings.json` (`AI:Chat`, `AI:SpeechToText`, `AI:TextToSpe
 
 ### Screenshot dokumentasi
 
-`tools/VoipNet.DocShots` mengendalikan Edge/Chrome headless (DevTools protocol) atau Firefox (WebDriver BiDi, `--firefox [path]`) untuk menangkap sample Blazor. Skenario `webphone` sekaligus menjadi uji interop browser: mencetak statistik WebRTC dari browser dan keluar dengan kode 1 bila panggilan tidak membawa audio terenkripsi, video, dan satu pesan kanal data dua arah.
+`tools/VoipNet.DocShots` mengendalikan Edge/Chrome headless (DevTools protocol) atau Firefox (WebDriver BiDi, `--firefox [path]`) untuk menangkap sample Blazor. Skenario `webphone` dan `meeting` sekaligus menjadi uji interop browser: `webphone` mencetak statistik WebRTC dari browser dan keluar dengan kode 1 bila panggilan tidak membawa audio terenkripsi, video, dan satu pesan kanal data dua arah; `meeting` memasukkan dua browser ke satu konferensi dan keluar dengan kode 1 bila salah satunya tidak men-decode kamera yang diteruskan dari yang lain.
 
 ```bash
 dotnet run --project tools/VoipNet.DocShots -- ivrstudio http://127.0.0.1:5209 docs/images

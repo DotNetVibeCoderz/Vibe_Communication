@@ -70,7 +70,11 @@ internal abstract class Browser : IAsyncDisposable
     protected abstract Task<byte[]> CaptureAsync(bool fullPage);
 
     /// <summary>Waits for a condition; returns false (with a warning) on timeout.</summary>
-    public async Task<bool> WaitForAsync(string condition, TimeSpan timeout)
+    /// <summary>Waits until a condition holds in the page.</summary>
+    /// <param name="condition">A JavaScript expression.</param>
+    /// <param name="timeout">How long to keep trying.</param>
+    /// <param name="quiet">True when a timeout is expected and should not be reported.</param>
+    public async Task<bool> WaitForAsync(string condition, TimeSpan timeout, bool quiet = false)
     {
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
@@ -83,7 +87,11 @@ internal abstract class Browser : IAsyncDisposable
             await Task.Delay(250);
         }
 
-        Console.Error.WriteLine($"warning: timed out waiting for {condition}");
+        if (!quiet)
+        {
+            Console.Error.WriteLine($"warning: timed out waiting for {condition}");
+        }
+
         return false;
     }
 

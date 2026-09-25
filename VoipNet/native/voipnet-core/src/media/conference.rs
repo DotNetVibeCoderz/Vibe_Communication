@@ -96,18 +96,27 @@ impl Conference {
     /// Who is speaking now, or the last person to speak while the room is quiet.
     pub fn active_speaker(&self) -> Option<u64> {
         let parts = self.participants.lock();
-        let loudest = parts
-            .iter()
-            .filter(|(_, p)| p.energy >= SPEAKER_FLOOR)
-            .max_by(|a, b| a.1.energy.total_cmp(&b.1.energy))
-            .map(|(id, p)| (*id, p.energy));
+        let loudest = |floor: f64| {
+            parts
+                .iter()
+                .filter(|(_, p)| p.energy > floor)
+                .max_by(|a, b| a.1.energy.total_cmp(&b.1.energy))
+                .map(|(id, p)| (*id, p.energy))
+        };
+        // Above the floor is a person talking. Below it, somebody quiet is still better than an empty
+        // screen — a softly spoken participant, or a browser whose echo canceller has turned them
+        // down, should still be who the room looks at. Only silence leaves the picture where it was.
+        let loudest = loudest(SPEAKER_FLOOR).or_else(|| loudest(0.0));
 
         let mut speaker = self.speaker.lock();
         match (*speaker, loudest) {
-            (Some((current, since)), Some((id, energy))) if current != id => {
-                // Taking the floor needs either a clear margin or a pause from the current speaker.
+            (Some((current, _)), Some((id, energy))) if current != id => {
+                // Taking the floor needs a clear margin, or a pause from whoever holds it. Two people
+                // talking at the same level must not pass the picture back and forth: every change
+                // costs the viewers a keyframe, and the room would spend its time recovering.
                 let current_energy = parts.get(&current).map_or(0.0, |p| p.energy);
-                if energy > current_energy * SPEAKER_MARGIN || since.elapsed() > SPEAKER_HOLD {
+                let paused = parts.get(&current).and_then(|p| p.last_loud).is_none_or(|at| at.elapsed() > SPEAKER_HOLD);
+                if energy > current_energy * SPEAKER_MARGIN || paused {
                     *speaker = Some((id, Instant::now()));
                 }
             }
@@ -228,6 +237,41 @@ mod tests {
         c.contribute(2, &[0; 160]);
         c.contribute(3, &[0; 160]);
         assert_eq!(c.active_speaker(), Some(2));
+    }
+
+    #[test]
+    fn a_quiet_room_still_shows_somebody() {
+        // Below the floor nobody counts as "talking", but an empty screen helps no one: the loudest
+        // of the quiet participants is shown until somebody speaks up.
+        let c = Conference::new();
+        c.join(1);
+        c.join(2);
+
+        c.contribute(1, &[40; 160]);
+        c.contribute(2, &[10; 160]);
+        assert_eq!(c.active_speaker(), Some(1));
+
+        // Somebody actually talking takes it from them.
+        c.contribute(2, &[9000; 160]);
+        assert_eq!(c.active_speaker(), Some(2));
+    }
+
+    #[test]
+    fn an_equally_loud_participant_does_not_take_the_floor() {
+        let c = Conference::new();
+        c.join(1);
+        c.join(2);
+
+        c.contribute(1, &[6000; 160]);
+        assert_eq!(c.active_speaker(), Some(1));
+
+        // Two people talking at the same level: the floor stays where it is, because every change
+        // costs the viewers a keyframe.
+        for _ in 0..5 {
+            c.contribute(1, &[6000; 160]);
+            c.contribute(2, &[6000; 160]);
+            assert_eq!(c.active_speaker(), Some(1));
+        }
     }
 
     #[test]
