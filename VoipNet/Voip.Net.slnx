@@ -16,6 +16,7 @@
     <Project Path="src/VoipNet.Audio/VoipNet.Audio.csproj" />
     <Project Path="src/VoipNet.Core/VoipNet.Core.csproj" />
     <Project Path="src/VoipNet.Enterprise/VoipNet.Enterprise.csproj" />
+    <Project Path="src/VoipNet.Video/VoipNet.Video.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/VoipNet.Tests/VoipNet.Tests.csproj" />

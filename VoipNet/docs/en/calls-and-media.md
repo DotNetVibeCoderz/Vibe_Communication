@@ -322,6 +322,57 @@ does not flick between two people talking over each other. When the source chang
 new speaker for a keyframe and holds the switch back until it arrives, because a decoder cannot start
 mid-picture. A grid view needs one stream per participant and is not offered.
 
+## Encoding video
+
+Until now the application had to bring its own encoded frames. `VoipNet.Video` encodes and decodes
+H.264 with the codec the platform already has — Media Foundation on Windows, which uses the GPU when
+the driver offers one — so a camera, a screen or anything else that can produce pixels can be put on
+a call:
+
+```csharp
+using var encoder = VideoCodecs.CreateH264Encoder(new VideoEncoderOptions
+{
+    Width = 640, Height = 360, FramesPerSecond = 30, BitsPerSecond = 800_000,
+});
+
+var nv12 = new byte[VideoPicture.Nv12Length(640, 360)];
+VideoPictures.FromBgra(pixels, 640, 360, nv12);
+
+foreach (var frame in encoder.Encode(new VideoPicture(640, 360, nv12, elapsed)))
+{
+    call.SendVideoFrame((uint)(elapsed.TotalSeconds * 90000), frame.Data.Span);
+}
+
+call.KeyframeRequested += (_, _) => encoder.RequestKeyframe();
+```
+
+An encoder is set up for a call rather than for a file: low latency, constant bitrate, no B-frames, so
+a picture goes out as soon as it is encoded and arrives in the order it was taken. `RequestKeyframe`
+is what to call when the far end asks for one — that is what a PLI means — and the next picture will
+be one a decoder can start on.
+
+Decoding is the same in reverse, and the picture size comes from the stream rather than from you:
+
+```csharp
+using var decoder = VideoCodecs.CreateH264Decoder();
+
+call.VideoFrameReceived += (_, _, _, frame, _) =>
+{
+    foreach (var picture in decoder.Decode(frame, elapsed))
+    {
+        VideoPictures.ToBgra(picture.Data.Span, picture.Width, picture.Height, bgra);
+    }
+};
+```
+
+Both give back a list, because a codec may hold a picture back or hand over several at once. Pictures
+are NV12 — full-resolution brightness, half-resolution colour — which is what every hardware codec
+takes without a conversion of its own; `VideoPictures` converts to and from the BGRA a screen uses.
+
+Only Windows has a codec wired up so far. `VideoCodecs.IsH264Available` says whether this machine has
+one, and creating an encoder elsewhere throws `PlatformNotSupportedException` rather than pretending.
+VideoToolbox and VA-API are in [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
+
 ## Recording
 
 ```csharp

@@ -60,7 +60,7 @@ try {
     if ($Pack) {
         Write-Host "==> NuGet packages" -ForegroundColor Cyan
         $out = Join-Path $root "artifacts/packages"
-        foreach ($project in "src/VoipNet.Core", "src/VoipNet.Audio", "src/VoipNet.AI", "src/VoipNet.Enterprise", "tools/VoipNet.Cli") {
+        foreach ($project in "src/VoipNet.Core", "src/VoipNet.Audio", "src/VoipNet.Video", "src/VoipNet.AI", "src/VoipNet.Enterprise", "tools/VoipNet.Cli") {
             dotnet pack $project -c $Configuration --no-build -o $out
             if ($LASTEXITCODE) { throw "pack $project failed" }
         }

@@ -327,6 +327,58 @@ meminta keyframe ke pembicara baru dan menahan perpindahan sampai keyframe itu t
 tidak bisa mulai di tengah gambar. Tampilan grid memerlukan satu stream per peserta dan belum
 disediakan.
 
+## Encode video
+
+Sampai sekarang aplikasi harus menyiapkan frame terenkode sendiri. `VoipNet.Video` melakukan encode
+dan decode H.264 memakai codec yang sudah ada di platform — Media Foundation di Windows, yang memakai
+GPU bila drivernya menyediakan — sehingga kamera, layar, atau apa pun yang bisa menghasilkan piksel
+dapat dikirim ke panggilan:
+
+```csharp
+using var encoder = VideoCodecs.CreateH264Encoder(new VideoEncoderOptions
+{
+    Width = 640, Height = 360, FramesPerSecond = 30, BitsPerSecond = 800_000,
+});
+
+var nv12 = new byte[VideoPicture.Nv12Length(640, 360)];
+VideoPictures.FromBgra(pixels, 640, 360, nv12);
+
+foreach (var frame in encoder.Encode(new VideoPicture(640, 360, nv12, elapsed)))
+{
+    call.SendVideoFrame((uint)(elapsed.TotalSeconds * 90000), frame.Data.Span);
+}
+
+call.KeyframeRequested += (_, _) => encoder.RequestKeyframe();
+```
+
+Encodernya disetel untuk panggilan, bukan untuk file: latensi rendah, bitrate konstan, tanpa B-frame,
+sehingga gambar langsung dikirim begitu selesai dan tiba dalam urutan pengambilannya. `RequestKeyframe`
+dipanggil ketika lawan bicara memintanya — itulah arti PLI — dan gambar berikutnya menjadi titik awal
+yang bisa didekode sendiri.
+
+Decode berjalan sebaliknya, dan ukuran gambar datang dari stream, bukan dari Anda:
+
+```csharp
+using var decoder = VideoCodecs.CreateH264Decoder();
+
+call.VideoFrameReceived += (_, _, _, frame, _) =>
+{
+    foreach (var picture in decoder.Decode(frame, elapsed))
+    {
+        VideoPictures.ToBgra(picture.Data.Span, picture.Width, picture.Height, bgra);
+    }
+};
+```
+
+Keduanya mengembalikan daftar, karena codec bisa menahan satu gambar atau mengeluarkan beberapa
+sekaligus. Gambar berformat NV12 — kecerahan resolusi penuh, warna setengah resolusi — yang diterima
+semua codec perangkat keras tanpa konversi tambahan; `VideoPictures` mengubahnya ke dan dari BGRA yang
+dipakai layar.
+
+Baru Windows yang codecnya tersambung. `VideoCodecs.IsH264Available` memberi tahu apakah mesin ini
+punya, dan membuat encoder di platform lain melempar `PlatformNotSupportedException` alih-alih
+berpura-pura. VideoToolbox dan VA-API ada di [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
+
 ## Perekaman
 
 ```csharp

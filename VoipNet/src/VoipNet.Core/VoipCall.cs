@@ -108,6 +108,13 @@ public sealed class VoipCall
     /// <summary>Raised when a DTMF digit arrives.</summary>
     public event EventHandler<DtmfEventArgs>? DtmfReceived;
 
+    /// <summary>
+    /// Raised when the far end asks for a keyframe (RTCP PLI or FIR), which an application that
+    /// encodes video answers by making the next picture one a decoder can start on. The argument is
+    /// true for a Full Intra Request, which also asks for the parameter sets to be sent again.
+    /// </summary>
+    public event EventHandler<bool>? KeyframeRequested;
+
     /// <summary>Completes when the call is answered; faults when it fails before connecting.</summary>
     public Task Connected => _connected.Task;
 
@@ -390,6 +397,8 @@ public sealed class VoipCall
         EncodedReceived?.Invoke(this, payloadType, timestamp, marker, payload);
 
     internal void RaiseDtmf(DtmfEventArgs args) => DtmfReceived?.Invoke(this, args);
+
+    internal void RaiseKeyframeRequest(bool full) => KeyframeRequested?.Invoke(this, full);
 
     internal void RaiseStateChanged(CallStateEventArgs args)
     {

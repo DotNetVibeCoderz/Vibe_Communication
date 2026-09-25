@@ -33,6 +33,7 @@ await call.HangupAsync();
 | --- | --- |
 | `VoipNet.Core` | `VoipClient`, `VoipCall`, konferensi, DTMF, SRTP dan DTLS-SRTP, signaling TLS dan WebSocket, diagnostik (pcap, analisis RTP, metrik). Berisi engine native. |
 | `VoipNet.Audio` | Mikrofon dan speaker (OpenAL, lintas platform), perekaman WAV/MP3, resampling, deteksi aktivitas suara (VAD), nada. |
+| `VoipNet.Video` | Encode dan decode H.264 lewat codec bawaan platform (Media Foundation di Windows), serta konversi BGRA/NV12. |
 | `VoipNet.AI` | Klien chat untuk OpenAI, Azure OpenAI, DeepSeek/kompatibel OpenAI, Anthropic Claude, dan Google Gemini; provider suara; `VoiceAgent`; `RealtimeVoiceAgent`. |
 | `VoipNet.Enterprise` | Builder dan runner IVR, `CallCenterService` (antrean, agen, routing), `RecordingService`, tools CRM. |
 | `VoipNet.Cli` | .NET tool `voipnet`: SIP ping/register/call/listen/message dan analisis RTP. |

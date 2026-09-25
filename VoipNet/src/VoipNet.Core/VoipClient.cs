@@ -727,6 +727,13 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
         }
 
         var args = new MediaEventArgs(call, GetString(root, "kind"), GetString(root, "detail"));
+        if (args.Kind == "keyframe-request")
+        {
+            // An application that encodes video needs this one directly, not by reading event names.
+            var full = args.Detail == "fir";
+            Post(() => call.RaiseKeyframeRequest(full));
+        }
+
         Post(() => MediaNotification?.Invoke(this, args));
     }
 
