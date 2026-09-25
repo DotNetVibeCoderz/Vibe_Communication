@@ -232,7 +232,7 @@ jobs:
           fi
       - name: Pack
         run: |
-          for project in src/VoipNet.Core src/VoipNet.Audio src/VoipNet.AI src/VoipNet.Enterprise tools/VoipNet.Cli; do
+          for project in src/VoipNet.Core src/VoipNet.Audio src/VoipNet.Video src/VoipNet.AI src/VoipNet.Enterprise tools/VoipNet.Cli; do
             dotnet pack "$project" -c Release -o artifacts ${{ steps.version.outputs.args }}
           done
       - name: Verify package contents

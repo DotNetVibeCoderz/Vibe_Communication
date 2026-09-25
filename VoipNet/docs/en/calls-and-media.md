@@ -425,6 +425,29 @@ milliseconds, while some virtual and remote displays take a third of a second wh
 the rate is a ceiling rather than a promise. Desktop Duplication, which avoids that, is in
 [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
 
+### A grid of everybody
+
+The engine forwards one participant's video rather than mixing, because forwarding costs nothing and
+keeps the quality the sender chose. A grid is the other trade: decode everyone, lay them out, encode
+once. `VideoCompositor` is the laying-out part, and it works on the same NV12 pictures the codecs do:
+
+```csharp
+var compositor = new VideoCompositor(640, 360);
+var composed = compositor.Compose(pictures, CompositorLayout.Grid, elapsed);
+
+foreach (var frame in encoder.Encode(composed))
+{
+    call.SendVideoFrame((uint)(elapsed.TotalSeconds * 90000), frame.Data.Span);
+}
+```
+
+`Grid` gives equal tiles, as square an arrangement as the number allows. `PictureInPicture` gives the
+first picture the frame and puts the second in the corner. `Spotlight` gives the first the frame and
+runs the rest along the bottom. A picture keeps its shape inside its tile — a phone held upright is
+fitted and centred rather than stretched — and anything not covered is black.
+
+The result borrows the compositor's own buffer, so encode or copy it before composing the next one.
+
 ## Recording
 
 ```csharp

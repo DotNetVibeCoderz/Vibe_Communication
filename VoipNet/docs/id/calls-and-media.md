@@ -432,6 +432,30 @@ beberapa milidetik, sementara sebagian layar virtual dan remote butuh sepertiga 
 ukurannya, jadi lajunya adalah batas atas, bukan janji. Desktop Duplication yang bebas dari masalah itu
 ada di [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
 
+### Grid berisi semua orang
+
+Engine meneruskan video satu peserta, bukan mencampurnya, karena meneruskan nyaris tanpa biaya dan
+mempertahankan kualitas yang dipilih pengirim. Grid adalah pilihan sebaliknya: decode semua orang,
+susun, lalu encode sekali. `VideoCompositor` mengerjakan bagian menyusunnya, di atas gambar NV12 yang
+sama dengan yang dipakai codec:
+
+```csharp
+var compositor = new VideoCompositor(640, 360);
+var composed = compositor.Compose(pictures, CompositorLayout.Grid, elapsed);
+
+foreach (var frame in encoder.Encode(composed))
+{
+    call.SendVideoFrame((uint)(elapsed.TotalSeconds * 90000), frame.Data.Span);
+}
+```
+
+`Grid` memberi petak yang sama besar, sepersegi mungkin sesuai jumlahnya. `PictureInPicture` memberi
+gambar pertama seluruh bingkai dan menaruh yang kedua di pojok. `Spotlight` memberi gambar pertama
+bingkainya dan menderetkan sisanya di bawah. Setiap gambar mempertahankan bentuknya di dalam petak —
+ponsel yang dipegang tegak dipaskan dan ditengahkan, bukan dilebarkan — dan sisa ruangnya hitam.
+
+Hasilnya meminjam buffer milik compositor, jadi encode atau salin dulu sebelum menyusun yang berikutnya.
+
 ## Perekaman
 
 ```csharp
