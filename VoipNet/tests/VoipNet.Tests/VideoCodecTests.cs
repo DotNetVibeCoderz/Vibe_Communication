@@ -116,6 +116,26 @@ public sealed class VideoCodecTests
         Assert.True(psnr > 30, $"the picture came back at {psnr:F1} dB, which is not the one that went in");
     }
 
+    [Fact]
+    public void CamerasCanBeListedWithoutOpeningOne()
+    {
+        // Listing is safe to run anywhere: it never opens a device, so no light goes on and a machine
+        // with no camera simply has none. Opening one is not tested — a CI runner has nothing to see.
+        var cameras = VideoCapture.Cameras();
+        Assert.NotNull(cameras);
+        if (!VideoCapture.IsSupported)
+        {
+            Assert.Empty(cameras);
+            return;
+        }
+
+        Assert.All(cameras, camera =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(camera.Id), "a camera has a system name to reopen it by");
+            Assert.False(string.IsNullOrWhiteSpace(camera.Name), "a camera has a name to show");
+        });
+    }
+
     /// <summary>A smooth sweep through the colours, which is what half-resolution colour is made for.</summary>
     private static byte[] Gradient()
     {

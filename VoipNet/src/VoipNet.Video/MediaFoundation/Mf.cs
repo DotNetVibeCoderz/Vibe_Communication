@@ -78,6 +78,91 @@ internal static unsafe partial class Mf
     [LibraryImport("ole32.dll")]
     internal static partial int CoCreateInstance(in Guid clsid, nint outer, uint context, in Guid iid, out nint instance);
 
+    [LibraryImport("ole32.dll")]
+    internal static partial void CoTaskMemFree(nint memory);
+
+    [LibraryImport("mfplat.dll")]
+    internal static partial int MFCreateAttributes(out nint attributes, uint initialSize);
+
+    [LibraryImport("mf.dll")]
+    internal static partial int MFEnumDeviceSources(nint attributes, out nint* devices, out uint count);
+
+    [LibraryImport("mfreadwrite.dll")]
+    internal static partial int MFCreateSourceReaderFromMediaSource(nint source, nint attributes, out nint reader);
+
+    // ---- cameras ------------------------------------------------------------------------------------
+
+    internal static readonly Guid DeviceSourceType = new("c60ac5fe-252a-478f-a0ef-bc8fa5f7cad3");
+    internal static readonly Guid DeviceSourceVideo = new("8ac3587a-4ae7-42d8-99e0-0a6013eef90f");
+    internal static readonly Guid DeviceFriendlyName = new("60d0e559-52f8-4fa2-bbce-acdb34a8ec01");
+    internal static readonly Guid DeviceSymbolicLink = new("58f0aad8-22bf-4f8a-bb3d-d2c4978c6e2f");
+    internal static readonly Guid MediaSourceInterface = new("279a808d-aec7-40c8-9c6b-a6b492c78a66");
+    internal static readonly Guid SourceReaderInterface = new("70ae66f2-c809-4e4f-8915-bdcb406b7993");
+    internal static readonly Guid EnableVideoProcessing = new("fb394f3d-ccf1-42ee-bbb3-f9b845d5681d");
+
+    /// <summary>The reader's name for "whatever video this device offers".</summary>
+    internal const uint FirstVideoStream = 0xFFFF_FFFC;
+
+    /// <summary>A stream flag on a read that returned nothing because the device has stopped.</summary>
+    internal const uint StreamEndOfStream = 0x0000_0002;
+
+    /// <summary>IMFActivate::ActivateObject — the device is created from its description.</summary>
+    internal static int ActivateObject(nint activate, in Guid iid, out nint instance)
+    {
+        fixed (Guid* id = &iid)
+        fixed (nint* target = &instance)
+        {
+            return ((delegate* unmanaged[Stdcall]<nint, Guid*, nint*, int>)Vtable(activate)[33])(activate, id, target);
+        }
+    }
+
+    /// <summary>A string attribute, such as a camera's name, copied out of the COM allocator.</summary>
+    internal static string GetItemString(nint attributes, in Guid key)
+    {
+        char* text;
+        uint length;
+        fixed (Guid* id = &key)
+        {
+            var hr = ((delegate* unmanaged[Stdcall]<nint, Guid*, char**, uint*, int>)Vtable(attributes)[13])(attributes, id, &text, &length);
+            if (hr != SOk)
+            {
+                return string.Empty;
+            }
+        }
+
+        var value = new string(text, 0, (int)length);
+        CoTaskMemFree((nint)text);
+        return value;
+    }
+
+    // ---- IMFSourceReader ----------------------------------------------------------------------------
+
+    internal static int SetStreamSelection(nint reader, uint stream, bool selected) =>
+        ((delegate* unmanaged[Stdcall]<nint, uint, int, int>)Vtable(reader)[4])(reader, stream, selected ? 1 : 0);
+
+    internal static int SetCurrentMediaType(nint reader, uint stream, nint type) =>
+        ((delegate* unmanaged[Stdcall]<nint, uint, nint, nint, int>)Vtable(reader)[7])(reader, stream, 0, type);
+
+    internal static int GetCurrentMediaType(nint reader, uint stream, out nint type)
+    {
+        fixed (nint* value = &type)
+        {
+            return ((delegate* unmanaged[Stdcall]<nint, uint, nint*, int>)Vtable(reader)[6])(reader, stream, value);
+        }
+    }
+
+    internal static int ReadSample(nint reader, uint stream, out uint flags, out long timestamp, out nint sample)
+    {
+        uint actualStream;
+        fixed (uint* streamFlags = &flags)
+        fixed (long* time = &timestamp)
+        fixed (nint* result = &sample)
+        {
+            return ((delegate* unmanaged[Stdcall]<nint, uint, uint, uint*, uint*, long*, nint*, int>)Vtable(reader)[9])(
+                reader, stream, 0, &actualStream, streamFlags, time, result);
+        }
+    }
+
     /// <summary>One entry of <c>MFT_OUTPUT_DATA_BUFFER</c>, which ProcessOutput fills in.</summary>
     [StructLayout(LayoutKind.Sequential)]
     internal struct OutputDataBuffer
@@ -156,6 +241,19 @@ internal static unsafe partial class Mf
             return ((delegate* unmanaged[Stdcall]<nint, Guid*, Guid*, int>)Vtable(attributes)[24])(attributes, id, v);
         }
     }
+
+    internal static int SetString(nint attributes, in Guid key, string value)
+    {
+        fixed (Guid* id = &key)
+        fixed (char* text = value)
+        {
+            return ((delegate* unmanaged[Stdcall]<nint, Guid*, char*, int>)Vtable(attributes)[25])(attributes, id, text);
+        }
+    }
+
+    /// <summary>IMFMediaSource::Shutdown, which is what turns a camera's light back off.</summary>
+    internal static int ShutdownSource(nint source) =>
+        ((delegate* unmanaged[Stdcall]<nint, int>)Vtable(source)[12])(source);
 
     internal static int GetUInt64(nint attributes, in Guid key, out ulong value)
     {

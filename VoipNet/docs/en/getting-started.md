@@ -7,7 +7,7 @@
 ```bash
 dotnet add package VoipNet.Core          # calls and media
 dotnet add package VoipNet.Audio         # microphone, speakers, recording
-dotnet add package VoipNet.Video         # H.264 encode/decode (Windows for now)
+dotnet add package VoipNet.Video         # H.264 encode/decode and camera (Windows for now)
 dotnet add package VoipNet.AI            # models, speech, voice agents
 dotnet add package VoipNet.Enterprise    # IVR, queues, recording service, CRM tools
 dotnet tool install -g VoipNet.Cli       # the voipnet command

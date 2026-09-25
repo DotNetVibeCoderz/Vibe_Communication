@@ -373,6 +373,36 @@ Only Windows has a codec wired up so far. `VideoCodecs.IsH264Available` says whe
 one, and creating an encoder elsewhere throws `PlatformNotSupportedException` rather than pretending.
 VideoToolbox and VA-API are in [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
 
+### The camera
+
+A camera is read by asking for the next picture, rather than being handed a stream of them: the device
+paces the loop, and a caller that falls behind reads the next picture instead of a queue of stale ones.
+
+```csharp
+foreach (var camera in VideoCapture.Cameras())
+{
+    Console.WriteLine(camera.Name);
+}
+
+using var camera = VideoCapture.OpenCamera(width: 640, height: 360, framesPerSecond: 30);
+using var encoder = VideoCodecs.CreateH264Encoder(new VideoEncoderOptions
+{
+    Width = camera.Width, Height = camera.Height, FramesPerSecond = 30, BitsPerSecond = 800_000,
+});
+
+while (camera.Read() is { } picture)
+{
+    foreach (var frame in encoder.Encode(picture))
+    {
+        call.SendVideoFrame((uint)(picture.Timestamp.TotalSeconds * 90000), frame.Data.Span);
+    }
+}
+```
+
+The size asked for is a preference: a device that cannot do it gives what it can, and `camera.Width`
+and `camera.Height` say what that turned out to be — so read them before setting the encoder up, as
+above. Pictures come back as NV12 whatever the camera speaks natively; the reader converts and scales.
+
 ## Recording
 
 ```csharp

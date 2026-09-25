@@ -379,6 +379,37 @@ Baru Windows yang codecnya tersambung. `VideoCodecs.IsH264Available` memberi tah
 punya, dan membuat encoder di platform lain melempar `PlatformNotSupportedException` alih-alih
 berpura-pura. VideoToolbox dan VA-API ada di [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
 
+### Kamera
+
+Kamera dibaca dengan cara meminta gambar berikutnya, bukan menerima aliran gambar: perangkatnya yang
+mengatur tempo, dan pemanggil yang tertinggal membaca gambar berikutnya, bukan antrean gambar basi.
+
+```csharp
+foreach (var camera in VideoCapture.Cameras())
+{
+    Console.WriteLine(camera.Name);
+}
+
+using var camera = VideoCapture.OpenCamera(width: 640, height: 360, framesPerSecond: 30);
+using var encoder = VideoCodecs.CreateH264Encoder(new VideoEncoderOptions
+{
+    Width = camera.Width, Height = camera.Height, FramesPerSecond = 30, BitsPerSecond = 800_000,
+});
+
+while (camera.Read() is { } picture)
+{
+    foreach (var frame in encoder.Encode(picture))
+    {
+        call.SendVideoFrame((uint)(picture.Timestamp.TotalSeconds * 90000), frame.Data.Span);
+    }
+}
+```
+
+Ukuran yang diminta hanyalah preferensi: perangkat yang tidak sanggup memberi yang bisa, dan
+`camera.Width` serta `camera.Height` menyebut hasilnya — jadi bacalah keduanya sebelum menyiapkan
+encoder, seperti di atas. Gambar selalu kembali dalam NV12 apa pun format asli kameranya, karena
+readernya yang mengonversi dan menskalakan.
+
 ## Perekaman
 
 ```csharp
