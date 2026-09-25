@@ -176,7 +176,21 @@ A PBX, five agent softphones and a Poisson traffic generator, all real SIP/RTP o
 
 ### IVR Studio (Blazor Server)
 
-Edit menus, options and AI instructions; see the call path; press keys on a phone in the browser that dials the flow for real; type as the caller once the IVR hands off to the AI agent. Flows are saved to `App_Data/flow.json` and exported at `/flow.json`.
+![IVR Studio](../images/ivrstudio-editor.png)
+
+Edit menus, options and AI instructions; press keys on a phone in the browser that dials the flow for
+real; type as the caller once the IVR hands off to the AI agent. Flows are saved to
+`App_Data/flow.json` and exported at `/flow.json`.
+
+The call path is a graph you can arrange: each menu is a node, each key that leads somewhere is a
+cable between two of them, and the keys a menu answers itself are listed inside it, coloured by what
+they do. Drag a menu to move it — where it sits is saved with the flow — and drag the ⊕ on its right
+edge onto another menu to connect them, which adds a key that goes there. A key that sends the caller
+back loops around the left, so it never hides the one that took them forward.
+
+Every save keeps a version. Restore one to undo a session's worth of edits, or pick one as **variant
+B** and turn on the A/B test: from then on that share of test calls hears the saved version instead
+of the current flow, and the panel says which one each call got.
 
 ### WebPhone (Blazor Server)
 

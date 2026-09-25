@@ -165,7 +165,23 @@ Sebuah PBX, lima softphone agen, dan generator trafik Poisson — semuanya SIP/R
 
 ### IVR Studio (Blazor Server)
 
-Sunting menu, opsi, dan instruksi AI; lihat jalur panggilan; tekan tombol pada telepon di browser yang benar-benar memanggil alur; ketik sebagai penelepon setelah IVR menyerahkan ke agen AI. Alur disimpan ke `App_Data/flow.json` dan diekspor di `/flow.json`.
+![IVR Studio](../images/ivrstudio-editor.png)
+
+Sunting menu, opsi, dan instruksi AI; tekan tombol di telepon dalam browser yang benar-benar menelepon
+flow-nya; ketik sebagai penelepon setelah IVR menyerahkan panggilan ke agen AI. Flow disimpan ke
+`App_Data/flow.json` dan diekspor di `/flow.json`.
+
+Jalur panggilan kini berupa graf yang bisa ditata: setiap menu adalah node, setiap tombol yang menuju
+suatu tempat adalah kabel di antara keduanya, dan tombol yang dijawab menu itu sendiri tampil di
+dalamnya dengan warna sesuai perannya. Seret menu untuk memindahkannya — posisinya ikut tersimpan
+bersama flow — dan seret ⊕ di sisi kanannya ke menu lain untuk menghubungkan keduanya, yang menambah
+tombol menuju menu itu. Tombol yang mengembalikan penelepon melengkung lewat sisi kiri, jadi tidak
+menutupi tombol yang membawanya maju.
+
+Setiap penyimpanan menyimpan satu versi. Pulihkan salah satunya untuk membatalkan hasil sesi
+penyuntingan, atau pilih satu sebagai **variant B** lalu nyalakan uji A/B: sejak itu sebagian panggilan
+uji akan mendengar versi tersimpan itu alih-alih flow saat ini, dan panelnya menyebutkan versi mana
+yang didapat tiap panggilan.
 
 ### WebPhone (Blazor Server)
 

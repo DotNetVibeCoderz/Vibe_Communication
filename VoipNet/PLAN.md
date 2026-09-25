@@ -32,7 +32,6 @@ Today H.264, VP8 and VP9 are negotiated as pass-through payloads only. This mile
 
 ## 1.5 — Contact centre · Contact center
 
-- Visual IVR designer: drag-and-drop graph, versioning, A/B tests. · Desainer IVR visual.
 - Workforce dashboards: Grafana templates over the exported history (reports and CSV export are done). · Template Grafana di atas riwayat yang diekspor.
 - ZRTP (RFC 6189) end-to-end media encryption. · Enkripsi ZRTP.
 

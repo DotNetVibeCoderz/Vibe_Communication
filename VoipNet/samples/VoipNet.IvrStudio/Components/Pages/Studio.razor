@@ -2,6 +2,7 @@
 @implements IAsyncDisposable
 @inject FlowStore Store
 @inject TestLine Line
+@inject IJSRuntime JS
 
 <PageTitle>IVR Studio · Voip.NET</PageTitle>
 
@@ -32,7 +33,7 @@
 
         @foreach (var menu in _flow.Menus)
         {
-            <div class="menu cable connected">
+            <div class="menu cable connected @(menu.Id == _selected ? "selected" : "")" id="menu-@menu.Id">
                 <div class="menu-head">
                     <input class="menu-id mono" @bind="menu.Id" aria-label="Menu id" />
                     <label class="soft small">wait <input class="seconds mono" type="number" min="2" max="30" @bind="menu.TimeoutSeconds" /> s</label>
@@ -104,31 +105,100 @@
         <button class="btn" @onclick="AddMenu">Add menu</button>
     </section>
 
-    @* ---- Map ---- *@
+    @* ---- Designer ---- *@
     <section class="module raised map">
-        <div class="eyebrow">Call path</div>
-        <h2 class="display map-title">What callers hear</h2>
+        <div class="section-head">
+            <div>
+                <div class="eyebrow">Call path</div>
+                <h2 class="display map-title">Where each key leads</h2>
+            </div>
+            <span class="soft small">drag a menu to arrange it · drag its ⊕ onto another to connect</span>
+        </div>
+
+        <div class="canvas" @ref="_canvas">
+            <svg width="@CanvasWidth" height="@CanvasHeight" role="img" aria-label="Flow graph">
+                <defs>
+                    <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+                        <path d="M 0 0 L 8 4 L 0 8 z" fill="var(--ink-soft)" />
+                    </marker>
+                </defs>
+
+                @foreach (var edge in Edges())
+                {
+                    <path class="edge" d="@edge.Path" marker-end="url(#arrow)" />
+                    @SvgText("edge-key mono", edge.LabelX, edge.LabelY, edge.Digit.ToString())
+                }
+                <path class="link-preview" d="" />
+
+                @foreach (var menu in _flow.Menus)
+                {
+                    var leaves = menu.Options.Where(o => o.Kind is not (OptionKind.GoToMenu or OptionKind.CollectDigits)).ToList();
+                    <g class="node @(menu.Id == _selected ? "selected" : "")" data-menu="@menu.Id" data-x="@menu.X" data-y="@menu.Y"
+                       transform="translate(@Coordinate(menu.X) @Coordinate(menu.Y))" @onclick="() => SelectAsync(menu.Id)">
+                        <rect class="node-body" width="@NodeWidth" height="@NodeHeight(menu)" rx="6" />
+                        @SvgText("node-id mono", "12", "22", menu.Id)
+                        @SvgText("node-prompt", "12", "42", Shorten(menu.Prompt, 24))
+                        @for (var i = 0; i < leaves.Count; i++)
+                        {
+                            var leaf = leaves[i];
+                            <g class="leaf @KindClass(leaf.Kind)" transform="translate(12 @(54 + i * 22))">
+                                <rect class="leaf-key" width="18" height="18" rx="3" />
+                                @SvgText("leaf-digit mono", "9", "13", leaf.Digit.ToString())
+                                @SvgText("leaf-text", "26", "13", Shorten(leaf.Describe(), 23))
+                            </g>
+                        }
+                        <circle class="handle" data-link="1" cx="@NodeWidth" cy="@(NodeHeight(menu) / 2)" r="9" />
+                        @SvgText("handle-plus", NodeWidth.ToString(), Coordinate(NodeHeight(menu) / 2 + 4), "+")
+                    </g>
+                }
+            </svg>
+        </div>
+
         @if (!string.IsNullOrWhiteSpace(_flow.Welcome))
         {
             <p class="said">“@_flow.Welcome”</p>
         }
-        @foreach (var menu in _flow.Menus)
-        {
-            <div class="map-menu">
-                <div class="map-menu-id mono">@menu.Id</div>
-                <p class="said">“@menu.Prompt”</p>
-                <ul>
-                    @foreach (var option in menu.Options)
+
+        @* ---- Versions and the A/B test ---- *@
+        <div class="versions">
+            <div class="section-head">
+                <h3 class="eyebrow">Saved versions</h3>
+                <label class="soft small ab-toggle">
+                    <input type="checkbox" checked="@_experiment.Enabled" @onchange="ToggleExperiment" disabled="@(_experiment.VariantVersionId is null)" />
+                    A/B test
+                </label>
+            </div>
+            @if (_versions.Count == 0)
+            {
+                <p class="soft small">Every save keeps a version here, to restore or to test against.</p>
+            }
+            else
+            {
+                <ul class="version-list">
+                    @foreach (var version in _versions)
                     {
-                        <li class="patch @KindClass(option.Kind)">
-                            <span class="key-cap mono">@option.Digit</span>
-                            <span>@option.Label</span>
-                            <span class="mono soft">@option.Describe()</span>
+                        <li class="@(version.Id == _experiment.VariantVersionId ? "variant" : "")">
+                            <span class="mono small">@version.SavedAt.ToString("dd MMM HH:mm:ss")</span>
+                            <span class="soft small">@version.Menus menus</span>
+                            <button class="btn small" @onclick="() => RestoreAsync(version.Id)">Restore</button>
+                            <button class="btn small" @onclick="() => UseAsVariant(version.Id)">
+                                @(version.Id == _experiment.VariantVersionId ? "Variant B" : "Test against")
+                            </button>
                         </li>
                     }
                 </ul>
-            </div>
-        }
+            }
+            @if (_experiment.VariantVersionId is not null)
+            {
+                <div class="ab">
+                    <label class="soft small">
+                        @_experiment.Percent% of calls hear variant B
+                        <input type="range" min="10" max="90" step="10" value="@_experiment.Percent" @onchange="SetPercent" />
+                    </label>
+                    <p class="soft small">This call went to <strong>@(_lastVariant ?? "—")</strong> · A @_callsA · B @_callsB</p>
+                </div>
+            }
+        </div>
     </section>
 
     @* ---- Test phone ---- *@
@@ -195,15 +265,175 @@
 
 @code {
     private static readonly string[] Keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
+    /// <summary>Node geometry, in the same units the canvas is drawn with.</summary>
+    private const int NodeWidth = 216;
+
     private FlowModel _flow = FlowModel.Sample();
     private string _message = string.Empty;
     private string? _notice;
     private bool _noticeIsError;
+    private string? _selected;
+    private ElementReference _canvas;
+    private IJSObjectReference? _graph;
+    private DotNetObjectReference<Studio>? _self;
+    private IReadOnlyList<FlowVersion> _versions = [];
+    private Experiment _experiment = new();
+    private string? _lastVariant;
+    private int _callsA;
+    private int _callsB;
+
+    private double CanvasWidth => _flow.Menus.Count == 0 ? 400 : _flow.Menus.Max(m => m.X) + NodeWidth + 90;
+
+    private double CanvasHeight => _flow.Menus.Count == 0 ? 300 : _flow.Menus.Max(m => m.Y + NodeHeight(m)) + 40;
 
     protected override void OnInitialized()
     {
         _flow = Store.Load();
+        _versions = Store.Versions();
+        _experiment = Store.LoadExperiment();
+        _selected = _flow.Entry?.Id;
         Line.Changed += OnLineChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _graph = await JS.InvokeAsync<IJSObjectReference>("import", "./graph.js");
+            _self = DotNetObjectReference.Create(this);
+            await _graph.InvokeVoidAsync("start", _canvas, _self);
+        }
+    }
+
+    /// <summary>A menu was dragged to a new place on the canvas.</summary>
+    /// <param name="id">The menu that moved.</param>
+    /// <param name="x">Its new horizontal position.</param>
+    /// <param name="y">Its new vertical position.</param>
+    [JSInvokable]
+    public Task OnNodeMoved(string id, double x, double y)
+    {
+        if (_flow.Menus.FirstOrDefault(m => m.Id == id) is { } menu)
+        {
+            menu.X = x;
+            menu.Y = y;
+            _selected = id;
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>A connection was drawn from one menu to another: the next free key goes there.</summary>
+    /// <param name="from">The menu the connection started on.</param>
+    /// <param name="to">The menu it was dropped on.</param>
+    [JSInvokable]
+    public Task OnLink(string from, string to)
+    {
+        if (_flow.Menus.FirstOrDefault(m => m.Id == from) is { } menu && _flow.Menus.Any(m => m.Id == to))
+        {
+            var used = menu.Options.Select(o => o.Digit).ToHashSet();
+            var digit = Keys.Select(k => k[0]).FirstOrDefault(k => !used.Contains(k), '9');
+            menu.Options.Add(new OptionModel { Digit = digit, Label = to, Kind = OptionKind.GoToMenu, Target = to });
+            _selected = from;
+            Notice($"Key {digit} on {from} now goes to {to}.", error: false);
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SelectAsync(string id)
+    {
+        _selected = id;
+        if (_graph is not null)
+        {
+            await _graph.InvokeVoidAsync("reveal", id);
+        }
+    }
+
+    /// <summary>Height grows with the options a menu answers itself.</summary>
+    private static double NodeHeight(MenuModel menu) =>
+        54 + Math.Max(1, menu.Options.Count(o => o.Kind is not (OptionKind.GoToMenu or OptionKind.CollectDigits))) * 22;
+
+    private static string Coordinate(double value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string Shorten(string text, int limit = 34) => text.Length <= limit ? text : text[..(limit - 1)] + "…";
+
+    /// <summary>Razor keeps the <c>text</c> element for itself, and SVG needs one for every label.</summary>
+    private static MarkupString SvgText(string cssClass, string x, string y, string content) =>
+        new($"<text class=\"{cssClass}\" x=\"{x}\" y=\"{y}\">{System.Net.WebUtility.HtmlEncode(content)}</text>");
+
+    /// <summary>Every option that sends the caller to another menu, as a curve between the two nodes.</summary>
+    private IEnumerable<(string Path, char Digit, string LabelX, string LabelY)> Edges()
+    {
+        foreach (var menu in _flow.Menus)
+        {
+            foreach (var option in menu.Options.Where(o => o.Kind is OptionKind.GoToMenu or OptionKind.CollectDigits))
+            {
+                if (_flow.Menus.FirstOrDefault(m => m.Id == option.Target) is not { } target || target.Id == menu.Id)
+                {
+                    continue;
+                }
+
+                // A key that goes further down the flow leaves the bottom and arrives at the top. One
+                // that goes back — "press 9 to return" — would sit on top of it, so it loops around
+                // the left instead, which is also how a caller reads it: forwards down, back up.
+                var back = target.Y <= menu.Y;
+                var (x1, y1, x2, y2, c1x, c2x, lift) = back
+                    ? (menu.X, menu.Y + NodeHeight(menu) / 2, target.X, target.Y + NodeHeight(target) / 2, menu.X - 70, target.X - 70, 0.0)
+                    : (menu.X + NodeWidth / 2.0, menu.Y + NodeHeight(menu), target.X + NodeWidth / 2.0, target.Y, 0.0, 0.0,
+                        Math.Max(30, Math.Abs(target.Y - menu.Y) / 2));
+                var path = back
+                    ? string.Create(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        $"M {x1:0.##} {y1:0.##} C {c1x:0.##} {y1:0.##}, {c2x:0.##} {y2:0.##}, {x2:0.##} {y2:0.##}")
+                    : string.Create(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        $"M {x1:0.##} {y1:0.##} C {x1:0.##} {y1 + lift:0.##}, {x2:0.##} {y2 - lift:0.##}, {x2:0.##} {y2:0.##}");
+                var labelX = back ? Math.Min(x1, x2) - 52 : (x1 + x2) / 2;
+                yield return (
+                    path,
+                    option.Digit,
+                    labelX.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture),
+                    ((y1 + y2) / 2).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+            }
+        }
+    }
+
+    private async Task RestoreAsync(string id)
+    {
+        if (Store.Restore(id) is { } restored)
+        {
+            _flow = restored;
+            _versions = Store.Versions();
+            _selected = _flow.Entry?.Id;
+            Notice("Version restored.", error: false);
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void UseAsVariant(string id)
+    {
+        _experiment.VariantVersionId = _experiment.VariantVersionId == id ? null : id;
+        if (_experiment.VariantVersionId is null)
+        {
+            _experiment.Enabled = false;
+        }
+
+        Store.SaveExperiment(_experiment);
+    }
+
+    private void ToggleExperiment(ChangeEventArgs e)
+    {
+        _experiment.Enabled = e.Value is true && _experiment.VariantVersionId is not null;
+        Store.SaveExperiment(_experiment);
+    }
+
+    private void SetPercent(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var percent))
+        {
+            _experiment.Percent = Math.Clamp(percent, 0, 100);
+            Store.SaveExperiment(_experiment);
+        }
     }
 
     private void OnLineChanged() => _ = InvokeAsync(StateHasChanged);
@@ -214,6 +444,7 @@
         {
             _flow.Build((_, _, _) => Task.CompletedTask);
             Store.Save(_flow);
+            _versions = Store.Versions();
             Notice("Saved.", error: false);
         }
         catch (InvalidOperationException ex)
@@ -225,14 +456,26 @@
     private void ResetFlow()
     {
         _flow = Store.Reset();
+        _selected = _flow.Entry?.Id;
         Notice("Sample flow restored.", error: false);
     }
 
     private async Task CallAsync()
     {
-        Line.CurrentInstructions = _flow.AiInstructions;
+        // With an experiment running, a share of the calls hear the saved variant instead.
+        var variant = _experiment.Enabled && _experiment.VariantVersionId is { } id && Random.Shared.Next(100) < _experiment.Percent
+            ? Store.Version(id)
+            : null;
+        var flow = variant ?? _flow;
+        _lastVariant = _experiment.Enabled ? variant is null ? "A (current)" : "B (saved version)" : null;
+        if (_experiment.Enabled)
+        {
+            _ = variant is null ? _callsA++ : _callsB++;
+        }
+
+        Line.CurrentInstructions = flow.AiInstructions;
         _notice = null;
-        await Line.StartAsync(_flow);
+        await Line.StartAsync(flow);
     }
 
     private void SayAsync()
@@ -279,5 +522,19 @@
     {
         Line.Changed -= OnLineChanged;
         await Line.HangUpAsync();
+        try
+        {
+            if (_graph is not null)
+            {
+                await _graph.InvokeVoidAsync("stop");
+                await _graph.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // The browser is gone; so is its canvas.
+        }
+
+        _self?.Dispose();
     }
 }

@@ -44,7 +44,29 @@ switch (scenario)
 
     case "ivrstudio":
         await browser.NavigateAsync($"{baseUrl}/");
-        await Task.Delay(TimeSpan.FromSeconds(4));
+        await browser.WaitForAsync("document.querySelectorAll('.canvas [data-menu]').length >= 2", TimeSpan.FromSeconds(20));
+        // The gestures below need the page's own pointer handling to be listening.
+        await browser.WaitForAsync("document.querySelector('.canvas')?.dataset.graph === 'ready'", TimeSpan.FromSeconds(20));
+
+        // The designer is driven by pointer gestures, so the test performs them: drag a menu to a new
+        // place, then drag its handle onto another menu to connect the two.
+        var before = Number(await browser.EvaluateAsync(NodeX("support")));
+        await browser.EvaluateAsync(DragNode("support", 110, 30));
+        await browser.WaitForAsync($"({NodeX("support")}) > {before + 60}", TimeSpan.FromSeconds(10));
+        Console.WriteLine($"dragged the support menu from x={before} to x={Number(await browser.EvaluateAsync(NodeX("support")))}");
+
+        var options = Number(await browser.EvaluateAsync("document.querySelectorAll('#menu-support .options tbody tr').length"));
+        await browser.EvaluateAsync(LinkNodes("support", "main"));
+        var linked = await browser.WaitForAsync(
+            $"document.querySelectorAll('#menu-support .options tbody tr').length > {options}",
+            TimeSpan.FromSeconds(10));
+        Console.WriteLine(linked ? "connected support to main by dragging its handle" : "the handle drag did not connect anything");
+
+        await browser.ClickTextAsync("button", "Save");
+        await browser.WaitForAsync("document.querySelectorAll('.version-list li').length >= 1", TimeSpan.FromSeconds(10));
+        Console.WriteLine("the save kept a version");
+
+        await Task.Delay(TimeSpan.FromSeconds(2));
         await browser.ScreenshotAsync(Path.Combine(output, $"ivrstudio-editor{suffix}.png"), fullPage: false);
         await browser.ClickTextAsync("button", "Call this flow");
         await browser.WaitForAsync("document.body.innerText.includes('Connected')", TimeSpan.FromSeconds(15));
@@ -110,6 +132,38 @@ switch (scenario)
 }
 
 static double Number(JsonNode? node) => node is JsonValue v && v.TryGetValue<double>(out var d) ? d : 0;
+// Where a menu's node sits on the designer canvas, as the page records it.
+static string NodeX(string menu) =>
+    "(parseFloat(document.querySelector('.canvas [data-menu=\"" + menu + "\"]')?.dataset.x) || 0)";
+
+// Dragging in a page is three pointer events; the studio listens for them on the canvas.
+static string DragNode(string menu, int dx, int dy) =>
+    "(() => {"
+    + "  const node = document.querySelector('.canvas [data-menu=\"" + menu + "\"]');"
+    + "  const canvas = document.querySelector('.canvas');"
+    + "  const box = node.getBoundingClientRect();"
+    + "  const point = (type, x, y) => new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, pointerId: 1, isPrimary: true, button: 0 });"
+    + "  const x = box.left + 40, y = box.top + 12;"
+    + "  node.dispatchEvent(point('pointerdown', x, y));"
+    + "  canvas.dispatchEvent(point('pointermove', x + " + dx + ", y + " + dy + "));"
+    + "  canvas.dispatchEvent(point('pointerup', x + " + dx + ", y + " + dy + "));"
+    + "  return true;"
+    + "})()";
+
+// Dropping one menu's handle on another connects them, which the page turns into a new key.
+static string LinkNodes(string from, string to) =>
+    "(() => {"
+    + "  const source = document.querySelector('.canvas [data-menu=\"" + from + "\"] [data-link]');"
+    + "  const target = document.querySelector('.canvas [data-menu=\"" + to + "\"] .node-body');"
+    + "  const canvas = document.querySelector('.canvas');"
+    + "  const a = source.getBoundingClientRect(), b = target.getBoundingClientRect();"
+    + "  const point = (type, x, y) => new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, pointerId: 1, isPrimary: true, button: 0 });"
+    + "  source.dispatchEvent(point('pointerdown', a.left + a.width / 2, a.top + a.height / 2));"
+    + "  canvas.dispatchEvent(point('pointermove', b.left + b.width / 2, b.top + b.height / 2));"
+    + "  canvas.dispatchEvent(point('pointerup', b.left + b.width / 2, b.top + b.height / 2));"
+    + "  return true;"
+    + "})()";
+
 
 // Two browsers join the same room, so the conference has somebody to mix and a camera to forward.
 // It doubles as an interop test: both participants must decode video that came from the other one.

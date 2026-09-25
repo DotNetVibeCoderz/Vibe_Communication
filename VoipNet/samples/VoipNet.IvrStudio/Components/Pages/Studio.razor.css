@@ -52,36 +52,81 @@ textarea.field { resize: vertical; }
 
 .map-title { font-size: 22px; margin: 2px 0 12px; }
 .said { font-style: italic; color: var(--ink-soft); margin: 4px 0 10px; }
-.map-menu { border-top: 1px solid var(--hairline); padding-top: 12px; margin-top: 12px; }
-.map-menu-id { font-weight: 500; }
-.map-menu ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+/* ---- The designer canvas: menus as nodes, keys as the cables between them ---- */
 
-/* Signature: every option is a patch cable coloured by where it sends the caller. */
-.patch {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    column-gap: 10px;
-    padding: 6px 10px;
-    border-left: 4px solid var(--green);
-    background: var(--panel);
-    border-radius: 0 4px 4px 0;
-}
-.patch > span:last-child { grid-column: 2; font-size: 12px; }
-.patch.ai { border-left-color: var(--violet); }
-.patch.out { border-left-color: var(--cobalt); }
-.patch.end { border-left-color: var(--red); }
-.key-cap {
-    grid-row: span 2;
-    align-self: center;
-    width: 26px;
-    height: 26px;
-    display: grid;
-    place-items: center;
+.canvas {
     border: 1px solid var(--hairline);
-    border-radius: 4px;
-    background: var(--raised);
-    font-weight: 500;
+    border-radius: var(--radius, 6px);
+    background:
+        radial-gradient(circle at 1px 1px, var(--hairline) 1px, transparent 0) 0 0 / 22px 22px,
+        var(--panel);
+    overflow: auto;
+    max-height: 520px;
+    touch-action: none;
+    cursor: grab;
 }
+.canvas svg { display: block; }
+
+.node .node-body {
+    fill: var(--raised);
+    stroke: var(--hairline);
+}
+.node { cursor: grab; }
+.node.dragging { cursor: grabbing; }
+.node.dragging .node-body, .node.selected .node-body { stroke: var(--cobalt); stroke-width: 2; }
+.node-id { font-size: 13px; font-weight: 500; fill: var(--ink); }
+.node-prompt { font-size: 11.5px; fill: var(--ink-soft); }
+
+/* Each key a menu answers itself, coloured by where it sends the caller — the same cable colours
+   the rest of the studio uses. */
+.leaf-key { fill: var(--panel); stroke: var(--hairline); }
+.leaf-digit { font-size: 10.5px; fill: var(--ink); text-anchor: middle; }
+.leaf-text { font-size: 11px; fill: var(--ink-soft); }
+.leaf.ai .leaf-key { fill: color-mix(in srgb, var(--violet) 30%, transparent); }
+.leaf.out .leaf-key { fill: color-mix(in srgb, var(--cobalt) 25%, transparent); }
+.leaf.end .leaf-key { fill: color-mix(in srgb, var(--red) 25%, transparent); }
+.leaf.inner .leaf-key { fill: color-mix(in srgb, var(--green) 25%, transparent); }
+
+/* Cables are drawn, not grabbed: a line under the cursor must never answer a drop meant for a menu. */
+.edge, .edge-key, .link-preview { pointer-events: none; }
+.edge { fill: none; stroke: var(--ink-soft); stroke-width: 1.5; }
+.edge-key {
+    font-size: 11px;
+    fill: var(--ink);
+    text-anchor: middle;
+    paint-order: stroke;
+    stroke: var(--panel);
+    stroke-width: 4px;
+}
+.link-preview { fill: none; stroke: var(--cobalt); stroke-width: 2; stroke-dasharray: 5 4; }
+.link-preview.live { stroke-opacity: 1; }
+
+.handle { fill: var(--panel); stroke: var(--hairline); }
+.node:hover .handle { fill: var(--cobalt); stroke: var(--cobalt); }
+.handle-plus { font-size: 13px; fill: var(--ink-soft); text-anchor: middle; pointer-events: none; }
+.node:hover .handle-plus { fill: #fff; }
+
+.said { font-style: italic; color: var(--ink-soft); margin: 12px 0 0; }
+
+/* ---- Versions and the A/B test ---- */
+
+.versions { margin-top: 16px; border-top: 1px solid var(--hairline); padding-top: 12px; }
+.versions .section-head { margin-bottom: 8px; }
+.ab-toggle { display: flex; align-items: center; gap: 6px; }
+.version-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 190px; overflow-y: auto; }
+.version-list li {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 8px;
+    align-items: center;
+    padding: 4px 6px;
+    border-radius: 4px;
+}
+.version-list li.variant { background: color-mix(in srgb, var(--violet) 14%, transparent); }
+.ab { margin-top: 10px; display: grid; gap: 6px; }
+.ab input[type="range"] { width: 100%; }
+
+.menu.selected { box-shadow: 0 0 0 2px color-mix(in srgb, var(--cobalt) 45%, transparent); }
 
 .handset { background: var(--raised); border: 1px solid var(--hairline); border-radius: 14px; padding: 16px; margin: 8px 0 14px; }
 .screen { background: var(--ink); color: var(--panel); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }

@@ -63,6 +63,12 @@ public sealed class MenuModel
     public int TimeoutSeconds { get; set; } = 6;
 
     public List<OptionModel> Options { get; set; } = [];
+
+    /// <summary>Where the menu sits on the designer's canvas. Zero means it has never been placed,
+    /// and the studio lays it out from the flow's shape instead.</summary>
+    public double X { get; set; }
+
+    public double Y { get; set; }
 }
 
 /// <summary>The flow as the studio edits and saves it.</summary>
@@ -77,6 +83,54 @@ public sealed class FlowModel
     public string AiInstructions { get; set; } = string.Empty;
 
     public List<MenuModel> Menus { get; set; } = [];
+
+    /// <summary>The menu a caller starts in: the first one, which is what <see cref="Build"/> runs.</summary>
+    [JsonIgnore]
+    public MenuModel? Entry => Menus.FirstOrDefault();
+
+    /// <summary>Gives every unplaced menu a position: the entry menu first, then whatever it leads to,
+    /// row by row, so a flow that has never been arranged still reads as a graph.</summary>
+    public void Layout()
+    {
+        if (Menus.All(m => m.X != 0 || m.Y != 0))
+        {
+            return;
+        }
+
+        var placed = new HashSet<string>();
+        var row = Entry is null ? [] : new List<MenuModel> { Entry };
+        var depth = 0;
+        while (row.Count > 0)
+        {
+            for (var i = 0; i < row.Count; i++)
+            {
+                var menu = row[i];
+                placed.Add(menu.Id);
+                if (menu.X == 0 && menu.Y == 0)
+                {
+                    menu.X = 40 + i * 260;
+                    menu.Y = 30 + depth * 210;
+                }
+            }
+
+            var next = row
+                .SelectMany(m => m.Options)
+                .Where(o => o.Kind is OptionKind.GoToMenu or OptionKind.CollectDigits)
+                .Select(o => Menus.FirstOrDefault(m => m.Id == o.Target))
+                .OfType<MenuModel>()
+                .Where(m => placed.Add(m.Id))
+                .ToList();
+            row = next;
+            depth++;
+        }
+
+        // Anything the entry menu cannot reach still has to go somewhere.
+        foreach (var (menu, i) in Menus.Where(m => m.X == 0 && m.Y == 0).Select((m, i) => (m, i)))
+        {
+            menu.X = 40 + i * 260;
+            menu.Y = 30 + (depth + 1) * 210;
+        }
+    }
 
     public static FlowModel Sample() => new()
     {
