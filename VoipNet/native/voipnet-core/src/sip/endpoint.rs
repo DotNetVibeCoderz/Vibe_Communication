@@ -53,6 +53,9 @@ pub enum SrtpKeying {
     Sdes,
     /// DTLS-SRTP handshake on the media path (RFC 5763/5764), as used by WebRTC.
     Dtls,
+    /// ZRTP on the media path (RFC 6189): no keys in the signalling, and a short string both
+    /// people read aloud to prove nobody is in the middle.
+    Zrtp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -830,6 +833,16 @@ impl Endpoint {
         Ok(media.and_then(|m| m.playout_ntp()))
     }
 
+    /// The short authentication string of a ZRTP call: four characters both people read aloud to
+    /// each other. `None` until the exchange finishes, and on calls that do not use ZRTP.
+    pub fn call_sas(&self, call_id: u64) -> Result<Option<String>> {
+        let media = {
+            let st = self.inner.state.lock();
+            st.calls.get(&call_id).ok_or(EndpointError::NotFound)?.media.clone()
+        };
+        Ok(media.and_then(|m| m.zrtp_sas()))
+    }
+
     /// The codec negotiated for the call's camera stream, if it has one.
     pub fn video_codec(&self, call_id: u64) -> Result<Option<String>> {
         let st = self.inner.state.lock();
@@ -1398,6 +1411,7 @@ impl Inner {
             (_, SrtpKeying::Dtls) => {
                 media.enable_dtls();
             }
+            (_, SrtpKeying::Zrtp) => media.enable_zrtp(),
             (_, SrtpKeying::Sdes) => {
                 media.enable_srtp();
             }
@@ -1614,6 +1628,12 @@ impl Inner {
                 m.mid = Some(default_mid.into());
             }
         }
+        // RFC 6189 8.1: the hash of our Hello, so the peer can tell a real exchange from an injected
+        // one. The keys themselves never touch the signalling — that is the point of ZRTP.
+        if let Some(hash) = media.zrtp_hello_hash() {
+            m.other_attributes.push(format!("zrtp-hash:1.10 {hash}"));
+        }
+
         // RTCP feedback has to be negotiated (RFC 4585 4): a peer that never saw `a=rtcp-fb` in the
         // answer is entitled to ignore the keyframe requests this engine sends, and browsers do — the
         // conference then has nothing to show a new viewer, who is waiting for a keyframe.
@@ -1799,6 +1819,15 @@ impl Inner {
         self.apply_data(call, &n)
     }
 
+    /// Turns on ZRTP when the configuration asks for it, or when the offer says the peer will start
+    /// one. Answering a ZRTP offer costs nothing: the exchange happens on the media path anyway.
+    fn maybe_enable_zrtp(&self, media: &Arc<MediaSession>, offer: &MediaDescription) {
+        let offered = offer.other_attributes.iter().any(|a| a.starts_with("zrtp-hash:"));
+        if self.cfg.srtp != SrtpMode::Disabled && (self.cfg.srtp_keying == SrtpKeying::Zrtp || offered) {
+            media.enable_zrtp();
+        }
+    }
+
     /// Negotiates an incoming offer. Returns (formats for answer, negotiated media) or a SIP error code.
     fn negotiate_offer(&self, offer: &SessionDescription, media: &Arc<MediaSession>) -> std::result::Result<(Vec<RtpMap>, NegotiatedMedia), u16> {
         let audio = offer.audio().filter(|a| a.port != 0).ok_or(488u16)?;
@@ -1834,6 +1863,12 @@ impl Inner {
                 Some("active") => DtlsRole::Server,
                 _ => DtlsRole::Client,
             });
+        }
+
+        // ZRTP needs nothing from the answer, so it can run beside plain RTP: it is turned on when
+        // this side is configured for it, or when the offer announced one.
+        if !use_dtls {
+            self.maybe_enable_zrtp(media, audio);
         }
         let mut answer_formats = vec![codec.clone()];
         if let Some(d) = &dtmf {
@@ -1891,6 +1926,7 @@ impl Inner {
             (_, SrtpKeying::Dtls) => {
                 media.enable_dtls();
             }
+            (_, SrtpKeying::Zrtp) => media.enable_zrtp(),
             (_, SrtpKeying::Sdes) => {
                 media.enable_srtp();
             }
@@ -4573,6 +4609,37 @@ m=audio {} RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n",
 
         a.hangup(a_call).unwrap();
         rb.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("callee terminated");
+    }
+
+    #[test]
+    fn a_zrtp_call_agrees_its_own_keys_on_the_media_path() {
+        // Nothing about the keys goes through the signalling: the two endpoints do the exchange over
+        // the RTP port and end up reading the same four characters aloud.
+        let zrtp = |user: &str| EndpointConfig { srtp: SrtpMode::Optional, srtp_keying: SrtpKeying::Zrtp, ..cfg(user) };
+        let (a, ra, b, rb) = pair(zrtp("alice"), zrtp("bob"));
+        let (a_call, b_call) = establish(&a, &b, &rb, &ra);
+
+        let sas = |rec: &Recorder| {
+            rec.wait_for(10000, |e| matches!(e, Event::MediaEvent { kind, .. } if kind == "zrtp-connected"))
+                .and_then(|e| match e {
+                    Event::MediaEvent { detail, .. } => Some(detail),
+                    _ => None,
+                })
+        };
+        let caller_sas = sas(&ra).expect("the caller agreed keys");
+        let callee_sas = sas(&rb).expect("the callee agreed keys");
+
+        assert_eq!(caller_sas, callee_sas, "both sides read the same string");
+        assert_eq!(caller_sas.len(), 4, "four characters: {caller_sas}");
+        assert_eq!(a.call_sas(a_call).unwrap().as_deref(), Some(caller_sas.as_str()));
+        assert_eq!(b.call_sas(b_call).unwrap().as_deref(), Some(callee_sas.as_str()));
+
+        // And the audio that follows is encrypted with those keys.
+        a.send_audio(a_call, &tone(), 16000).unwrap();
+        assert!(rb.wait_frames(20, 8000) >= 20, "audio keeps flowing once the keys are in place");
+        assert!(b.call_stats(b_call).unwrap().srtp_active > 0, "the stream is protected");
+
+        a.hangup(a_call).unwrap();
     }
 
     #[test]

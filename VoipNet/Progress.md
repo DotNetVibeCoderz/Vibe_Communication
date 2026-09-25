@@ -10,8 +10,8 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 
 | Suite | Result · Hasil |
 | --- | --- |
-| Rust engine `cargo test --lib` | **123 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, SCTP data channels, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
-| .NET `tests/VoipNet.Tests` | **99 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, data channels, queue opening hours, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
+| Rust engine `cargo test --lib` | **128 passed** · lulus — codecs, SIP parser, digest auth, SDP, jitter buffer, SRTP (RFC 3711 and RFC 7714 GCM vectors), DTLS-SRTP handshake, ICE agent (nomination, role conflict, peer-reflexive, restart, consent), STUN, SCTP data channels, ZRTP key agreement, WebSocket framing, loopback media, full SIP call flows over UDP/TLS/WS/WSS, FFI |
+| .NET `tests/VoipNet.Tests` | **101 passed** · lulus — calls/audio/DTMF/hold/conference over the real engine, TLS with pinning, WebSocket + DTLS-SRTP, ICE selection and restart, data channels, queue opening hours, audio & recording, chat connector protocols, **live Azure OpenAI (gpt-5-mini, tool calling), Azure OpenAI realtime on a call, and DeepSeek**, voice agent + barge-in, IVR, queue bridging + supervisor listen-only, recording service, CRM tools, pcap/RTP analyser/metrics |
 | `dotnet build Voip.Net.slnx -c Release` | 15 projects · proyek, **0 warnings, 0 errors** |
 | Benchmarks · Benchmark | `cargo bench --bench media` on a laptop (20 ms frame): opus encode 550 µs · decode 127 µs, G.722 encode 16 µs · decode 13 µs, G.711 encode 150 ns, SRTP protect 2.6 µs, conference mix-minus 3.7 µs at 50 participants; run in CI to catch breakage · dijalankan di CI |
 | CLI end-to-end · ujung ke ujung | `sip listen --echo` ↔ `sip call --dtmf 123 --pcap`: MOS 4.38, all DTMF received · semua DTMF diterima |
@@ -64,6 +64,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | Trickle ICE (RFC 8838/8840) | ✅ | receives candidates in INFO `application/trickle-ice-sdpfrag`; own candidates are gathered before the offer · menerima kandidat lewat INFO |
 | STUN, TURN allocation / permissions / send-data | ✅ | |
 | SRTP AES_CM_128_HMAC_SHA1_80 and AEAD_AES_128/256_GCM (RFC 7714) | ✅ | SDES or DTLS keys · kunci SDES atau DTLS |
+| ZRTP (RFC 6189) | ✅ | `media/zrtp.rs`, sans-IO with unit tests: Hello/Commit/DHPart/Confirm over the media path, EC25 + AES-128 + HMAC-SHA256, base32 SAS both sides read aloud, `a=zrtp-hash` in the SDP. No cached secrets, multistream or preshared modes; not tried against other ZRTP stacks · ZRTP antar endpoint Voip.NET |
 | DTLS-SRTP (RFC 5763/5764) | ✅ | dimpl DTLS 1.2 (pure Rust), fingerprint check, `a=setup` roles, no plain RTP before keys · tanpa RTP polos sebelum kunci siap |
 | Data channels (SCTP over DTLS, RFC 8831/8832) | ✅ | `media/sctp.rs`, sans-IO with unit tests: association, ordered reliable DATA with SACK and retransmission, fragmentation, DCEP. `m=application` beside the call, verified against Edge (a line of text from the browser and back) on every CI build. Partial reliability and unordered delivery not implemented · kanal data SCTP di dalam DTLS
 | Nightly live-provider tests | ✅ | `voipnet-nightly.yml` runs the LLM, speech and call-through-them tests against real services from a `VOIPNET_TEST_KEYS` secret; without the secret they skip and the job says so. All 15 pass against Azure OpenAI, DeepSeek and ElevenLabs · uji provider langsung tiap malam |
@@ -141,7 +142,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 | Callbacks and estimated wait time | ✅ | a caller keeps their place and hangs up; the service rings back when an agent is free and the callback has outwaited everyone still holding, with retries and an announcement · penelepon menyimpan posisinya lalu ditelepon balik, lengkap dengan percobaan ulang |
 | Scheduled routing (opening hours) | ✅ | `RoutingSchedule` per queue: weekly hours in their own time zone, holidays and half days as exceptions, periods that cross midnight, and a `ClosedTarget` for callers who arrive out of hours; `Check` says when the queue opens again · jam buka per antrean dengan zona waktu, hari libur, dan tujuan saat tutup |
 | Recording WAV/MP3 (MP3 on Windows; WAV elsewhere · MP3 di Windows, WAV di platform lain), analytics dashboards | ✅ |
-| TLS, SRTP, ZRTP, end-to-end encryption | 🟡 SRTP ✅ · DTLS-SRTP ✅ · TLS ✅ · ZRTP ⏳ |
+| TLS, SRTP, ZRTP, end-to-end encryption | ✅ | SRTP, DTLS-SRTP, TLS and ZRTP (RFC 6189: EC25, AES-128, HMAC-SHA256, base32 SAS, `a=zrtp-hash`; no cached secrets, multistream or preshared modes, and untried against other ZRTP stacks) · termasuk ZRTP antar endpoint Voip.NET |
 | CRM integration via AI functions | ✅ |
 
 ## Documentation · Dokumentasi

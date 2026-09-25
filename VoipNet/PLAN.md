@@ -32,7 +32,6 @@ Today H.264, VP8 and VP9 are negotiated as pass-through payloads only. This mile
 
 ## 1.5 — Contact centre · Contact center
 
-- ZRTP (RFC 6189) end-to-end media encryption. · Enkripsi ZRTP.
 
 ## 1.6 — Platform and operations · Platform dan operasional
 

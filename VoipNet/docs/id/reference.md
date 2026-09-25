@@ -25,6 +25,7 @@
 | `SessionExpires`, `MinSessionExpires` | `1800`, `90` | Session timer (RFC 4028) dalam detik; `0` berarti tidak dipakai. Pihak refresher mengirim re-INVITE di tengah interval, dan panggilan yang tidak diperbarui akan ditutup. |
 | `ReliableProvisional` | `true` | Mengirim respons provisional secara reliable (RFC 3262) ke pemanggil yang mendukung 100rel; yang mewajibkannya selalu dilayani reliable. |
 | `AudioCodecs` | `opus, G722, PCMU, PCMA` | Urutan preferensi. Native: opus, G722, PCMU, PCMA, L16. |
+| `SrtpKeying` | `Sdes` | `Sdes`, `Dtls`, atau `Zrtp` — asal kunci SRTP. |
 | `Video`, `VideoCodecs` | `false`, `H264, VP8` | Menawarkan stream `m=video` di samping audio; frame di-encode oleh aplikasi. |
 | `DataChannels` | `false` | Menawarkan stream `m=application` untuk kanal data (RFC 8831); butuh `SrtpKeying.Dtls`. |
 | `Srtp` | `Disabled` | `Disabled`, `Optional`, `Mandatory`. |

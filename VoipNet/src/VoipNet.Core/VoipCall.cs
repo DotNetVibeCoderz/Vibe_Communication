@@ -244,6 +244,12 @@ public sealed class VoipCall
             _ => "main",
         }, rtpTimestamp);
 
+    /// <summary>The ZRTP short authentication string: four characters both people read aloud to each
+    /// other, which match only if nobody relayed the key exchange.</summary>
+    /// <remarks>Null until the exchange finishes — a <c>zrtp-connected</c> media notification carries
+    /// the same string the moment it does — and on calls that do not use ZRTP.</remarks>
+    public string? AuthenticationString => _client.CallSas(Id);
+
     /// <summary>When the audio the call is playing right now was sent, on the sender's clock.</summary>
     /// <remarks>
     /// The other half of lip sync: hold a frame until <see cref="PresentationTime"/> for it is no

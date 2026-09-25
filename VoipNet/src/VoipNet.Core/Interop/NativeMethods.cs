@@ -162,6 +162,9 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "voipnet_playout_time")]
     internal static partial int PlayoutTime(nint handle, ulong callId, out ulong ntp);
 
+    [LibraryImport(Library, EntryPoint = "voipnet_call_sas")]
+    internal static partial int CallSas(nint handle, ulong callId, byte* buffer, int length);
+
     [LibraryImport(Library, EntryPoint = "voipnet_share_screen")]
     internal static partial int ShareScreen(nint handle, ulong callId, int on);
 

@@ -589,7 +589,7 @@ fn chunk(kind: u8, flags: u8, body: &[u8]) -> Vec<u8> {
 }
 
 /// CRC-32c (Castagnoli), which is what SCTP checksums with — not the CRC-32 of zip files.
-fn crc32c(data: &[u8]) -> u32 {
+pub(crate) fn crc32c(data: &[u8]) -> u32 {
     let mut crc = 0xFFFF_FFFFu32;
     for byte in data {
         crc ^= u32::from(*byte);

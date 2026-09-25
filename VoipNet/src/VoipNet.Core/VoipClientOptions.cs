@@ -53,6 +53,12 @@ public enum SrtpKeying
     /// <summary>DTLS-SRTP handshake on the media path (RFC 5764), as used by WebRTC. Offers include ICE candidates.</summary>
     [JsonStringEnumMemberName("dtls")]
     Dtls,
+
+    /// <summary>ZRTP on the media path (RFC 6189): no keys in the signaling, and a short string both
+    /// people read aloud to prove nobody is in the middle. The call starts in the clear and turns
+    /// encrypted when the exchange finishes, which a <c>zrtp-connected</c> notification announces.</summary>
+    [JsonStringEnumMemberName("zrtp")]
+    Zrtp,
 }
 
 /// <summary>How DTMF digits are transmitted.</summary>

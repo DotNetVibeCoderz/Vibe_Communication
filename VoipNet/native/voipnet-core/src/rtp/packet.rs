@@ -74,10 +74,17 @@ pub enum PacketClass {
     Dtls,
     Rtp,
     Rtcp,
+    /// Key agreement on the media path (RFC 6189): an RTP-shaped header with the ZRTP magic.
+    Zrtp,
     Unknown,
 }
 
 pub fn classify(data: &[u8]) -> PacketClass {
+    // ZRTP reuses the RTP header shape with version zero and its own magic word.
+    if data.len() >= 12 && data[0] == 0x10 && data[4..8] == *b"ZRTP" {
+        return PacketClass::Zrtp;
+    }
+
     match data.first() {
         Some(0..=3) => PacketClass::Stun,
         Some(20..=63) => PacketClass::Dtls,

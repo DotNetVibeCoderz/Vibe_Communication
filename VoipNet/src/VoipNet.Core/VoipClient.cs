@@ -446,6 +446,14 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
         return ntp == 0 ? null : FromNtp(ntp);
     }
 
+    internal unsafe string? CallSas(ulong id)
+    {
+        var buffer = stackalloc byte[16];
+        Check(NativeMethods.CallSas(_handle, id, buffer, 16), "read the authentication string");
+        var sas = Marshal.PtrToStringUTF8((nint)buffer);
+        return string.IsNullOrEmpty(sas) ? null : sas;
+    }
+
     internal void ShareScreen(ulong id, bool on) =>
         Check(NativeMethods.ShareScreen(_handle, id, on ? 1 : 0), on ? "start the screen share" : "stop the screen share");
 

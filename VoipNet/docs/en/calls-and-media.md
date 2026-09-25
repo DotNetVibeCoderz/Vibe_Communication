@@ -313,6 +313,36 @@ call.GetStatistics().SecureRtp;   // true when both directions are protected
 
 Renewed certificates are picked up with `client.ReloadTls()`, which affects new connections only, so a renewal never drops a call. Set `TlsRequireClientCertificate` to make callers prove who they are as well (mutual TLS): the same certificate and pinning rules then apply in both directions. Server certificates are checked against the Mozilla root store plus `TlsCaFile`, including the host name from the target URI, registrar or proxy. Pinning replaces chain validation, which suits PBXs with self-signed certificates. Each endpoint presents `TlsCertificateFile`/`TlsPrivateKeyFile`, or a generated self-signed certificate whose fingerprint is `client.TlsFingerprint`. A failed handshake ends the request at once with `503`.
 
+### ZRTP
+
+With `SrtpKeying.Zrtp` the two ends agree on their own keys over the media path (RFC 6189), and the
+signalling never carries any. The call starts in the clear and turns encrypted the moment the exchange
+finishes; both people then read four characters to each other, which match only if nobody relayed the
+exchange in the middle:
+
+```csharp
+var options = new VoipClientOptions { Srtp = SrtpMode.Optional, SrtpKeying = SrtpKeying.Zrtp };
+
+client.MediaNotification += (_, e) =>
+{
+    if (e.Kind == "zrtp-connected")
+    {
+        Console.WriteLine($"Read this aloud: {e.Detail}");   // "a7f3"
+    }
+};
+
+Console.WriteLine(call.AuthenticationString);                 // the same string, or null until then
+```
+
+The offer carries `a=zrtp-hash:1.10 <hash>` so the peer can tell a real exchange from an injected one,
+and an offer that carries one turns ZRTP on here even when this side would otherwise have used SDES.
+
+What is implemented is the ordinary Diffie-Hellman exchange — Hello, Commit, DHPart1, DHPart2,
+Confirm1, Confirm2 — with EC25 (P-256), AES-128, HMAC-SHA256 and a base32 SAS. There are no cached
+secrets between calls, no multistream or preshared modes, no signatures and no PBX enrolment, so the
+string has to be read out on every call. It is tested between Voip.NET endpoints; interoperability
+with other ZRTP implementations has not been tried here.
+
 ## WebRTC browsers
 
 Browsers call a `VoipClient` directly: SIP over WebSocket (RFC 7118) for signaling, ICE for the media path and DTLS-SRTP for keys.

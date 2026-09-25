@@ -13,6 +13,7 @@ use parking_lot::Mutex;
 use super::conference::{Conference, CONFERENCE_RATE};
 use super::dtls::{DtlsEvent, DtlsIdentity, DtlsRole, DtlsTransport};
 use super::sctp::{SctpAssociation, SctpEvent};
+use super::zrtp::{ZrtpEvent, ZrtpSession};
 #[cfg(feature = "audio-processing")]
 use super::enhance::AudioEnhancer;
 use super::ice::{IceAgent, IceOutput, IceRole};
@@ -376,6 +377,10 @@ struct Shared {
     estimator: Mutex<BandwidthEstimator>,
     /// What the peer last said it can receive, in bits per second.
     remote_estimate: AtomicU64,
+    /// Key agreement on the media path (RFC 6189), when the call uses it.
+    zrtp: Mutex<Option<ZrtpSession>>,
+    /// The short authentication string once ZRTP has finished, for the application to show.
+    zrtp_sas: Mutex<Option<String>>,
     /// Data channels, which ride inside the same DTLS tunnel as the SRTP keying (RFC 8261).
     /// Created when the tunnel comes up, because only then is the role settled.
     sctp: Mutex<Option<SctpAssociation>>,
@@ -527,6 +532,8 @@ impl MediaSession {
             video_epoch: Mutex::new(None),
             estimator: Mutex::new(BandwidthEstimator::new()),
             remote_estimate: AtomicU64::new(0),
+            zrtp: Mutex::new(None),
+            zrtp_sas: Mutex::new(None),
             sctp: Mutex::new(None),
             data_channels: AtomicBool::new(false),
             pending_channels: Mutex::new(Vec::new()),
@@ -627,6 +634,32 @@ impl MediaSession {
 
     pub fn set_dtls_role(&self, role: DtlsRole) {
         self.dtls_role.lock().get_or_insert(role);
+    }
+
+    /// Turns on ZRTP: the two sides agree on SRTP keys over the media path itself (RFC 6189).
+    ///
+    /// The call starts in the clear and switches to encrypted when the exchange finishes, which is
+    /// what ZRTP is for — no key material ever goes through the signalling.
+    pub fn enable_zrtp(&self) {
+        let ssrc = self.shared.tx.lock().ssrc;
+        let mut guard = self.shared.zrtp.lock();
+        if guard.is_none() {
+            *guard = Some(ZrtpSession::new(ssrc));
+        }
+    }
+
+    pub fn zrtp_enabled(&self) -> bool {
+        self.shared.zrtp.lock().is_some()
+    }
+
+    /// The short authentication string, once both sides have agreed on keys.
+    pub fn zrtp_sas(&self) -> Option<String> {
+        self.shared.zrtp_sas.lock().clone()
+    }
+
+    /// The hash of this side's Hello message, for `a=zrtp-hash` in the SDP (RFC 6189 8.1).
+    pub fn zrtp_hello_hash(&self) -> Option<String> {
+        self.shared.zrtp.lock().as_ref().map(ZrtpSession::hello_hash)
     }
 
     /// Turns on data channels, which share the call's DTLS tunnel (RFC 8261). The association opens
@@ -771,6 +804,16 @@ impl MediaSession {
         }
         sh.direction.store(direction_to(n.direction), Ordering::Relaxed);
         self.start();
+
+        // ZRTP begins as soon as the peer's address is known: it travels on the media path.
+        if sh.remote.lock().is_some() {
+            let mut events = Vec::new();
+            if let Some(zrtp) = sh.zrtp.lock().as_mut() {
+                zrtp.start(Instant::now(), &mut events);
+            }
+
+            process_zrtp_events(sh, events);
+        }
 
         if let (Some(fingerprint), true) = (&n.remote_fingerprint, self.dtls_enabled()) {
             let mut guard = sh.dtls.lock();
@@ -1206,6 +1249,14 @@ fn handle_datagram(sh: &Arc<Shared>, data: &[u8], from: SocketAddr, via_relay: b
         PacketClass::Stun => handle_stun(sh, data, from, via_relay),
         PacketClass::Rtp => handle_rtp(sh, data, from),
         PacketClass::Rtcp => handle_rtcp(sh, data),
+        PacketClass::Zrtp => {
+            let mut events = Vec::new();
+            if let Some(zrtp) = sh.zrtp.lock().as_mut() {
+                zrtp.handle_packet(data, Instant::now(), &mut events);
+            }
+
+            process_zrtp_events(sh, events);
+        }
         PacketClass::Dtls => {
             let mut events = Vec::new();
             if let Some(dtls) = sh.dtls.lock().as_mut() {
@@ -1448,6 +1499,24 @@ fn start_sctp(sh: &Arc<Shared>) {
     process_sctp_events(sh, events);
 }
 
+/// Acts on ZRTP output. Runs without the ZRTP lock held, like the other protocol pumps.
+fn process_zrtp_events(sh: &Arc<Shared>, events: Vec<ZrtpEvent>) {
+    for event in events {
+        match event {
+            ZrtpEvent::Send(packet) => send_raw(sh, &packet),
+            ZrtpEvent::Secure(result) => {
+                // From here the stream is encrypted; until now it was in the clear, which is how
+                // ZRTP works — the call starts, then the keys arrive over the same path.
+                sh.tx.lock().srtp = Some(result.outbound);
+                sh.rx.lock().srtp = Some(result.inbound);
+                *sh.zrtp_sas.lock() = Some(result.sas.clone());
+                sh.sink.on_media_event(sh.call_id, "zrtp-connected", &result.sas);
+            }
+            ZrtpEvent::Failed(reason) => sh.sink.on_media_event(sh.call_id, "zrtp-failed", &reason),
+        }
+    }
+}
+
 /// Acts on SCTP output: packets go back into the tunnel, messages go to the application.
 fn process_sctp_events(sh: &Arc<Shared>, events: Vec<SctpEvent>) {
     for event in events {
@@ -1679,6 +1748,11 @@ fn playout_loop(sh: &Arc<Shared>) {
             sctp.poll_timeout(Instant::now(), &mut sctp_events);
         }
         process_sctp_events(sh, sctp_events);
+        let mut zrtp_events = Vec::new();
+        if let Some(zrtp) = sh.zrtp.lock().as_mut() {
+            zrtp.poll_timeout(Instant::now(), &mut zrtp_events);
+        }
+        process_zrtp_events(sh, zrtp_events);
 
         // ---- Transmit path ----
         if let Some(conf) = &conference {

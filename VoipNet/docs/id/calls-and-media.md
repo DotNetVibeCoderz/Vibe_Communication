@@ -318,6 +318,36 @@ call.GetStatistics().SecureRtp;   // true bila kedua arah terlindungi
 
 Sertifikat yang diperbarui dimuat dengan `client.ReloadTls()`, yang hanya berlaku untuk koneksi baru, jadi pembaruan tidak pernah memutus panggilan. Setel `TlsRequireClientCertificate` agar penelepon juga membuktikan identitasnya (TLS dua arah): aturan sertifikat dan pinning yang sama berlaku untuk kedua arah. Sertifikat server diperiksa terhadap root store Mozilla ditambah `TlsCaFile`, termasuk nama host dari URI tujuan, registrar, atau proxy. Pinning menggantikan validasi rantai, cocok untuk PBX dengan sertifikat self-signed. Setiap endpoint menyajikan `TlsCertificateFile`/`TlsPrivateKeyFile`, atau sertifikat self-signed yang dibuat otomatis dengan fingerprint `client.TlsFingerprint`. Handshake yang gagal langsung mengakhiri request dengan `503`.
 
+### ZRTP
+
+Dengan `SrtpKeying.Zrtp`, kedua ujung menyepakati kuncinya sendiri lewat jalur media (RFC 6189), dan
+signaling tidak pernah membawa kunci apa pun. Panggilan dimulai tanpa enkripsi lalu berubah terenkripsi
+begitu pertukaran selesai; kedua orang kemudian saling membacakan empat karakter, yang hanya cocok bila
+tidak ada yang menyadap di tengah:
+
+```csharp
+var options = new VoipClientOptions { Srtp = SrtpMode.Optional, SrtpKeying = SrtpKeying.Zrtp };
+
+client.MediaNotification += (_, e) =>
+{
+    if (e.Kind == "zrtp-connected")
+    {
+        Console.WriteLine($"Bacakan ini: {e.Detail}");        // "a7f3"
+    }
+};
+
+Console.WriteLine(call.AuthenticationString);                 // string yang sama, null sebelum itu
+```
+
+Offer membawa `a=zrtp-hash:1.10 <hash>` supaya lawan bicara bisa membedakan pertukaran asli dari yang
+disusupkan, dan offer yang membawanya menyalakan ZRTP di sisi ini meski konfigurasinya SDES.
+
+Yang diimplementasikan adalah pertukaran Diffie-Hellman biasa — Hello, Commit, DHPart1, DHPart2,
+Confirm1, Confirm2 — dengan EC25 (P-256), AES-128, HMAC-SHA256, dan SAS base32. Tidak ada secret
+tersimpan antar panggilan, tidak ada mode multistream atau preshared, tanda tangan, maupun pendaftaran
+PBX, jadi stringnya harus dibacakan setiap panggilan. Diuji antar endpoint Voip.NET; interoperabilitas
+dengan implementasi ZRTP lain belum dicoba di sini.
+
 ## Browser WebRTC
 
 Browser dapat menelepon `VoipClient` secara langsung: SIP over WebSocket (RFC 7118) untuk signaling, ICE untuk jalur media, dan DTLS-SRTP untuk kunci.

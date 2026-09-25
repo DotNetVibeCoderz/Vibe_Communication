@@ -25,6 +25,7 @@
 | `DnsSrv`, `DnsServers` | `true`, — | Resolve SIP hosts through NAPTR/SRV (RFC 3263); `DnsServers` overrides the machine's resolvers. |
 | `SessionExpires`, `MinSessionExpires` | `1800`, `90` | Session timer (RFC 4028) in seconds; `0` leaves it out. The refresher re-INVITEs halfway through, and an unrefreshed call is hung up. |
 | `ReliableProvisional` | `true` | Answer callers that support 100rel with reliable provisionals (RFC 3262); callers that require it always get them. |
+| `SrtpKeying` | `Sdes` | `Sdes`, `Dtls` or `Zrtp` — where SRTP keys come from. |
 | `Video`, `VideoCodecs` | `false`, `H264, VP8` | Offer an `m=video` stream next to audio; the application encodes the frames. |
 | `DataChannels` | `false` | Offer an `m=application` stream for data channels (RFC 8831); needs `SrtpKeying.Dtls`. |
 | `Srtp` | `Disabled` | `Disabled`, `Optional`, `Mandatory`. |

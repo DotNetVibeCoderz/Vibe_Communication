@@ -498,6 +498,22 @@ pub unsafe extern "C" fn voipnet_playout_time(handle: *mut c_void, call_id: u64,
     }
 }
 
+/// Writes the call's ZRTP short authentication string into `out`, empty until the exchange finishes.
+///
+/// # Safety
+/// `out` must point to `len` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_call_sas(handle: *mut c_void, call_id: u64, out: *mut c_char, len: c_int) -> c_int {
+    let Some(ep) = endpoint(handle) else { return VN_ERR_INVALID_ARGUMENT };
+    match ep.call_sas(call_id) {
+        Ok(sas) => {
+            write_error(out, len, sas.as_deref().unwrap_or(""));
+            VN_OK
+        }
+        Err(e) => map_error(e),
+    }
+}
+
 /// Offers a screen-share stream on a call, or withdraws it when `on` is zero.
 ///
 /// # Safety
