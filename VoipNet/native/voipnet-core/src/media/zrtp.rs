@@ -234,6 +234,17 @@ impl ZrtpSession {
             // A repeat: answer it again so the peer stops asking.
             let ack = self.packet(&build_message(b"HelloACK", &[]));
             events.push(ZrtpEvent::Send(ack));
+
+            // And send ours with it while the peer has not acknowledged one. Only one message is
+            // repeated at a time, so committing stops the Hello going out — and a peer that never
+            // received it drops every Commit that follows, with both sides then waiting for the
+            // other until the call ends. This is the way out of that: the peer is plainly still
+            // asking, so tell it who we are again.
+            if !self.hello_acked {
+                let hello = self.packet(&self.my_hello.clone());
+                events.push(ZrtpEvent::Send(hello));
+            }
+
             return;
         }
 
@@ -288,7 +299,17 @@ impl ZrtpSession {
     }
 
     fn on_commit(&mut self, message: &[u8], now: Instant, events: &mut Vec<ZrtpEvent>) {
-        if self.peer_hello.is_none() || matches!(self.state, State::Secure | State::Confirming) {
+        if self.peer_hello.is_none() {
+            // Their Commit is no use without their Hello: the algorithms and the hash chain it
+            // commits to are in there. Ours clearly reached them, so ask for theirs by sending ours
+            // again — a Hello is answered with a Hello by any endpoint still in discovery.
+            self.hello_acked = true;
+            let hello = self.packet(&self.my_hello.clone());
+            events.push(ZrtpEvent::Send(hello));
+            return;
+        }
+
+        if matches!(self.state, State::Secure | State::Confirming) {
             return;
         }
 
@@ -296,6 +317,9 @@ impl ZrtpSession {
         if message.len() < 12 + 32 + 12 + 20 + 32 + 8 {
             return;
         }
+
+        // A Commit means the peer read our Hello, whether or not its HelloACK reached us.
+        self.hello_acked = true;
 
         let mut h2 = [0u8; 32];
         h2.copy_from_slice(&message[12..44]);
@@ -792,6 +816,50 @@ mod tests {
         b.handle_packet(&hello, now, &mut out);
 
         assert!(out.is_empty(), "a packet that fails its CRC is not answered");
+    }
+
+    #[test]
+    fn a_lost_hello_does_not_leave_both_sides_waiting() {
+        // The first Hello is sent before the other end's media is up, so it goes nowhere. The peer
+        // starts, says hello, and one of them commits — and then stops repeating the Hello the other
+        // never received, which used to mean every Commit was dropped and the call stayed in the
+        // clear for good, with both sides waiting for the other until it ended.
+        // The identifier decides who commits, and it is random, so pick a pair where the side whose
+        // Hello went missing is the one that will commit — that is the case that used to hang.
+        let (mut a, mut b) = loop {
+            let (a, b) = (ZrtpSession::new(0x1111_1111), ZrtpSession::new(0x2222_2222));
+            if a.zid > b.zid {
+                break (a, b);
+            }
+        };
+        let mut now = Instant::now();
+
+        let mut lost = Vec::new();
+        a.start(now, &mut lost);
+        lost.clear(); // nobody was listening yet
+
+        let mut from_b = Vec::new();
+        b.start(now, &mut from_b);
+        let mut pending: Vec<(bool, ZrtpEvent)> = from_b.into_iter().map(|e| (false, e)).collect();
+
+        // Ten seconds of the two of them trying, a hundred milliseconds at a time.
+        for _ in 0..100 {
+            exchange(&mut a, &mut b, std::mem::take(&mut pending), now);
+            if a.is_secure() && b.is_secure() {
+                break;
+            }
+
+            now += Duration::from_millis(100);
+            let mut again = Vec::new();
+            a.poll_timeout(now, &mut again);
+            pending.extend(again.into_iter().map(|e| (true, e)));
+            let mut again = Vec::new();
+            b.poll_timeout(now, &mut again);
+            pending.extend(again.into_iter().map(|e| (false, e)));
+        }
+
+        assert!(a.is_secure() && b.is_secure(), "the exchange finished without the first Hello");
+        assert_eq!(a.sas(), b.sas());
     }
 
     #[test]

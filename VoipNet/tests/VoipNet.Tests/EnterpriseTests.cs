@@ -269,8 +269,10 @@ public sealed class EnterpriseTests
         using var service = new RecordingService(pair.Callee, new RecordingOptions { Directory = dir, Format = VoipNet.Audio.RecordingFormat.Wav });
 
         service.Start(pair.CalleeLeg, new Dictionary<string, string> { ["queue"] = "support" });
-        pair.CallerLeg.SendAudio(TestHelpers.Tone(16000, 500), 16000);
-        await Task.Delay(900);
+        // One direction only, so the recorder pairs the caller against half a second of silence
+        // before it writes anything: wait for the audio to have arrived rather than for a clock.
+        pair.CallerLeg.SendAudio(TestHelpers.Tone(16000, 2000), 16000);
+        await TestHelpers.ReceivedAudioAsync(pair.CalleeLeg, 1400);
         var info = service.Stop(pair.CalleeLeg);
 
         Assert.NotNull(info);
