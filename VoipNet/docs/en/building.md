@@ -134,6 +134,17 @@ CI runs the benchmarks on every build and prints the comparison in the job summa
 tighter threshold would cry wolf. Refresh the baseline deliberately, on an idle machine, when a change
 is meant to move the numbers.
 
+### Nightly: the live providers
+
+`voipnet-nightly.yml` runs the tests that talk to real services — LLMs, speech recognition and
+synthesis, and a call through them — every night at 18:00 UTC, and on demand from the Actions tab.
+They need keys, which the repository holds as one secret named `VOIPNET_TEST_KEYS` with exactly the
+shape of the local `testkey.txt`: sections separated by blank lines, `name: value` inside each. The
+job writes it to a file and points `VOIPNET_TEST_KEYS` at it.
+
+Without the secret every live test skips itself, so the job still runs green and its summary says so
+rather than pretending the providers were reached. The log is attached to the run either way.
+
 ## Containers and Kubernetes
 
 `docker/Dockerfile` builds the Rust engine and one .NET app into a single image. Which app is a build

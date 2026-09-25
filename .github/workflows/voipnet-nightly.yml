@@ -1,0 +1,71 @@
+name: VoipNet nightly
+
+# The live-provider tests every night: real LLMs, real speech services, real calls through them.
+# They need keys, which the repository holds as one secret with the same shape as the local
+# testkey.txt — sections separated by blank lines, "name: value" inside. Without the secret every
+# live test skips itself, so the job still runs and says so rather than failing.
+
+on:
+  schedule:
+    # 18:00 UTC is 01:00 in Jakarta, when nothing else is running.
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: VoipNet
+
+jobs:
+  live:
+    name: Live providers
+    runs-on: ubuntu-latest
+    env:
+      # Secrets cannot be read in an `if:`, so the content comes through the environment.
+      TEST_KEYS: ${{ secrets.VOIPNET_TEST_KEYS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: VoipNet/native
+      - name: Install CMake
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake
+      - name: Build the engine
+        run: cargo build --release --manifest-path native/Cargo.toml
+      - name: Write the key file
+        if: env.TEST_KEYS != ''
+        run: printf '%s' "$TEST_KEYS" > "$RUNNER_TEMP/voipnet-keys.txt"
+      - name: Build the solution
+        run: dotnet build Voip.Net.slnx -c Release
+      - name: Live provider tests
+        env:
+          VOIPNET_TEST_KEYS: ${{ runner.temp }}/voipnet-keys.txt
+        run: |
+          dotnet run --project tests/VoipNet.Tests -c Release --no-build -- \
+            -class VoipNet.Tests.LiveLlmTests \
+            -class VoipNet.Tests.LiveSpeechTests \
+            -class VoipNet.Tests.SpeechProviderTests | tee live.log
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo '## Live provider tests'
+            if [ -z "$TEST_KEYS" ]; then
+              echo 'No `VOIPNET_TEST_KEYS` secret, so every live test skipped itself.'
+            fi
+            echo '```'
+            grep -E 'SKIP|FAIL|Total:' live.log || echo 'no results'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-provider-log
+          path: VoipNet/live.log
+          if-no-files-found: ignore

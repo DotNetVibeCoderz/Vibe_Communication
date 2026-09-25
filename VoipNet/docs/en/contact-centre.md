@@ -156,6 +156,26 @@ Each row covers one queue in one interval: offered, answered, abandoned, overflo
 longest wait, average talk time, service level and abandon rate. The CSV is plain UTF-8 with an ISO
 timestamp per row, which loads into a spreadsheet, a warehouse or a Grafana source without a converter.
 
+### Dashboards in Grafana
+
+`deploy/grafana/voipnet-queues.json` is a dashboard over the calls the store keeps: traffic per
+interval, service level against an answer target you pick in the dashboard, abandon rate, waiting and
+talking times, how calls ended, who answered them, and the demand that arrived while a queue was
+closed. Import it and point it at the database `SqlCallCenterStore` writes to:
+
+```bash
+# Grafana → Dashboards → New → Import → upload voipnet-queues.json
+```
+
+The queries are written for a PostgreSQL datasource and read `voipnet_calls` directly; `enqueued_at`
+is epoch milliseconds, which is why they divide by a thousand. On another engine the shape stays the
+same — only `$__timeGroupAlias` and `COUNT(*) FILTER (…)` need its own spelling.
+
+Without a database, the same numbers come from the CSV that `WorkforceReport.ToCsv` writes: its
+columns (`queue`, `interval_start`, `offered`, `answered`, `abandoned`, `overflowed`,
+`average_wait_seconds`, `longest_wait_seconds`, `average_talk_seconds`, `service_level`,
+`abandon_rate`) are already one row per queue per interval, which a CSV datasource plots as it stands.
+
 ### Opening hours
 
 A queue can have a schedule, so callers arriving out of hours are not left waiting for an agent who

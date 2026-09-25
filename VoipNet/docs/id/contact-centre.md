@@ -154,6 +154,26 @@ rata-rata dan waktu tunggu terlama, rata-rata waktu bicara, service level, serta
 UTF-8 biasa dengan timestamp ISO per baris, sehingga langsung bisa dibuka di spreadsheet, dimuat ke
 warehouse, atau dipakai sebagai sumber Grafana.
 
+### Dashboard di Grafana
+
+`deploy/grafana/voipnet-queues.json` adalah dashboard di atas panggilan yang disimpan store: trafik per
+interval, service level terhadap target jawab yang Anda pilih di dashboard, abandon rate, waktu tunggu
+dan bicara, cara panggilan berakhir, siapa yang menjawabnya, serta permintaan yang datang saat antrean
+tutup. Impor lalu arahkan ke database tempat `SqlCallCenterStore` menulis:
+
+```bash
+# Grafana → Dashboards → New → Import → unggah voipnet-queues.json
+```
+
+Kueri ditulis untuk datasource PostgreSQL dan membaca `voipnet_calls` langsung; `enqueued_at` berisi
+epoch milidetik, itulah sebabnya kueri membaginya dengan seribu. Di engine lain bentuknya tetap sama —
+hanya `$__timeGroupAlias` dan `COUNT(*) FILTER (…)` yang perlu ejaan masing-masing.
+
+Tanpa database, angka yang sama bisa diambil dari CSV hasil `WorkforceReport.ToCsv`: kolomnya
+(`queue`, `interval_start`, `offered`, `answered`, `abandoned`, `overflowed`, `average_wait_seconds`,
+`longest_wait_seconds`, `average_talk_seconds`, `service_level`, `abandon_rate`) sudah satu baris per
+antrean per interval, yang bisa langsung digambar oleh datasource CSV.
+
 ### Jam buka
 
 Antrean bisa punya jadwal, sehingga penelepon di luar jam kerja tidak dibiarkan menunggu agen yang

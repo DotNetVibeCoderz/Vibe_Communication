@@ -134,6 +134,17 @@ lebih dari 50% lebih lambat dari baseline hanya diberi peringatan, bukan menggag
 bersama cukup berisik sehingga ambang yang lebih ketat akan sering salah alarm. Perbarui baseline secara
 sengaja, di mesin yang sedang senggang, ketika suatu perubahan memang dimaksudkan mengubah angkanya.
 
+### Nightly: provider langsung
+
+`voipnet-nightly.yml` menjalankan test yang benar-benar memanggil layanan nyata — LLM, pengenalan dan
+sintesis suara, serta satu panggilan lewat keduanya — setiap malam pukul 18:00 UTC, dan sewaktu-waktu
+dari tab Actions. Test itu butuh kunci, yang disimpan repositori sebagai satu secret bernama
+`VOIPNET_TEST_KEYS` dengan bentuk persis seperti `testkey.txt` lokal: bagian dipisah baris kosong,
+berisi `nama: nilai`. Job menuliskannya ke file lalu mengarahkan `VOIPNET_TEST_KEYS` ke situ.
+
+Tanpa secret itu setiap test langsung melewati dirinya sendiri, jadi job tetap hijau dan ringkasannya
+menyebutkan hal itu alih-alih berpura-pura provider sudah dihubungi. Lognya tetap dilampirkan ke run.
+
 ## Container dan Kubernetes
 
 `docker/Dockerfile` membangun engine Rust dan satu aplikasi .NET menjadi satu image. Aplikasi mana

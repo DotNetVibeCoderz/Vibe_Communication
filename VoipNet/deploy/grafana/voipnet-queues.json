@@ -1,0 +1,192 @@
+{
+  "title": "Voip.NET — queues",
+  "uid": "voipnet-queues",
+  "description": "Queue traffic from the calls Voip.NET's call centre stores (voipnet_calls). Written for a PostgreSQL datasource; enqueued_at is epoch milliseconds.",
+  "tags": ["voipnet", "contact-centre"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Datasource",
+        "type": "datasource",
+        "query": "grafana-postgresql-datasource",
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "queue",
+        "label": "Queue",
+        "type": "query",
+        "datasource": { "type": "grafana-postgresql-datasource", "uid": "${datasource}" },
+        "query": "SELECT DISTINCT queue FROM voipnet_calls ORDER BY queue",
+        "includeAll": true,
+        "multi": true,
+        "refresh": 1,
+        "current": { "text": "All", "value": "$__all" }
+      },
+      {
+        "name": "target_seconds",
+        "label": "Answer target (s)",
+        "type": "custom",
+        "query": "10,15,20,30,45,60",
+        "current": { "text": "20", "value": "20" },
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Calls per interval",
+      "description": "Offered, answered and abandoned, grouped by the dashboard's interval.",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${datasource}" },
+      "gridPos": { "h": 9, "w": 16, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 40, "stacking": { "mode": "none" } }, "unit": "short" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "abandoned" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+          { "matcher": { "id": "byName", "options": "answered" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroupAlias(to_timestamp(enqueued_at / 1000), $__interval),\n  COUNT(*) AS offered,\n  COUNT(*) FILTER (WHERE outcome = 'Answered') AS answered,\n  COUNT(*) FILTER (WHERE outcome = 'Abandoned') AS abandoned,\n  COUNT(*) FILTER (WHERE outcome = 'Overflowed') AS overflowed\nFROM voipnet_calls\nWHERE $__unixEpochFilter(enqueued_at / 1000)\n  AND queue IN ($queue)\nGROUP BY 1\nORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Service level",
+      "description": "Share of answered calls picked up within the answer target.",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "orange", "value": 0.7 }, { "color": "green", "value": 0.85 }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  COALESCE(COUNT(*) FILTER (WHERE waited_ms <= $target_seconds * 1000)::float / NULLIF(COUNT(*), 0), 0) AS service_level\nFROM voipnet_calls\nWHERE $__unixEpochFilter(enqueued_at / 1000)\n  AND queue IN ($queue)\n  AND outcome = 'Answered'"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Abandon rate",
+      "description": "Callers who hung up while waiting, as a share of everything offered.",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${datasource}" },
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 4 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.05 }, { "color": "red", "value": 0.1 }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  COALESCE(COUNT(*) FILTER (WHERE outcome = 'Abandoned')::float / NULLIF(COUNT(*), 0), 0) AS abandon_rate\nFROM voipnet_calls\nWHERE $__unixEpochFilter(enqueued_at / 1000)\n  AND queue IN ($queue)"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Waiting and talking",
+      "description": "Mean wait of answered calls, the longest wait anyone had, and mean talk time.",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroupAlias(to_timestamp(enqueued_at / 1000), $__interval),\n  AVG(waited_ms) FILTER (WHERE outcome = 'Answered') / 1000 AS average_wait,\n  MAX(waited_ms) / 1000 AS longest_wait,\n  AVG(talked_ms) FILTER (WHERE outcome = 'Answered') / 1000 AS average_talk\nFROM voipnet_calls\nWHERE $__unixEpochFilter(enqueued_at / 1000)\n  AND queue IN ($queue)\nGROUP BY 1\nORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "piechart",
+      "title": "How calls ended",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 9 },
+      "options": { "legend": { "displayMode": "list", "placement": "right" }, "reduceOptions": { "calcs": ["lastNotNull"], "values": false } },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT outcome, COUNT(*) AS calls\nFROM voipnet_calls\nWHERE $__unixEpochFilter(enqueued_at / 1000)\n  AND queue IN ($queue)\nGROUP BY outcome\nORDER BY calls DESC"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Agents",
+      "description": "Who answered how much, and how long they spent talking.",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 9 },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "talk_time" }, "properties": [{ "id": "unit", "value": "s" }] },
+          { "matcher": { "id": "byName", "options": "average_talk" }, "properties": [{ "id": "unit", "value": "s" }] }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  agent_id,\n  COUNT(*) AS calls,\n  SUM(talked_ms) / 1000 AS talk_time,\n  AVG(talked_ms) / 1000 AS average_talk\nFROM voipnet_calls\nWHERE $__unixEpochFilter(enqueued_at / 1000)\n  AND queue IN ($queue)\n  AND agent_id IS NOT NULL\nGROUP BY agent_id\nORDER BY calls DESC"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Calls out of hours",
+      "description": "Callers who reached a queue while it was closed (QueueOutcome.Closed), which is demand a schedule turned away.",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${datasource}" },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 17 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 50 }, "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroupAlias(to_timestamp(enqueued_at / 1000), $__interval),\n  queue,\n  COUNT(*) AS closed\nFROM voipnet_calls\nWHERE $__unixEpochFilter(enqueued_at / 1000)\n  AND queue IN ($queue)\n  AND outcome = 'Closed'\nGROUP BY 1, 2\nORDER BY 1"
+        }
+      ]
+    }
+  ]
+}

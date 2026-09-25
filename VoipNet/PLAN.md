@@ -32,12 +32,11 @@ Today H.264, VP8 and VP9 are negotiated as pass-through payloads only. This mile
 
 ## 1.5 — Contact centre · Contact center
 
-- Workforce dashboards: Grafana templates over the exported history (reports and CSV export are done). · Template Grafana di atas riwayat yang diekspor.
 - ZRTP (RFC 6189) end-to-end media encryption. · Enkripsi ZRTP.
 
 ## 1.6 — Platform and operations · Platform dan operasional
 
-- Benchmarks and nightly live-provider test jobs in CI (the six-runtime build/test/publish matrix already ships in 1.0). · Benchmark dan uji provider langsung terjadwal di CI (matriks enam runtime sudah ada sejak 1.0).
+Everything here has shipped: the six-runtime build/test/publish matrix, benchmarks with a committed baseline, browser interop on every build, container images with a Helm chart, and nightly live-provider tests. · Semua sudah selesai: matriks enam runtime, benchmark dengan baseline, interop browser tiap build, image container dan chart Helm, serta uji provider langsung tiap malam.
 
 ## Principles · Prinsip
 
