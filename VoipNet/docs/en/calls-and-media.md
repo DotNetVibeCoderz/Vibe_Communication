@@ -330,16 +330,23 @@ using var recorder = CallRecorder.Start(call, "call.mp3", RecordingFormat.Mp3, R
 
 Stereo puts the remote party on the left and this endpoint on the right. MP3 encoding uses the bundled LAME encoder, which is Windows-only; on Linux and macOS the recorder writes WAV and reports the new path in `recorder.Path`.
 
-A video call records to AVI, with the video stored exactly as the peer encoded it next to PCM audio —
-nothing is re-encoded, so recording costs almost no CPU:
+A video call records to MP4 or AVI, with the video stored exactly as the peer encoded it next to PCM
+audio — nothing is re-encoded, so recording costs almost no CPU:
 
 ```csharp
-using var recorder = CallRecorder.Start(call, "call.avi", RecordingFormat.Avi);
+using var recorder = CallRecorder.Start(call, "call.mp4", RecordingFormat.Mp4);
 ```
 
-The frame rate is measured from the call and written into the header when the file is closed. A call
-without video falls back to WAV. MP4 with AAC audio would need an AAC encoder this SDK does not carry
-(see [PLAN 1.3](../../PLAN.md#13---video--fitur-video)).
+MP4 is the better of the two for a call, because it gives every frame its own duration: the RTP
+timestamps become sample durations, so a frame that arrived late stays late instead of being averaged
+into one nominal frame rate as it is in an AVI. It starts at the first frame that carries a sequence
+parameter set, since nothing before that could be decoded on its own, and the parameter sets move into
+the file header the way MP4 expects.
+
+Two limits are worth knowing. The audio is PCM, not AAC — this SDK carries no AAC encoder — so the file
+is as large as a WAV of the same call; and MP4 here holds H.264 only, so a VP8 call is written to an AVI
+instead and `recorder.Path` says so. An AVI stores one frame rate for the whole file, measured from the
+call and patched into the header on close. A call without video falls back to WAV.
 
 ## Security
 

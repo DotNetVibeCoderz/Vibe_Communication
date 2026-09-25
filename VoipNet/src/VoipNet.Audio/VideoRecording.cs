@@ -12,9 +12,10 @@ namespace VoipNet.Audio;
 /// AVI describes a stream by a single nominal frame rate, which a call does not have: frames arrive
 /// when the far end sends them. The header is therefore written with a placeholder and patched on
 /// disposal with the rate the call actually ran at, which is what players use to lay the file out.
-/// MP4 with AAC audio would need an AAC encoder, which this SDK does not carry; see PLAN 1.3.
+/// <see cref="Mp4Writer"/> keeps each frame's own timing instead, but only takes H.264; AVI is what a
+/// VP8 call is recorded in.
 /// </remarks>
-public sealed class AviWriter : IDisposable
+public sealed class AviWriter : ICallVideoWriter
 {
     /// Bytes inside the 'hdrl' list: its own four-character code, the main header, and one stream list
     /// for video and one for audio.
@@ -102,13 +103,16 @@ public sealed class AviWriter : IDisposable
 
             if (_width == 0)
             {
-                (_width, _height) = ReadDimensions(frame);
+                (_width, _height) = H264.ReadDimensions(frame);
             }
 
             WriteChunk(FourCc("00dc"), frame, keyframe);
             _videoFrames++;
         }
     }
+
+    /// <summary>The recorder's timestamp is of no use here: an AVI has one frame rate for the file.</summary>
+    void ICallVideoWriter.WriteVideo(ReadOnlySpan<byte> frame, bool keyframe, uint timestamp) => WriteVideo(frame, keyframe);
 
     /// <summary>Appends 16-bit PCM audio, interleaved when the file is stereo.</summary>
     /// <param name="samples">Audio samples.</param>
@@ -290,109 +294,6 @@ public sealed class AviWriter : IDisposable
         WriteUInt32(sampleSize);
         WriteUInt32(0); // rcFrame left/top
         WriteUInt32(0); // rcFrame right/bottom
-    }
-
-    /// <summary>
-    /// Reads the picture size out of an H.264 sequence parameter set, so the file says what it really
-    /// holds. Anything else falls back to a sensible default: players read the size from the stream.
-    /// </summary>
-    private static (int Width, int Height) ReadDimensions(ReadOnlySpan<byte> frame)
-    {
-        var sps = FindSps(frame);
-        if (sps.IsEmpty)
-        {
-            return (0, 0);
-        }
-
-        try
-        {
-            var reader = new RbspReader(sps);
-            reader.Skip(8); // profile_idc
-            reader.Skip(8); // constraint flags and reserved bits
-            reader.Skip(8); // level_idc
-            var profile = sps[0];
-            reader.ReadUnsigned(); // seq_parameter_set_id
-            if (profile is 100 or 110 or 122 or 244 or 44 or 83 or 86 or 118 or 128 or 138 or 139 or 134 or 135)
-            {
-                var chroma = reader.ReadUnsigned();
-                if (chroma == 3)
-                {
-                    reader.Skip(1); // separate_colour_plane_flag
-                }
-
-                reader.ReadUnsigned(); // bit_depth_luma_minus8
-                reader.ReadUnsigned(); // bit_depth_chroma_minus8
-                reader.Skip(1); // qpprime_y_zero_transform_bypass_flag
-                if (reader.ReadBit() == 1)
-                {
-                    // seq_scaling_matrix_present_flag: the lists are not needed for the size.
-                    return (0, 0);
-                }
-            }
-
-            reader.ReadUnsigned(); // log2_max_frame_num_minus4
-            var pocType = reader.ReadUnsigned();
-            if (pocType == 0)
-            {
-                reader.ReadUnsigned(); // log2_max_pic_order_cnt_lsb_minus4
-            }
-            else if (pocType == 1)
-            {
-                reader.Skip(1);
-                reader.ReadSigned();
-                reader.ReadSigned();
-                var cycle = reader.ReadUnsigned();
-                for (var i = 0; i < cycle; i++)
-                {
-                    reader.ReadSigned();
-                }
-            }
-
-            reader.ReadUnsigned(); // max_num_ref_frames
-            reader.Skip(1); // gaps_in_frame_num_value_allowed_flag
-            var widthMbs = reader.ReadUnsigned() + 1;
-            var heightMapUnits = reader.ReadUnsigned() + 1;
-            var frameMbsOnly = reader.ReadBit();
-            var width = (int)(widthMbs * 16);
-            var height = (int)((2 - frameMbsOnly) * heightMapUnits * 16);
-            return width is > 0 and <= 8192 && height is > 0 and <= 8192 ? (width, height) : (0, 0);
-        }
-        catch (InvalidOperationException)
-        {
-            // A truncated parameter set says nothing about the size, which is not worth failing over.
-            return (0, 0);
-        }
-    }
-
-    /// <summary>Finds the SPS payload (NAL type 7) in an Annex B access unit.</summary>
-    private static ReadOnlySpan<byte> FindSps(ReadOnlySpan<byte> frame)
-    {
-        for (var i = 0; i + 4 < frame.Length; i++)
-        {
-            var isStart = frame[i] == 0 && frame[i + 1] == 0 && (frame[i + 2] == 1 || (frame[i + 2] == 0 && frame[i + 3] == 1));
-            if (!isStart)
-            {
-                continue;
-            }
-
-            var header = frame[i + 2] == 1 ? i + 3 : i + 4;
-            if (header < frame.Length && (frame[header] & 0x1F) == 7)
-            {
-                var end = frame.Length;
-                for (var j = header + 1; j + 3 < frame.Length; j++)
-                {
-                    if (frame[j] == 0 && frame[j + 1] == 0 && (frame[j + 2] == 1 || frame[j + 2] == 0))
-                    {
-                        end = j;
-                        break;
-                    }
-                }
-
-                return frame[(header + 1)..end];
-            }
-        }
-
-        return default;
     }
 
     private static uint FourCc(string code) =>

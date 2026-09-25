@@ -92,7 +92,13 @@ public sealed class RecordingService : IDisposable
         var folder = Path.Combine(_options.Directory, started.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
         System.IO.Directory.CreateDirectory(folder);
         var id = $"{started:HHmmss}-{call.Id}-{Guid.NewGuid().ToString("N")[..6]}";
-        var extension = _options.Format == RecordingFormat.Mp3 ? ".mp3" : ".wav";
+        var extension = _options.Format switch
+        {
+            RecordingFormat.Mp3 => ".mp3",
+            RecordingFormat.Mp4 => ".mp4",
+            RecordingFormat.Avi => ".avi",
+            _ => ".wav",
+        };
         var recorder = CallRecorder.Start(call, Path.Combine(folder, id + extension), _options.Format, _options.Layout, _logger);
         var info = new RecordingInfo(id, call.Id, call.RemoteUri, call.IsOutgoing, recorder.Path, recorder.Format, started, TimeSpan.Zero, tags ?? new Dictionary<string, string>());
         _active[call.Id] = (recorder, info);

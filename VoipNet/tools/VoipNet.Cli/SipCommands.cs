@@ -249,12 +249,13 @@ internal static class SipCommands
                 videoSender = SendVideoAsync(call, videoFile, result.GetValue(videoFps), cancellationToken);
                 AnsiConsole.MarkupLine($"Video: [bold]{call.VideoCodec ?? "not negotiated"}[/]");
             }
-            // The extension says what to write: WAV, MP3, or AVI when the call carries video.
+            // The extension says what to write: WAV, MP3, or MP4/AVI when the call carries video.
             using var recorder = result.GetValue(record) is { } file
                 ? CallRecorder.Start(call, file, System.IO.Path.GetExtension(file).ToLowerInvariant() switch
                 {
                     ".mp3" => RecordingFormat.Mp3,
                     ".avi" => RecordingFormat.Avi,
+                    ".mp4" => RecordingFormat.Mp4,
                     _ => RecordingFormat.Wav,
                 })
                 : null;

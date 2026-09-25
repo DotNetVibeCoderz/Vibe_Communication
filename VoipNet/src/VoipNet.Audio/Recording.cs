@@ -16,6 +16,12 @@ public enum RecordingFormat
     /// <summary>Audio and video in an AVI container: PCM audio next to the call's own video frames,
     /// stored exactly as they arrived. Falls back to WAV on a call without video.</summary>
     Avi,
+
+    /// <summary>Audio and video in an MP4 container, which keeps each frame's own arrival time rather
+    /// than one frame rate for the file. The audio is PCM, not AAC — there is no AAC encoder here — so
+    /// the file is as large as an AVI. Only H.264 can be stored, so a VP8 call falls back to AVI, and a
+    /// call without video to WAV.</summary>
+    Mp4,
 }
 
 /// <summary>How the two directions of a call are stored.</summary>
@@ -196,7 +202,7 @@ public sealed class CallRecorder : IDisposable
     private IDisposable? _mp3Writer;
     private WavWriter? _wav;
     private int _sampleRate;
-    private AviWriter? _avi;
+    private ICallVideoWriter? _video;
     private string? _videoContent;
     private bool _disposed;
 
@@ -209,18 +215,31 @@ public sealed class CallRecorder : IDisposable
         Format = format;
         _sampleRate = call.SampleRate > 0 ? call.SampleRate : 8000;
 
-        // Video is recorded as it arrives; a call without a video stream has nothing to put in an AVI.
-        if (format == RecordingFormat.Avi)
+        // Video is recorded as it arrives; a call without a video stream has nothing to put in a
+        // video container, and MP4 can only hold H.264, so VP8 goes to an AVI instead.
+        if (format is RecordingFormat.Avi or RecordingFormat.Mp4)
         {
-            if (call.VideoCodec is { Length: > 0 } videoCodec)
-            {
-                _avi = new AviWriter(path, videoCodec == "VP8" ? "VP80" : videoCodec, _sampleRate, layout == RecordingLayout.Stereo ? 2 : 1);
-            }
-            else
+            var channels = layout == RecordingLayout.Stereo ? 2 : 1;
+            if (call.VideoCodec is not { Length: > 0 } videoCodec)
             {
                 _logger.LogInformation("The call carries no video; recording {Path} as WAV", path);
                 Format = RecordingFormat.Wav;
                 Path = System.IO.Path.ChangeExtension(path, ".wav");
+            }
+            else if (format == RecordingFormat.Mp4 && videoCodec != "H264")
+            {
+                _logger.LogInformation("MP4 holds H.264 only; recording the call's {Codec} to {Path} as AVI", videoCodec, path);
+                Format = RecordingFormat.Avi;
+                Path = System.IO.Path.ChangeExtension(path, ".avi");
+                _video = new AviWriter(Path, "VP80", _sampleRate, channels);
+            }
+            else if (format == RecordingFormat.Mp4)
+            {
+                _video = new Mp4Writer(path, _sampleRate, channels);
+            }
+            else
+            {
+                _video = new AviWriter(path, videoCodec == "VP8" ? "VP80" : videoCodec, _sampleRate, channels);
             }
         }
 
@@ -258,7 +277,7 @@ public sealed class CallRecorder : IDisposable
 
         call.AudioReceived += OnAudio;
         call.StateChanged += OnStateChanged;
-        if (_avi is not null)
+        if (_video is not null)
         {
             call.VideoFrameReceived += OnVideoFrame;
         }
@@ -303,17 +322,17 @@ public sealed class CallRecorder : IDisposable
     {
         lock (_gate)
         {
-            if (_disposed || _avi is null)
+            if (_disposed || _video is null)
             {
                 return;
             }
 
-            // An AVI holds one video track. The first stream to deliver a frame is the one recorded —
+            // A recording holds one video track. The first stream to deliver a frame is the one kept —
             // usually the camera, or the shared screen on a call that only shares.
             _videoContent ??= content;
             if (content == _videoContent)
             {
-                _avi.WriteVideo(frame, keyframe);
+                _video.WriteVideo(frame, keyframe, timestamp);
             }
         }
     }
@@ -381,9 +400,9 @@ public sealed class CallRecorder : IDisposable
             }
         }
 
-        if (_avi is not null)
+        if (_video is not null)
         {
-            _avi.WriteAudio(buffer);
+            _video.WriteAudio(buffer);
         }
         else if (_mp3Writer is not null)
         {
@@ -411,7 +430,7 @@ public sealed class CallRecorder : IDisposable
             _call.AudioReceived -= OnAudio;
             _call.StateChanged -= OnStateChanged;
             _call.VideoFrameReceived -= OnVideoFrame;
-            _avi?.Dispose();
+            _video?.Dispose();
             _wav?.Dispose();
             _mp3Writer?.Dispose();
             _mp3Stream?.Dispose();
