@@ -51,10 +51,10 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | Opus (RFC 6716/7587) | ✅ | libopus (`opus` cargo feature, on by default): 48 kHz mono, 32 kbit/s, in-band FEC, FEC recovery from the next buffered packet, libopus PLC; verified with Edge and Firefox · diverifikasi dengan Edge dan Firefox |
 | G.711, G.722, L16 | ✅ | native |
 | G.729, SILK, Speex | 🟡 | negotiated, pass-through payloads · dinegosiasikan, payload pass-through |
-| H.264, VP8/VP9 | 🟡 | negotiated, pass-through · dinegosiasikan, pass-through |
+| H.264, VP8/VP9 | 🟡 | the engine packetises and reassembles them but never looks inside a frame; `VoipNet.Video` encodes and decodes H.264 with the platform codec (Media Foundation; Windows so far), and VP8/VP9 stay pass-through · engine hanya memaketkan; `VoipNet.Video` meng-encode/decode H.264 di Windows, VP8/VP9 tetap pass-through |
 | DTMF RFC 4733 / SIP INFO / in-band | ✅ | Goertzel detector · detektor Goertzel |
 | SIMD acceleration | 🟡 | table-driven codecs and auto-vectorised loops; hand-written intrinsics were measured and did not pay off — G.722 is dominated by its serial ADPCM state machine, not by the QMF · intrinsik manual sudah diukur dan tidak memberi keuntungan |
-| GPU acceleration | ⏳ | not needed for audio codecs; planned with video (PLAN 1.3) · belum diperlukan untuk audio; direncanakan bersama video (PLAN 1.3) |
+| GPU acceleration | 🟡 | not needed for audio codecs; for video, `VoipNet.Video` takes a graphics card's encoder when one accepts pictures from ordinary memory and names it in `IVideoEncoder.Implementation` — most want a Direct3D surface or the asynchronous transform model, which is PLAN 1.3 · untuk video, encoder kartu grafis dipakai bila mau menerima memori biasa |
 
 ## WebRTC
 
