@@ -69,7 +69,7 @@ Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ p
 | Bandwidth estimation (RTCP REMB) | ✅ | a receive-side loss estimator per video stream, sent to the peer so a browser encodes to fit (Chrome follows it), and the peer's own estimate reported as `CallStatistics.RemoteEstimateBps` and a `bandwidth-estimate` notification · estimasi bandwidth REMB dua arah |
 | RTCP feedback negotiation (`a=rtcp-fb`: nack, nack pli, ccm fir, goog-remb) | ✅ | offered on video lines and echoed in answers (RFC 4585 4); without it a browser ignores the keyframe requests the conference needs to start a new viewer · negosiasi umpan balik RTCP di baris video |
 | Browser video interop | ✅ | the WebPhone sample sends camera video over DTLS-SRTP; the gateway echoes the reassembled frames and the browser decodes them again (Edge: VP8 320×240, 64 frames out and back). Checked on every CI build · video kamera dari browser diuji pada setiap build CI |
-| Browser interop | ✅ | Chrome/Edge and Firefox verified on a desktop; Chrome gates every CI build (`tools/VoipNet.DocShots webphone`) and the build fails unless encrypted audio flows both ways. Firefox on hosted runners signals the call but never finishes ICE there, so that step reports without failing. Safari not tested (no macOS machine) · diuji di setiap build CI; Safari belum diuji |
+| Browser interop | ✅ | Chrome/Edge and Firefox both gate every CI build (`tools/VoipNet.DocShots webphone`, and `meeting` for the conference): the build fails unless encrypted audio, video and a data channel message come back through each browser. Safari not tested (no macOS machine) · diuji di setiap build CI dengan Chrome dan Firefox; Safari belum diuji |
 
 ## 🎥 Video · Fitur video
 

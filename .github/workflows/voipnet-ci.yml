@@ -138,10 +138,9 @@ jobs:
       # unless encrypted audio flows both ways.
       - name: Call from Chrome
         run: dotnet run --project tools/VoipNet.DocShots -c Release --no-build -- webphone http://localhost:5190 shots
-      # Firefox completes the call on a desktop but its ICE checks do not finish on the hosted runners
-      # yet, so this step reports without failing the build.
+      # Firefox goes through the same call as Chrome, over WebDriver BiDi instead of the DevTools
+      # protocol. It is only skipped when the runner has no Firefox at all.
       - name: Call from Firefox
-        continue-on-error: true
         run: |
           firefox=$(command -v firefox || true)
           if [ -z "$firefox" ]; then
