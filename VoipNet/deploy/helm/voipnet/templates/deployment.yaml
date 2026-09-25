@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "voipnet.fullname" . }}
+  labels:
+    {{- include "voipnet.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "voipnet.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "voipnet.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.hostNetwork }}
+      # With host networking the pod answers on the node's own ports, which is what the addresses in
+      # SDP have to be for media to arrive.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: sip
+              containerPort: {{ .Values.sip.port }}
+              protocol: {{ if eq .Values.sip.transport "udp" }}UDP{{ else }}TCP{{ end }}
+            {{- if .Values.http.enabled }}
+            - name: http
+              containerPort: {{ .Values.http.port }}
+              protocol: TCP
+            {{- end }}
+          env:
+            - name: VOIPNET_SIP_PORT
+              value: {{ .Values.sip.port | quote }}
+            - name: VOIPNET_RTP_PORT_MIN
+              value: {{ .Values.rtp.portMin | quote }}
+            - name: VOIPNET_RTP_PORT_MAX
+              value: {{ .Values.rtp.portMax | quote }}
+            {{- if .Values.http.enabled }}
+            - name: ASPNETCORE_URLS
+              value: "http://0.0.0.0:{{ .Values.http.port }}"
+            {{- end }}
+            {{- range $name, $value := .Values.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- with .Values.envFromSecrets }}
+          envFrom:
+            {{- range . }}
+            - secretRef:
+                name: {{ . }}
+            {{- end }}
+          {{- end }}
+          {{- if and .Values.probes.enabled .Values.http.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.http.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.periodSeconds }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.http.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.periodSeconds }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,21 @@
+{{ include "voipnet.fullname" . }} is deployed from {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}.
+
+{{ if .Values.hostNetwork -}}
+The pod uses the node's network, so SIP answers on {{ .Values.sip.port }}/{{ .Values.sip.transport }}
+and media on {{ .Values.rtp.portMin }}-{{ .Values.rtp.portMax }}/udp of whichever node runs it:
+
+  kubectl get pod -l app.kubernetes.io/instance={{ .Release.Name }} -o wide
+
+Make sure those ports are open on the node, and that only one replica runs per node: two pods sharing
+a node would fight over the same ports.
+{{- else -}}
+Host networking is off, so only signalling goes through the Service; media needs a path of its own.
+Either turn hostNetwork on, or give the app a TURN server it can relay through
+(`TurnServer`, `TurnUsername`, `TurnPassword` in its configuration).
+{{- end }}
+
+{{ if .Values.http.enabled -}}
+The web interface is on port {{ .Values.http.port }}:
+
+  kubectl port-forward svc/{{ include "voipnet.fullname" . }} {{ .Values.http.port }}:{{ .Values.http.port }}
+{{- end }}

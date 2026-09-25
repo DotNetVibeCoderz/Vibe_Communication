@@ -1,0 +1,62 @@
+# Default values for the voipnet chart.
+
+image:
+  repository: voipnet/meeting
+  # Defaults to the chart's appVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+# Arguments passed to the app inside the image, for example ["sip", "listen", "--echo"] for the CLI.
+args: []
+
+# Environment for the app: SIP credentials, AI keys, whatever it reads.
+env: {}
+# Keys taken from existing secrets, so credentials stay out of values.yaml.
+envFromSecrets: []
+
+# Media is UDP across a range of ports, and a Kubernetes Service forwards one port at a time. Host
+# networking is the practical answer: the pod uses the node's ports directly, and the addresses the
+# engine puts in SDP are the node's own. Turn it off only when the app is signalling-only.
+hostNetwork: true
+
+sip:
+  port: 5060
+  # udp, tcp, tls, ws or wss — whatever the app is configured for.
+  transport: udp
+
+rtp:
+  portMin: 10000
+  portMax: 10100
+
+# The web port a Blazor sample listens on; ignored when the app has no HTTP endpoint.
+http:
+  enabled: true
+  port: 8080
+  path: /
+
+# Only useful without hostNetwork: a Service forwards signalling, not the media range.
+service:
+  enabled: false
+  type: ClusterIP
+  annotations: {}
+
+# A pod that cannot reach its own media ports is no use to anyone, so the probes watch the app's
+# HTTP endpoint when it has one.
+probes:
+  enabled: true
+  initialDelaySeconds: 10
+  periodSeconds: 20
+
+resources: {}
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

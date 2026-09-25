@@ -133,3 +133,44 @@ CI runs the benchmarks on every build and prints the comparison in the job summa
 50% slower than the baseline is warned about rather than failed: shared runners are noisy enough that a
 tighter threshold would cry wolf. Refresh the baseline deliberately, on an idle machine, when a change
 is meant to move the numbers.
+
+## Containers and Kubernetes
+
+`docker/Dockerfile` builds the Rust engine and one .NET app into a single image. Which app is a build
+argument, so the same file produces the CLI, a sample or your own service:
+
+```bash
+cd VoipNet
+docker build -f docker/Dockerfile -t voipnet/cli .
+docker build -f docker/Dockerfile -t voipnet/meeting \
+  --build-arg PROJECT=samples/VoipNet.Meeting --build-arg ENTRY=VoipNet.Meeting.dll .
+```
+
+Media is the awkward part of running SIP in a container: RTP uses a range of UDP ports, and the
+addresses the engine writes into SDP have to be addresses the peer can reach. Host networking is the
+straightforward answer:
+
+```bash
+docker run --rm --network host voipnet/cli sip listen --echo
+docker run --rm --network host -p 8080:8080 voipnet/meeting
+```
+
+Without it, publish the signalling port and the RTP range together, and tell the engine the address
+callers should use (`PublicAddress`, or `StunServer` / `TurnServer` behind NAT):
+
+```bash
+docker run --rm -p 5060:5060/udp -p 10000-10100:10000-10100/udp voipnet/cli sip listen --echo
+```
+
+The chart in `deploy/helm/voipnet` deploys one app the same way:
+
+```bash
+helm install room deploy/helm/voipnet \
+  --set image.repository=voipnet/meeting \
+  --set rtp.portMin=10000 --set rtp.portMax=10100
+```
+
+It runs with `hostNetwork: true` by default, because a Kubernetes Service forwards one port at a time
+and media needs a range. That means one replica per node — two pods on one node would fight over the
+same ports — so scale by adding nodes, or put a TURN server in front and turn host networking off.
+Credentials belong in a secret: `--set envFromSecrets={voipnet-credentials}` passes one through.

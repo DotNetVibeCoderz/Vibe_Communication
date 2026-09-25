@@ -39,7 +39,6 @@ Today H.264, VP8 and VP9 are negotiated as pass-through payloads only. This mile
 ## 1.6 — Platform and operations · Platform dan operasional
 
 - Benchmarks and nightly live-provider test jobs in CI (the six-runtime build/test/publish matrix already ships in 1.0). · Benchmark dan uji provider langsung terjadwal di CI (matriks enam runtime sudah ada sejak 1.0).
-- Container images for the Realtime Agent and Call Centre samples; Helm chart. · Image container dan Helm chart.
 
 ## Principles · Prinsip
 

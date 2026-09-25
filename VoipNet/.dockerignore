@@ -1,0 +1,10 @@
+# Build output and caches: the image builds everything from source.
+**/bin/
+**/obj/
+native/target/
+artifacts/
+docs/images/
+.git/
+.github/
+.vs/
+*.user

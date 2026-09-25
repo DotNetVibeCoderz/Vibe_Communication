@@ -1,0 +1,16 @@
+apiVersion: v2
+name: voipnet
+description: A Voip.NET application — SIP signalling and RTP media from the Rust engine — on Kubernetes.
+type: application
+version: 0.1.0
+appVersion: "1.2.0"
+keywords:
+  - sip
+  - rtp
+  - webrtc
+  - voip
+home: https://github.com/DotNetVibeCoderz/Vibe_Communication
+sources:
+  - https://github.com/DotNetVibeCoderz/Vibe_Communication
+maintainers:
+  - name: Gravicode Studios

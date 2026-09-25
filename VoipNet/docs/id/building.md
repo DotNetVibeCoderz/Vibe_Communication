@@ -133,3 +133,45 @@ CI menjalankan benchmark pada setiap build dan menampilkan perbandingannya di ri
 lebih dari 50% lebih lambat dari baseline hanya diberi peringatan, bukan menggagalkan build: runner
 bersama cukup berisik sehingga ambang yang lebih ketat akan sering salah alarm. Perbarui baseline secara
 sengaja, di mesin yang sedang senggang, ketika suatu perubahan memang dimaksudkan mengubah angkanya.
+
+## Container dan Kubernetes
+
+`docker/Dockerfile` membangun engine Rust dan satu aplikasi .NET menjadi satu image. Aplikasi mana
+yang dibangun ditentukan lewat build argument, jadi file yang sama menghasilkan CLI, sebuah sample,
+atau layanan buatan Anda sendiri:
+
+```bash
+cd VoipNet
+docker build -f docker/Dockerfile -t voipnet/cli .
+docker build -f docker/Dockerfile -t voipnet/meeting \
+  --build-arg PROJECT=samples/VoipNet.Meeting --build-arg ENTRY=VoipNet.Meeting.dll .
+```
+
+Bagian yang merepotkan saat menjalankan SIP di container adalah medianya: RTP memakai rentang port
+UDP, dan alamat yang ditulis engine ke SDP harus alamat yang bisa dijangkau lawan bicara. Jaringan
+host adalah jawaban paling sederhana:
+
+```bash
+docker run --rm --network host voipnet/cli sip listen --echo
+docker run --rm --network host -p 8080:8080 voipnet/meeting
+```
+
+Tanpa itu, publikasikan port signaling bersama rentang RTP, dan beri tahu engine alamat yang harus
+dipakai penelepon (`PublicAddress`, atau `StunServer` / `TurnServer` di belakang NAT):
+
+```bash
+docker run --rm -p 5060:5060/udp -p 10000-10100:10000-10100/udp voipnet/cli sip listen --echo
+```
+
+Chart di `deploy/helm/voipnet` men-deploy satu aplikasi dengan cara yang sama:
+
+```bash
+helm install room deploy/helm/voipnet \
+  --set image.repository=voipnet/meeting \
+  --set rtp.portMin=10000 --set rtp.portMax=10100
+```
+
+Secara bawaan chart memakai `hostNetwork: true`, karena Service Kubernetes meneruskan satu port
+sekaligus sedangkan media butuh rentang. Artinya satu replica per node — dua pod di satu node akan
+berebut port yang sama — jadi skalakan dengan menambah node, atau pasang server TURN di depannya lalu
+matikan jaringan host. Kredensial sebaiknya disimpan di secret: `--set envFromSecrets={voipnet-credentials}`.

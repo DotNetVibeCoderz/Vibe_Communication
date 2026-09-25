@@ -108,6 +108,23 @@ jobs:
         shell: bash
         run: dotnet run --project tools/VoipNet.Cli -c Release --no-build -- version
 
+  container:
+    name: Container image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The image builds the engine and the app from source, so this also proves the Linux build
+      # needs nothing but what the Dockerfile installs.
+      - name: Build the image
+        run: docker build -f docker/Dockerfile -t voipnet/cli:ci .
+      - name: Run the CLI from the image
+        run: docker run --rm voipnet/cli:ci version
+      - name: Check the Helm chart
+        run: |
+          helm lint deploy/helm/voipnet
+          helm template ci deploy/helm/voipnet > /dev/null
+          helm template ci deploy/helm/voipnet --set hostNetwork=false --set service.enabled=true > /dev/null
+
   browser:
     name: Browser interop
     needs: native
