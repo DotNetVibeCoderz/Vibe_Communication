@@ -35,12 +35,29 @@ public interface IVideoCaptureSource : IDisposable
 /// <summary>The cameras on this machine, and how to open one.</summary>
 public static class VideoCapture
 {
-    /// <summary>Whether cameras can be opened here at all.</summary>
+    /// <summary>Whether cameras and the screen can be read here at all.</summary>
     public static bool IsSupported => OperatingSystem.IsWindows();
 
-    /// <summary>Lists the cameras the operating system offers; empty where there is no support.</summary>
-    public static IReadOnlyList<VideoCaptureDevice> Cameras() =>
-        OperatingSystem.IsWindows() ? ListWindows() : [];
+    /// <summary>
+    /// Lists the cameras the operating system offers; empty where there is no support, and empty
+    /// rather than thrown where the platform has no media stack installed at all.
+    /// </summary>
+    public static IReadOnlyList<VideoCaptureDevice> Cameras()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return [];
+        }
+
+        try
+        {
+            return ListWindows();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or DllNotFoundException or EntryPointNotFoundException)
+        {
+            return [];
+        }
+    }
 
     /// <summary>
     /// Opens a camera. The size and rate are what the device is asked for; a device that cannot do

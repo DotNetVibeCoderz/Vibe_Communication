@@ -220,7 +220,17 @@ public sealed class VideoCodecTests
     {
         Assert.SkipUnless(VideoCapture.IsSupported, "Screen capture is not wired up on this OS.");
 
-        using var screen = VideoCapture.OpenScreen(wholeDesktop: false, width: 640, height: 360, framesPerSecond: 10);
+        IVideoCaptureSource? opened = null;
+        try
+        {
+            opened = VideoCapture.OpenScreen(wholeDesktop: false, width: 640, height: 360, framesPerSecond: 10);
+        }
+        catch (InvalidOperationException)
+        {
+            Assert.Skip("This machine has no screen to read — a headless agent, or a session with no desktop.");
+        }
+
+        using var screen = opened!;
         Assert.Equal(640, screen.Width);
         Assert.Equal(360, screen.Height);
 

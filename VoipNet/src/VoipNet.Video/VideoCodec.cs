@@ -88,8 +88,33 @@ public sealed class VideoEncoderOptions
 /// <summary>The codecs this machine can encode and decode with.</summary>
 public static class VideoCodecs
 {
-    /// <summary>Whether H.264 can be encoded and decoded here.</summary>
-    public static bool IsH264Available => OperatingSystem.IsWindows();
+    private static bool? _h264;
+
+    /// <summary>
+    /// Whether H.264 can be encoded and decoded here. This asks the platform rather than assuming:
+    /// Windows Server installs without Media Foundation unless somebody adds it, and a machine that
+    /// has no codec should say so rather than throw halfway through a call.
+    /// </summary>
+    public static bool IsH264Available => _h264 ??= ProbeH264();
+
+    private static bool ProbeH264()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
+        try
+        {
+            using var encoder = CreateWindowsEncoder(new VideoEncoderOptions { Width = 320, Height = 240, FramesPerSecond = 15, BitsPerSecond = 200_000 });
+            using var decoder = CreateWindowsDecoder();
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or DllNotFoundException or EntryPointNotFoundException or TypeInitializationException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// Creates an H.264 encoder using the platform's own codec: Media Foundation on Windows, which
