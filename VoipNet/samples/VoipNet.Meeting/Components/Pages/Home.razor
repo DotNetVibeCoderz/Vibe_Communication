@@ -72,6 +72,7 @@
                 <div><dt class="eyebrow">SRTP</dt><dd class="mono">@Show(_stats?.Srtp)</dd></div>
                 <div><dt class="eyebrow">ICE pair</dt><dd class="mono">@Show(_stats?.Pair)</dd></div>
                 <div><dt class="eyebrow">Keyframes asked / sent</dt><dd class="mono">@(_stats is null ? "—" : $"{_stats.Pli} / {_stats.KeyframesOut}")</dd></div>
+                <div><dt class="eyebrow">Encodings sent</dt><dd class="mono">@(_encodings.Length == 0 ? "—" : _encodings)</dd></div>
                 <div><dt class="eyebrow">Sending allowance</dt><dd class="mono">@(_stats is null or { Allowance: 0 } ? "—" : $"{_stats.Allowance} kbit/s")</dd></div>
             </dl>
         }
@@ -112,7 +113,20 @@
                             <strong>@p.Name</strong>
                             <div class="soft small">joined @p.Joined.ToString("HH:mm:ss")</div>
                         </td>
-                        <td class="mono small">@(p.Security is { } sec ? $"DTLS-SRTP {sec}" : "securing…")@(p.SendingVideo ? $" · {p.Call.VideoCodec}" : "")</td>
+                        <td class="mono small">
+                            @(p.Security is { } sec ? $"DTLS-SRTP {sec}" : "securing…")@(p.SendingVideo ? $" · {p.Call.VideoCodec}" : "")
+                            @{
+                                var layers = p.SendingVideo ? p.Call.VideoLayers : [];
+                            }
+                            @if (layers.Count > 1)
+                            {
+                                <span> · </span>
+                                @foreach (var layer in layers)
+                                {
+                                    <span class="@(layer.Selected ? "layer on" : "layer")">@layer.Name @(layer.BitsPerSecond / 1000)k</span>
+                                }
+                            }
+                        </td>
                         <td class="num">@(stats?.PacketsSent.ToString() ?? "—")</td>
                         <td class="num">@(stats?.PacketsReceived.ToString() ?? "—")</td>
                         <td class="num">@(p.VideoFrames == 0 ? "—" : p.VideoFrames.ToString())</td>
@@ -172,6 +186,7 @@
     private string _phase = "idle";
     private string _detail = "";
     private bool _muted;
+    private string _encodings = "";
     private BrowserStats? _stats;
     private Timer? _refresh;
 
@@ -241,6 +256,14 @@
     [JSInvokable]
     public Task OnPhase(string phase, string detail)
     {
+        if (phase == "encodings")
+        {
+            // How many encodings of the camera survived the answer: simulcast only happens when the
+            // room keeps them.
+            _encodings = detail;
+            return InvokeAsync(StateHasChanged);
+        }
+
         if (!(phase.StartsWith("pc-") && _phase is "left" or "failed"))
         {
             _phase = phase == "pc-failed" ? "failed" : phase;

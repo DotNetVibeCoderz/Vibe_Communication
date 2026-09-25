@@ -228,6 +228,10 @@ table.grid td.num { font-family: var(--mono); text-align: right; }
 .roster tr.on-air td { background: color-mix(in srgb, var(--green) 9%, transparent); }
 .roster td .btn { margin-left: 8px; }
 .pill.live { background: color-mix(in srgb, var(--green) 20%, transparent); }
+
+/* Each encoding a simulcast sender is putting out; the one being forwarded is filled in. */
+.layer { font-size: 11px; padding: 1px 5px; border-radius: 3px; background: var(--trace); margin-left: 4px; }
+.layer.on { background: color-mix(in srgb, var(--green) 30%, transparent); font-weight: 500; }
 .roster-actions { margin-top: 12px; }
 
 /* ---- Log ---- */

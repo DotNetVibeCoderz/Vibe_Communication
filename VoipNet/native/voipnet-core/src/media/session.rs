@@ -22,7 +22,7 @@ use crate::codec::dtmf::{self, DtmfDetector, TelephoneEvent};
 use crate::codec::{create_audio_codec, AudioCodec, Concealer};
 use crate::rtp::jitter::{JitterBuffer, JitterStats, Playout};
 use crate::rtp::quality::BurstGapTracker;
-use crate::rtp::video::{VideoDepacketizer, VideoFormat, VideoPacketizer};
+use crate::rtp::video::{VideoDepacketizer, VideoFormat, VideoFrame, VideoPacketizer};
 use crate::rtp::packet::{
     build_bye, build_keyframe_request, build_receiver_estimate, build_receiver_report, build_sender_report, build_xr_voip_metrics, classify, parse_rtcp,
     PacketClass, ReportBlock, RtcpPacket,
@@ -244,12 +244,52 @@ struct Gathering {
 }
 
 /// A session in video mode packetizes whole frames instead of encoding audio.
+/// One encoding of a simulcast stream: the same picture at its own size and bitrate.
+struct Layer {
+    depacketizer: VideoDepacketizer,
+    /// Bytes seen since the measurement started, and when that was.
+    bytes: u64,
+    since: Instant,
+    /// What the last full second of this encoding worked out at, in bits per second.
+    bitrate: u64,
+    /// When a packet of this encoding last arrived: a sender may stop one at any time.
+    last_packet: Instant,
+}
+
+impl Layer {
+    fn new(format: VideoFormat) -> Self {
+        let now = Instant::now();
+        Self { depacketizer: VideoDepacketizer::new(format), bytes: 0, since: now, bitrate: 0, last_packet: now }
+    }
+
+    /// Folds in one packet and returns the measured rate once a second has gone by.
+    fn measure(&mut self, bytes: usize, now: Instant) {
+        self.bytes += bytes as u64;
+        self.last_packet = now;
+        let elapsed = now.duration_since(self.since);
+        if elapsed >= Duration::from_secs(1) {
+            self.bitrate = (self.bytes as f64 * 8.0 / elapsed.as_secs_f64()) as u64;
+            self.bytes = 0;
+            self.since = now;
+        }
+    }
+}
+
 struct VideoTrack {
     payload_type: u8,
     /// What this stream shows (RFC 4796 `a=content`), carried through to the sink.
     content: String,
     packetizer: VideoPacketizer,
     depacketizer: VideoDepacketizer,
+    /// The picture format, so another encoding can be put back together the same way.
+    format: VideoFormat,
+    /// The header extension that names the encoding a packet belongs to (RFC 8852), when the peer
+    /// said it would send several.
+    rid_extension: Option<u8>,
+    /// One reassembler per encoding, in the order the peer offered them.
+    layers: Vec<(String, Layer)>,
+    /// Which encoding is being handed on; the others are dropped as they arrive.
+    selected: Option<String>,
     /// Incomplete frames already reported, so only new losses ask for a keyframe.
     incomplete_seen: u64,
     /// Whole frames handed to the application, and what was already counted towards an estimate.
@@ -259,6 +299,49 @@ struct VideoTrack {
     last_request: Option<Instant>,
     /// Sequence number carried by Full Intra Requests (RFC 5104) so repeats can be told apart.
     fir_sequence: u8,
+}
+
+impl VideoTrack {
+    /// Puts one packet into the right reassembler.
+    ///
+    /// Returns the finished frame when the packet completed one *and* it belongs to the encoding
+    /// being forwarded, and whether packets went missing, which is worth a keyframe request.
+    fn push(&mut self, rid: Option<&str>, header: &RtpHeader, payload: &[u8], now: Instant) -> (Option<VideoFrame>, bool) {
+        let Some(rid) = rid else {
+            let frame = self.depacketizer.push(header.sequence, header.timestamp, header.marker, payload);
+            let lost = self.depacketizer.incomplete_frames > self.incomplete_seen;
+            self.incomplete_seen = self.depacketizer.incomplete_frames;
+            return (frame, lost);
+        };
+
+        // A simulcast sender labels every packet with its encoding, and each one is a stream of its
+        // own: its own sequence numbers, its own frames, its own bitrate.
+        let format = self.format;
+        let index = match self.layers.iter().position(|(name, _)| name == rid) {
+            Some(index) => index,
+            None => {
+                self.layers.push((rid.to_owned(), Layer::new(format)));
+                self.layers.len() - 1
+            }
+        };
+        let selected = self.selected.get_or_insert_with(|| rid.to_owned()).clone();
+        let layer = &mut self.layers[index].1;
+        layer.measure(payload.len(), now);
+        let frame = layer.depacketizer.push(header.sequence, header.timestamp, header.marker, payload);
+        // Only the chosen encoding is watched for loss: the others are dropped on purpose.
+        if rid != selected {
+            return (None, false);
+        }
+
+        let lost = layer.depacketizer.incomplete_frames > self.incomplete_seen;
+        self.incomplete_seen = layer.depacketizer.incomplete_frames;
+        (frame, lost)
+    }
+
+    /// The encodings seen so far, with what each is measured at, in bits per second.
+    fn measured(&self) -> Vec<(String, u64)> {
+        self.layers.iter().map(|(name, layer)| (name.clone(), layer.bitrate)).collect()
+    }
 }
 
 /// Losses come in bursts; one request per interval is enough to get a fresh keyframe.
@@ -948,6 +1031,10 @@ impl MediaSession {
             content: content.to_owned(),
             packetizer: VideoPacketizer::new(format),
             depacketizer: VideoDepacketizer::new(format),
+            format,
+            rid_extension: None,
+            layers: Vec::new(),
+            selected: None,
             incomplete_seen: 0,
             frames: 0,
             reported_frames: 0,
@@ -956,6 +1043,40 @@ impl MediaSession {
             fir_sequence: 0,
         });
         true
+    }
+
+    /// Tells the session which header extension carries the encoding name, and which encodings the
+    /// peer said it would send (RFC 8852). Without this a stream is treated as a single encoding.
+    pub fn expect_simulcast(&self, extension_id: u8, rids: &[String]) {
+        {
+            let mut track = self.shared.video.lock();
+            let Some(track) = track.as_mut() else { return };
+            track.rid_extension = Some(extension_id);
+            // Which encoding to keep is decided by what arrives: a sender may send fewer than it
+            // offered, and choosing from the offer alone would drop everything it does send.
+        }
+
+        let detail = format!("{} encodings offered: {}", rids.len(), rids.join(", "));
+        self.shared.sink.on_media_event(self.shared.call_id, "simulcast", &detail);
+    }
+
+    /// The encodings this stream carries, with what each is measured at in bits per second.
+    pub fn video_layers(&self) -> Vec<(String, u64)> {
+        self.shared.video.lock().as_ref().map(VideoTrack::measured).unwrap_or_default()
+    }
+
+    /// The encoding being forwarded right now.
+    pub fn video_layer(&self) -> Option<String> {
+        self.shared.video.lock().as_ref().and_then(|t| t.selected.clone())
+    }
+
+    /// Picks the encoding that fits what the receivers can take.
+    ///
+    /// The best layer whose measured bitrate leaves a little headroom wins; when none of them fit,
+    /// the smallest one does, because some picture beats none. Changing the choice costs a keyframe,
+    /// so a layer has to be measured before it can be picked.
+    pub fn apply_layer_budget(&self, budget_bps: u64) {
+        choose_layer(&self.shared, budget_bps);
     }
 
     /// Asks the peer for a keyframe. `full` sends a Full Intra Request (RFC 5104) instead of a Picture
@@ -1499,6 +1620,69 @@ fn start_sctp(sh: &Arc<Shared>) {
     process_sctp_events(sh, events);
 }
 
+/// The best encoding for a budget: the largest that leaves a tenth of it spare, or the smallest
+/// there is when none of them fit, because some picture beats none.
+fn best_layer(measured: &[(String, u64)], budget_bps: u64) -> Option<String> {
+    let headroom = budget_bps * 9 / 10;
+    measured
+        .iter()
+        .filter(|(_, rate)| *rate <= headroom)
+        .max_by_key(|(_, rate)| *rate)
+        .or_else(|| measured.iter().min_by_key(|(_, rate)| *rate))
+        .map(|(name, _)| name.clone())
+}
+
+/// Picks the encoding that fits `budget_bps`, and asks for a keyframe when the choice changes.
+fn choose_layer(sh: &Arc<Shared>, budget_bps: u64) {
+    let (changed, selected) = {
+        let mut track = sh.video.lock();
+        let Some(track) = track.as_mut() else { return };
+        if track.layers.is_empty() || budget_bps == 0 {
+            return;
+        }
+
+        // Only encodings still arriving are candidates: a sender is free to stop one at any time, and
+        // holding the selection on a dead encoding would show the viewer nothing at all.
+        let now = Instant::now();
+        let measured: Vec<(String, u64)> = track
+            .layers
+            .iter()
+            .filter(|(_, layer)| now.duration_since(layer.last_packet) < Duration::from_secs(2))
+            .map(|(name, layer)| (name.clone(), layer.bitrate))
+            .collect();
+        let selected_lives = track.selected.as_ref().is_some_and(|name| measured.iter().any(|(n, _)| n == name));
+        if measured.is_empty() || (selected_lives && (measured.len() < 2 || measured.iter().any(|(_, rate)| *rate == 0))) {
+            // Nothing to choose between yet, and what was chosen is still coming through.
+            return;
+        }
+
+        let Some(name) = best_layer(&measured, budget_bps) else { return };
+        let changed = track.selected.as_deref() != Some(name.as_str());
+        if changed {
+            track.selected = Some(name.clone());
+        }
+
+        (changed, name)
+    };
+
+    if changed {
+        // The new encoding is a different picture: a decoder cannot start on a delta frame.
+        let sequence = {
+            let mut track = sh.video.lock();
+            match track.as_mut() {
+                Some(track) => {
+                    track.last_request = Some(Instant::now());
+                    track.fir_sequence = track.fir_sequence.wrapping_add(1);
+                    track.fir_sequence
+                }
+                None => return,
+            }
+        };
+        send_keyframe_request(sh, false, sequence);
+        sh.sink.on_media_event(sh.call_id, "video-layer", &selected);
+    }
+}
+
 /// Acts on ZRTP output. Runs without the ZRTP lock held, like the other protocol pumps.
 fn process_zrtp_events(sh: &Arc<Shared>, events: Vec<ZrtpEvent>) {
     for event in events {
@@ -1569,7 +1753,9 @@ fn open_pending_channels(sh: &Arc<Shared>) {
 fn handle_rtp(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
     // Sink callbacks are deferred until the rx lock is released so handlers may call back into the session.
     let mut dtmf_digit = None;
-    let mut passthrough: Option<(RtpHeader, Vec<u8>)> = None;
+    let mut passthrough: Option<(RtpHeader, Vec<u8>, Option<String>)> = None;
+    // Which header extension carries the encoding name, when the peer said it would send several.
+    let rid_extension = sh.video.lock().as_ref().and_then(|t| t.rid_extension);
     {
         let mut rx = sh.rx.lock();
         let rx = &mut *rx;
@@ -1612,22 +1798,20 @@ fn handle_rtp(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
             rx.jitter.push(h.sequence, h.timestamp, h.marker, h.payload_type, payload);
             rx.started = true;
         } else {
-            passthrough = Some((h, pkt.payload.to_vec()));
+            passthrough = Some((h, pkt.payload.to_vec(), rid_extension.and_then(|id| pkt.rid(id)).map(str::to_owned)));
         }
     }
 
     // Video frames are reassembled outside the rx lock: a frame can be large and the handler may call
     // back into the session.
-    if let Some((h, payload)) = passthrough.as_ref() {
+    if let Some((h, payload, rid)) = passthrough.as_ref() {
         let (assembled, request, content) = {
             let mut track = sh.video.lock();
             match track.as_mut().filter(|t| t.payload_type == h.payload_type) {
                 Some(t) => {
-                    let frame = t.depacketizer.push(h.sequence, h.timestamp, h.marker, payload);
-                    // A frame that lost packets is dropped, so ask the sender to start again from a keyframe.
-                    let lost = t.depacketizer.incomplete_frames > t.incomplete_seen;
-                    t.incomplete_seen = t.depacketizer.incomplete_frames;
+                    let (frame, lost) = t.push(rid.as_deref(), h, payload, Instant::now());
                     t.frames += u64::from(frame.is_some());
+                    // A frame that lost packets is dropped, so ask the sender to start again from a keyframe.
                     let due = lost && t.last_request.is_none_or(|at| at.elapsed() >= KEYFRAME_REQUEST_INTERVAL);
                     if due {
                         t.last_request = Some(Instant::now());
@@ -1651,7 +1835,7 @@ fn handle_rtp(sh: &Arc<Shared>, data: &[u8], from: SocketAddr) {
     if let Some(d) = dtmf_digit {
         sh.sink.on_dtmf(sh.call_id, d, DtmfSource::Rfc4733);
     }
-    if let Some((h, payload)) = passthrough {
+    if let Some((h, payload, _)) = passthrough {
         sh.sink.on_encoded(sh.call_id, h.payload_type, h.timestamp, h.marker, &payload);
     }
 }
@@ -1969,6 +2153,8 @@ fn send_receiver_estimate(sh: &Arc<Shared>) {
         }
     };
     let bitrate = sh.estimator.lock().update(Instant::now(), sh.bytes_received.load(Ordering::Relaxed), loss);
+    // What this side can take is also what decides which encoding of a simulcast stream to keep.
+    choose_layer(sh, bitrate);
     let mut tx = sh.tx.lock();
     let mut packet = build_receiver_estimate(tx.ssrc, media_ssrc, bitrate);
     let secured = match tx.srtp.as_mut() {
@@ -2298,6 +2484,66 @@ mod tests {
         b.stop();
     }
 
+
+    #[test]
+    fn the_encoding_kept_is_the_biggest_that_fits() {
+        let layers = [("h".to_owned(), 900_000u64), ("m".to_owned(), 300_000), ("l".to_owned(), 90_000)];
+
+        assert_eq!(best_layer(&layers, 2_000_000).as_deref(), Some("h"), "plenty of room: the best picture");
+        assert_eq!(best_layer(&layers, 500_000).as_deref(), Some("m"), "enough for the middle one");
+        assert_eq!(best_layer(&layers, 120_000).as_deref(), Some("l"));
+        // Nothing fits: the smallest encoding is still better than a blank screen.
+        assert_eq!(best_layer(&layers, 40_000).as_deref(), Some("l"));
+        assert_eq!(best_layer(&[], 500_000), None);
+    }
+
+    #[test]
+    fn packets_are_reassembled_per_encoding_and_only_one_is_passed_on() {
+        let mut track = VideoTrack {
+            payload_type: 96,
+            content: "main".into(),
+            packetizer: VideoPacketizer::new(VideoFormat::Vp8),
+            depacketizer: VideoDepacketizer::new(VideoFormat::Vp8),
+            format: VideoFormat::Vp8,
+            rid_extension: Some(10),
+            layers: Vec::new(),
+            selected: None,
+            incomplete_seen: 0,
+            frames: 0,
+            reported_frames: 0,
+            reported_incomplete: 0,
+            last_request: None,
+            fir_sequence: 0,
+        };
+
+        let now = Instant::now();
+        let frame = |seed: u8| {
+            let mut payload = vec![0x10, 0x02, 0x00];
+            payload.extend((0..40).map(|i| i as u8 ^ seed));
+            payload
+        };
+        let header = |sequence: u16, timestamp: u32| RtpHeader {
+            marker: true,
+            payload_type: 96,
+            sequence,
+            timestamp,
+            ssrc: 1,
+        };
+
+        // The first encoding seen is the one kept, because a sender may send fewer than it offered.
+        let (first, _) = track.push(Some("h"), &header(1, 9000), &frame(1), now);
+        assert!(first.is_some(), "the first encoding to arrive is passed on");
+        assert_eq!(track.selected.as_deref(), Some("h"));
+
+        // A second encoding is measured but dropped: the viewers get one picture, not three.
+        let (other, _) = track.push(Some("l"), &header(500, 12_000), &frame(2), now);
+        assert!(other.is_none(), "the encoding that was not chosen is dropped");
+        assert_eq!(track.measured().len(), 2, "both encodings are known: {:?}", track.measured());
+
+        // Each encoding has its own sequence numbers, so the chosen one carries on undisturbed.
+        let (again, lost) = track.push(Some("h"), &header(2, 12_000), &frame(3), now);
+        assert!(again.is_some() && !lost, "the chosen encoding keeps flowing");
+    }
 
     #[test]
     fn the_bandwidth_estimate_grows_on_a_clean_stream_and_falls_under_loss() {

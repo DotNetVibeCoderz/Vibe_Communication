@@ -177,6 +177,9 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "voipnet_video_streams")]
     internal static partial int VideoStreams(nint handle, ulong callId, byte* buffer, int length);
 
+    [LibraryImport(Library, EntryPoint = "voipnet_video_layers")]
+    internal static partial int VideoLayers(nint handle, ulong callId, byte* buffer, int length);
+
     [LibraryImport(Library, EntryPoint = "voipnet_video_codec")]
     internal static partial int VideoCodec(nint handle, ulong callId, byte* buffer, int length);
 

@@ -542,6 +542,27 @@ pub unsafe extern "C" fn voipnet_request_keyframe(handle: *mut c_void, call_id: 
     with_endpoint!(handle, ep => ep.request_keyframe(call_id, full != 0))
 }
 
+/// Writes the encodings a simulcast sender is using into `out`, comma separated, each as
+/// `name:bits_per_second:selected` (`h:420000:1,l:80000:0`). Empty when there is only one.
+///
+/// # Safety
+/// `out` must point to `len` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn voipnet_video_layers(handle: *mut c_void, call_id: u64, out: *mut c_char, len: c_int) -> c_int {
+    let Some(ep) = endpoint(handle) else { return VN_ERR_INVALID_ARGUMENT };
+    match ep.video_layers(call_id) {
+        Ok(layers) => {
+            let list: Vec<String> = layers
+                .iter()
+                .map(|(name, bitrate, selected)| format!("{name}:{bitrate}:{}", u8::from(*selected)))
+                .collect();
+            write_error(out, len, &list.join(","));
+            VN_OK
+        }
+        Err(e) => map_error(e),
+    }
+}
+
 /// Writes what the call's live video streams show into `out`, comma separated (`main,slides`).
 ///
 /// # Safety

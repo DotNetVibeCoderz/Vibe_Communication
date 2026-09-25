@@ -322,6 +322,37 @@ fn apply_media_attribute(m: &mut MediaDescription, name: &str, val: &str, raw: &
     }
 }
 
+/// The identifier of a header extension by its URI (`a=extmap:<id> <uri>`, RFC 8285).
+pub fn extension_id(media: &MediaDescription, uri: &str) -> Option<u8> {
+    media.other_attributes.iter().filter_map(|a| a.strip_prefix("extmap:")).find_map(|value| {
+        let (id, rest) = value.split_once(' ')?;
+        // The id may carry a direction, as in "3/sendonly".
+        let id = id.split('/').next()?.parse().ok()?;
+        rest.split_whitespace().next().filter(|u| *u == uri).map(|_| id)
+    })
+}
+
+/// The encodings a peer says it will send (`a=simulcast:send a;b;c`, RFC 8853), in its own order of
+/// preference. Alternatives separated by commas are not offered by browsers and are ignored here.
+pub fn simulcast_send_rids(media: &MediaDescription) -> Vec<String> {
+    let Some(value) = media.other_attributes.iter().find_map(|a| a.strip_prefix("simulcast:")) else {
+        return Vec::new();
+    };
+
+    let mut parts = value.split_whitespace();
+    while let (Some(direction), Some(list)) = (parts.next(), parts.next()) {
+        if direction == "send" {
+            return list
+                .split(';')
+                .map(|rid| rid.trim_start_matches('~').split(',').next().unwrap_or(rid).to_owned())
+                .filter(|rid| !rid.is_empty())
+                .collect();
+        }
+    }
+
+    Vec::new()
+}
+
 pub fn static_rtpmap(pt: u8) -> Option<RtpMap> {
     let (enc, rate, ch) = match pt {
         0 => ("PCMU", 8000, 1),
@@ -361,6 +392,69 @@ pub fn negotiate(offered: &[RtpMap], supported: &[RtpMap]) -> (Option<RtpMap>, O
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_mid_and_stream_id_extensions_of_a_browser_offer_are_found() {
+        // The video section of a Chrome offer, trimmed to its extensions and simulcast lines.
+        let sdp = SessionDescription::parse(concat!(
+            "v=0
+o=- 1 1 IN IP4 10.0.0.1
+s=-
+c=IN IP4 10.0.0.1
+t=0 0
+",
+            "m=video 9 UDP/TLS/RTP/SAVPF 96
+a=rtpmap:96 VP8/90000
+",
+            "a=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time
+",
+            "a=extmap:13 urn:3gpp:video-orientation
+",
+            "a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid
+",
+            "a=extmap:10 urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id
+",
+            "a=extmap:11 urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id
+",
+            "a=rid:h send
+a=rid:m send
+a=rid:l send
+a=simulcast:send h;m;l
+",
+        ))
+        .expect("sdp");
+        let video = sdp.video().expect("a video line");
+
+        assert_eq!(extension_id(video, "urn:ietf:params:rtp-hdrext:sdes:mid"), Some(4));
+        assert_eq!(extension_id(video, "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id"), Some(10));
+        assert_eq!(simulcast_send_rids(video).len(), 3);
+    }
+
+    #[test]
+    fn simulcast_and_extension_attributes_are_read() {
+        let sdp = SessionDescription::parse(concat!(
+            "v=0\r\no=- 1 1 IN IP4 10.0.0.1\r\ns=-\r\nc=IN IP4 10.0.0.1\r\nt=0 0\r\n",
+            "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "a=rtpmap:96 VP8/90000\r\n",
+            "a=extmap:3 urn:ietf:params:rtp-hdrext:sdes:mid\r\n",
+            "a=extmap:4/sendonly urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id\r\n",
+            "a=rid:h send\r\na=rid:m send\r\na=rid:l send\r\n",
+            "a=simulcast:send h;m;l\r\n",
+        ))
+        .expect("sdp");
+        let video = sdp.video().expect("a video line");
+
+        assert_eq!(extension_id(video, "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id"), Some(4));
+        assert_eq!(extension_id(video, "urn:ietf:params:rtp-hdrext:sdes:mid"), Some(3));
+        assert_eq!(extension_id(video, "urn:3gpp:video-orientation"), None);
+        assert_eq!(simulcast_send_rids(video), vec!["h".to_owned(), "m".to_owned(), "l".to_owned()]);
+    }
+
+    #[test]
+    fn a_line_without_simulcast_offers_no_encodings() {
+        let sdp = SessionDescription::parse("v=0\r\no=- 1 1 IN IP4 10.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 RTP/AVP 96\r\n").expect("sdp");
+        assert!(simulcast_send_rids(sdp.video().expect("video")).is_empty());
+    }
 
     const OFFER: &str = "v=0\r\no=alice 2890844526 2890844526 IN IP4 10.0.0.1\r\ns=-\r\nc=IN IP4 10.0.0.1\r\nt=0 0\r\n\
 m=audio 49170 RTP/AVP 111 0 8 101\r\na=rtpmap:111 opus/48000/2\r\na=fmtp:111 minptime=10;useinbandfec=1\r\n\

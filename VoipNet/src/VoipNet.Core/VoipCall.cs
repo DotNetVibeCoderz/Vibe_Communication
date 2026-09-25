@@ -299,6 +299,12 @@ public sealed class VoipCall
     /// <summary>The video codec negotiated for this call, or <c>null</c> when the call has no video stream.</summary>
     public string? VideoCodec => _client.VideoCodec(Id);
 
+    /// <summary>The encodings a simulcast sender is putting on the wire, with the one being passed on
+    /// marked. Empty when the peer sends a single encoding.</summary>
+    /// <remarks>The engine keeps one of them and drops the rest, choosing by what the receivers say
+    /// they can take; a <c>video-layer</c> notification announces each change.</remarks>
+    public IReadOnlyList<VideoLayer> VideoLayers => _client.VideoLayers(Id);
+
     /// <summary>What the call's live video streams show, in order: <c>main</c> for the camera, <c>slides</c>
     /// for a shared screen.</summary>
     public IReadOnlyList<string> VideoStreams => _client.VideoStreams(Id);

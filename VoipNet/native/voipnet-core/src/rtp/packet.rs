@@ -16,6 +16,8 @@ pub const RTP_HEADER_LEN: usize = 12;
 pub struct RtpPacketRef<'a> {
     pub header: RtpHeader,
     pub payload: &'a [u8],
+    /// The one-byte-header extension block (RFC 8285), without its four byte header.
+    pub extensions: Option<&'a [u8]>,
 }
 
 impl<'a> RtpPacketRef<'a> {
@@ -27,11 +29,17 @@ impl<'a> RtpPacketRef<'a> {
         let extension = data[0] & 0x10 != 0;
         let csrc_count = (data[0] & 0x0F) as usize;
         let mut offset = RTP_HEADER_LEN + csrc_count * 4;
+        let mut extensions = None;
         if extension {
             if data.len() < offset + 4 {
                 return None;
             }
             let words = u16::from_be_bytes([data[offset + 2], data[offset + 3]]) as usize;
+            // Only the one-byte header profile is read; the two-byte one is skipped like any other.
+            if data[offset] == 0xBE && data[offset + 1] == 0xDE {
+                extensions = data.get(offset + 4..offset + 4 + words * 4);
+            }
+
             offset += 4 + words * 4;
         }
         let mut end = data.len();
@@ -51,7 +59,37 @@ impl<'a> RtpPacketRef<'a> {
                 ssrc: u32::from_be_bytes([data[8], data[9], data[10], data[11]]),
             },
             payload: &data[offset..end],
+            extensions,
         })
+    }
+
+    /// The value of one RTP header extension (RFC 8285 4.2), by the id the SDP gave it.
+    pub fn extension(&self, id: u8) -> Option<&'a [u8]> {
+        let mut at = 0;
+        let block = self.extensions?;
+        while at < block.len() {
+            let byte = block[at];
+            if byte == 0 {
+                at += 1; // padding between elements
+                continue;
+            }
+
+            let (element, length) = (byte >> 4, (byte & 0x0F) as usize + 1);
+            at += 1;
+            let value = block.get(at..at + length)?;
+            if element == id {
+                return Some(value);
+            }
+
+            at += length;
+        }
+
+        None
+    }
+
+    /// The stream identifier a simulcast sender puts on every packet (RFC 8852).
+    pub fn rid(&self, id: u8) -> Option<&'a str> {
+        std::str::from_utf8(self.extension(id)?).ok().filter(|r| !r.is_empty())
     }
 }
 
@@ -395,6 +433,24 @@ mod tests {
             assert!(parsed >= bitrate, "{parsed} < {bitrate}");
             assert!(parsed <= bitrate + bitrate / 100, "{parsed} is more than a percent above {bitrate}");
         }
+    }
+
+    #[test]
+    fn a_stream_identifier_is_read_from_the_header_extension() {
+        // An RTP packet with one one-byte-header extension: id 4, the three letters "mid", then the
+        // stream id the sender labelled this encoding with.
+        let mut packet = vec![0x90, 0x60, 0x00, 0x05, 0, 0, 0x10, 0x00, 0xAA, 0xBB, 0xCC, 0xDD];
+        packet.extend_from_slice(&[0xBE, 0xDE, 0x00, 0x02]);
+        packet.extend_from_slice(&[0x42, b'm', b'i', b'd']); // id 4, length 3
+        packet.extend_from_slice(&[0x91, b'h', b'i', 0x00]); // id 9, length 2 "hi", then padding
+        packet.extend_from_slice(&[1, 2, 3, 4]);
+
+        let parsed = RtpPacketRef::parse(&packet).expect("a packet");
+
+        assert_eq!(parsed.extension(4), Some(&b"mid"[..]));
+        assert_eq!(parsed.rid(9), Some("hi"));
+        assert_eq!(parsed.rid(7), None, "an id nobody sent is absent");
+        assert_eq!(parsed.payload, &[1, 2, 3, 4]);
     }
 
     #[test]

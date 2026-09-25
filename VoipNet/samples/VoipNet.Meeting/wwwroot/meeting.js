@@ -98,7 +98,7 @@ export async function join(view, wsUrl, name, localVideo, stageVideo, audioEleme
         report("devices");
         state.stream = await navigator.mediaDevices.getUserMedia({
             audio: { echoCancellation: true, noiseSuppression: true },
-            video: { width: 320, height: 240, frameRate: 15 },
+            video: { width: 640, height: 480, frameRate: 15 },
         });
         if (localVideo) {
             localVideo.srcObject = state.stream;
@@ -114,7 +114,23 @@ export async function join(view, wsUrl, name, localVideo, stageVideo, audioEleme
 
         // Audio and video get a transport each: the engine gives every stream its own port.
         const pc = state.pc = new RTCPeerConnection({ bundlePolicy: "max-compat" });
-        state.stream.getTracks().forEach(t => pc.addTrack(t, state.stream));
+        // The camera goes out as three encodings of the same picture (simulcast, RFC 8853); the room
+        // keeps whichever fits what the viewers can take. Audio is added the ordinary way.
+        for (const track of state.stream.getTracks()) {
+            if (track.kind === "video") {
+                pc.addTransceiver(track, {
+                    direction: "sendrecv",
+                    streams: [state.stream],
+                    sendEncodings: [
+                        { rid: "h", maxBitrate: 500000 },
+                        { rid: "m", maxBitrate: 200000, scaleResolutionDownBy: 2 },
+                        { rid: "l", maxBitrate: 80000, scaleResolutionDownBy: 4 },
+                    ],
+                });
+            } else {
+                pc.addTrack(track, state.stream);
+            }
+        }
         pc.ontrack = e => {
             const element = e.track.kind === "video" ? stageVideo : audioElement;
             if (!element) return;
@@ -157,6 +173,10 @@ async function onMessage(state, msg, report) {
         state.remoteTarget = uriOf(msg.headers.contact ?? state.target);
         state.send(build(`ACK ${state.remoteTarget} SIP/2.0`, state.headers("ACK", state.cseq)));
         await state.pc.setRemoteDescription({ type: "answer", sdp: msg.body });
+        // Which encodings survived the answer: the room has to keep them for simulcast to happen.
+        const video = state.pc.getSenders().find(s => s.track?.kind === "video");
+        const encodings = video?.getParameters().encodings?.map(e => e.rid).filter(Boolean) ?? [];
+        report("encodings", encodings.length > 1 ? encodings.join(",") : "one");
         report("joined", msg.headers["user-agent"] ?? "");
         trickle(state, state.pendingCandidates.splice(0));
         return;

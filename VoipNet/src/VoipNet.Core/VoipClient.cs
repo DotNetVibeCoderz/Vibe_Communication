@@ -471,6 +471,29 @@ public sealed class VoipClient : IAsyncDisposable, IDisposable
         return string.IsNullOrEmpty(streams) ? [] : streams.Split(',');
     }
 
+    internal unsafe VideoLayer[] VideoLayers(ulong id)
+    {
+        var buffer = stackalloc byte[256];
+        Check(NativeMethods.VideoLayers(_handle, id, buffer, 256), "read the video layers");
+        var text = Marshal.PtrToStringUTF8((nint)buffer);
+        if (string.IsNullOrEmpty(text))
+        {
+            return [];
+        }
+
+        var layers = new List<VideoLayer>();
+        foreach (var entry in text.Split(','))
+        {
+            var parts = entry.Split(':');
+            if (parts.Length == 3 && long.TryParse(parts[1], out var bitrate))
+            {
+                layers.Add(new VideoLayer(parts[0], bitrate, parts[2] == "1"));
+            }
+        }
+
+        return [.. layers];
+    }
+
     internal unsafe string? VideoCodec(ulong id)
     {
         var buffer = stackalloc byte[32];

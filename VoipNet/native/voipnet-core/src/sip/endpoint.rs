@@ -23,9 +23,17 @@ use crate::media::sctp::{MAX_MESSAGE_SIZE as MAX_DATA_MESSAGE, WEBRTC_PORT};
 use super::dns::{DnsTransport, Resolver};
 use crate::media::{AudioDirection, DtmfMode, DtmfSource, MediaConfig, MediaSession, MediaSink, MediaStats, NegotiatedMedia};
 use crate::net;
-use crate::sdp::{negotiate, static_rtpmap, CryptoAttr, Direction, MediaDescription, RtpMap, SessionDescription};
+use crate::sdp::{
+    extension_id, negotiate, simulcast_send_rids, static_rtpmap, CryptoAttr, Direction, MediaDescription, RtpMap, SessionDescription,
+};
 use crate::srtp::SUITE_AES_CM_128_HMAC_SHA1_80;
 use crate::stun::Candidate;
+
+/// The header extension that names which encoding a simulcast packet belongs to (RFC 8852).
+const RID_EXTENSION: &str = "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id";
+/// The one that names the m-line a packet belongs to (RFC 9143). Browsers expect it alongside the
+/// stream identifier before they will send several encodings.
+const MID_EXTENSION: &str = "urn:ietf:params:rtp-hdrext:sdes:mid";
 
 const T1: Duration = Duration::from_millis(500);
 const T2: Duration = Duration::from_secs(4);
@@ -855,6 +863,21 @@ impl Endpoint {
             .map(|f| f.encoding.clone()))
     }
 
+    /// The encodings a simulcast sender is putting on the wire, as (name, measured bits per second),
+    /// with the one being forwarded first. Empty when the peer sends a single encoding.
+    pub fn video_layers(&self, call_id: u64) -> Result<Vec<(String, u64, bool)>> {
+        let session = self.inner.video_session(call_id, "main")?;
+        let selected = session.video_layer();
+        Ok(session
+            .video_layers()
+            .into_iter()
+            .map(|(name, bitrate)| {
+                let chosen = selected.as_deref() == Some(name.as_str());
+                (name, bitrate, chosen)
+            })
+            .collect())
+    }
+
     /// What the call's live video streams show, in m-line order (`main`, `slides`).
     pub fn video_streams(&self, call_id: u64) -> Result<Vec<String>> {
         let st = self.inner.state.lock();
@@ -1628,6 +1651,27 @@ impl Inner {
                 m.mid = Some(default_mid.into());
             }
         }
+        // A peer that offers several encodings of the same picture (RFC 8853) is told we will take
+        // them: the answer mirrors the list and keeps the extension that names each packet's
+        // encoding, without which they could not be told apart.
+        if kind == "video" {
+            if let Some(offered) = answer_to_line {
+                let rids = simulcast_send_rids(offered);
+                if let (false, Some(id)) = (rids.is_empty(), extension_id(offered, RID_EXTENSION)) {
+                    if let Some(mid) = extension_id(offered, MID_EXTENSION) {
+                        m.other_attributes.push(format!("extmap:{mid} {MID_EXTENSION}"));
+                    }
+
+                    m.other_attributes.push(format!("extmap:{id} {RID_EXTENSION}"));
+                    for rid in &rids {
+                        m.other_attributes.push(format!("rid:{rid} recv"));
+                    }
+
+                    m.other_attributes.push(format!("simulcast:recv {}", rids.join(";")));
+                }
+            }
+        }
+
         // RFC 6189 8.1: the hash of our Hello, so the peer can tell a real exchange from an injected
         // one. The keys themselves never touch the signalling — that is the point of ZRTP.
         if let Some(hash) = media.zrtp_hello_hash() {
@@ -1961,6 +2005,14 @@ impl Inner {
         }
     }
 
+    /// Passes the offered encodings on to the media session, so packets can be told apart.
+    fn expect_simulcast(session: &Arc<MediaSession>, offered: &MediaDescription) {
+        let rids = simulcast_send_rids(offered);
+        if let (false, Some(id)) = (rids.is_empty(), extension_id(offered, RID_EXTENSION)) {
+            session.expect_simulcast(id, &rids);
+        }
+    }
+
     /// Negotiates the video stream of an offer we are answering. Clears `call.video_formats` when the
     /// offer has no video we can use, so the answer rejects that m-line with port 0.
     fn negotiate_video_offers(&self, offer: &SessionDescription, call: &mut Call) -> (Vec<(usize, NegotiatedMedia)>, Vec<Event>) {
@@ -1998,10 +2050,12 @@ impl Inner {
             let session = match call.videos[index].session.clone() {
                 Some(session) => {
                     session.enable_video(&codec.encoding, codec.payload_type, &call.videos[index].content);
+                    Self::expect_simulcast(&session, video);
                     session
                 }
                 None => match self.new_video_media(call.id, &codec, &call.videos[index].content) {
                     Ok(session) => {
+                        Self::expect_simulcast(&session, video);
                         call.videos[index].session = Some(session.clone());
                         session
                     }
@@ -2134,6 +2188,25 @@ impl Inner {
         };
 
         let (targets, wants_keyframe) = conference.video_targets(from, keyframe);
+        // With several encodings on the way in, the room keeps the one that fits the viewer who can
+        // take the least: everyone is sent the same frames, so the smallest budget decides.
+        if let Some(session) = source_video.as_ref().filter(|s| s.video_layers().len() > 1) {
+            let budget = {
+                let st = self.state.lock();
+                targets
+                    .iter()
+                    .filter_map(|id| st.calls.get(id))
+                    .filter_map(|call| call.videos.iter().find(|v| v.content == "main"))
+                    .filter_map(|v| v.session.as_ref())
+                    .map(|s| s.stats().remote_estimate_bps)
+                    .filter(|estimate| *estimate > 0)
+                    .min()
+            };
+            if let Some(budget) = budget {
+                session.apply_layer_budget(budget);
+            }
+        }
+
         if wants_keyframe {
             // Somebody just started watching this participant and cannot decode a half picture.
             if let Some(session) = source_video {
@@ -3832,6 +3905,52 @@ mod tests {
         }
     }
 
+    /// A call value for tests that exercise negotiation without placing one.
+    fn test_call(id: u64, media: Arc<MediaSession>) -> Call {
+        Call {
+            id,
+            sip_call_id: format!("test-{id}"),
+            outgoing: false,
+            state: CallState::Incoming,
+            local_tag: "local".into(),
+            remote_tag: None,
+            local_uri: "<sip:local@test>".into(),
+            remote_uri: "<sip:remote@test>".into(),
+            remote_target: "sip:remote@test".into(),
+            route_set: Vec::new(),
+            local_cseq: 1,
+            remote_cseq: 1,
+            invite: None,
+            invite_branch: String::new(),
+            peer: "127.0.0.1:5060".parse().expect("address"),
+            media: Some(media),
+            videos: Vec::new(),
+            data: None,
+            remote_offer: None,
+            session_id: 1,
+            session_version: 1,
+            local_hold: false,
+            remote_hold: false,
+            pending_cancel: false,
+            got_provisional: false,
+            created: Instant::now(),
+            connected_at: None,
+            pending_2xx: None,
+            last_ack: None,
+            refer_origin: None,
+            replaces: None,
+            codec_name: None,
+            pending_1xx: None,
+            pracked: None,
+            session_expires: None,
+            session_refresh_at: None,
+            session_expires_at: None,
+            session_retried: false,
+            final_stats: None,
+            redirects: 0,
+        }
+    }
+
     fn cfg(user: &str) -> EndpointConfig {
         EndpointConfig {
             bind_address: "127.0.0.1".into(),
@@ -4609,6 +4728,43 @@ m=audio {} RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n",
 
         a.hangup(a_call).unwrap();
         rb.wait_for(3000, |e| matches!(e, Event::CallState { state: "terminated", .. })).expect("callee terminated");
+    }
+
+    #[test]
+    fn a_simulcast_offer_is_answered_with_the_same_encodings() {
+        // A browser offering three encodings of one picture is told they are all welcome, and the
+        // extension that names each packet's encoding is kept — without it they could not be told apart.
+        let mut config = cfg("bob");
+        config.video = true;
+        let rec = Arc::new(Recorder::default());
+        let endpoint = Endpoint::start(config, rec.clone()).unwrap();
+
+        let offer = SessionDescription::parse(&format!(
+            concat!(
+                "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\n",
+                "m=audio 41000 RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n",
+                "m=video 41002 RTP/AVP {pt}\r\na=rtpmap:{pt} H264/90000\r\n",
+                "a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id\r\n",
+                "a=rid:high send\r\na=rid:low send\r\na=simulcast:send high;low\r\n",
+            ),
+            pt = endpoint.inner.supported_video.first().expect("a video codec").payload_type,
+        ))
+        .expect("offer");
+
+        let call_id = endpoint.inner.ids.fetch_add(1, Ordering::Relaxed);
+        let media = endpoint.inner.new_media(call_id).unwrap();
+        let mut call = test_call(call_id, media.clone());
+        let (videos, _) = endpoint.inner.negotiate_video_offers(&offer, &mut call);
+        let answer = endpoint.inner.build_sdp(&call, &media, vec![static_rtpmap(0).unwrap()], Direction::SendRecv, Some(&offer));
+
+        assert!(answer.contains("a=simulcast:recv high;low"), "the answer takes both encodings:\n{answer}");
+        assert!(answer.contains("a=rid:high recv") && answer.contains("a=rid:low recv"), "{answer}");
+        assert!(answer.contains("a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id"), "{answer}");
+        assert_eq!(videos.len(), 1, "one video stream was negotiated");
+
+        for (_, session) in call.videos.iter().filter_map(|v| v.session.clone()).enumerate() {
+            let _ = session;
+        }
     }
 
     #[test]

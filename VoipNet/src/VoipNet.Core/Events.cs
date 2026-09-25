@@ -104,6 +104,12 @@ public delegate void VideoFrameHandler(VoipCall call, uint timestamp, bool keyfr
 /// <param name="data">The message; it is only valid for the duration of the call to this handler.</param>
 public delegate void DataMessageHandler(VoipCall call, ushort stream, bool text, ReadOnlySpan<byte> data);
 
+/// <summary>One encoding of a simulcast video stream.</summary>
+/// <param name="Name">The name the sender gave it (<c>a=rid</c>), such as <c>h</c>, <c>m</c> or <c>l</c>.</param>
+/// <param name="BitsPerSecond">What it has been measured at over the last second.</param>
+/// <param name="Selected">True for the one being reassembled and passed on; the others are dropped.</param>
+public readonly record struct VideoLayer(string Name, long BitsPerSecond, bool Selected);
+
 /// <summary>One of the streams a call carries.</summary>
 public enum MediaStream
 {

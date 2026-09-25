@@ -102,6 +102,48 @@ client.MediaNotification += (_, e) =>
 };
 ```
 
+### Beberapa encoding untuk satu gambar
+
+Browser bisa mengirim kamera yang sama dua atau tiga kali sekaligus dengan ukuran berbeda, lalu
+membiarkan sisi lain memilih (simulcast, RFC 8853). Ketika sebuah offer memintanya, answer menerima
+semuanya dan mempertahankan header extension yang menyebut encoding tiap paket (RFC 8852):
+
+```text
+a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid
+a=extmap:10 urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id
+a=rid:h recv
+a=rid:m recv
+a=rid:l recv
+a=simulcast:recv h;m;l
+```
+
+Setiap encoding dirakit ulang sendiri-sendiri — nomor urut sendiri, frame sendiri — dan diukur, tetapi
+hanya satu yang diteruskan ke aplikasi atau ke konferensi:
+
+```csharp
+foreach (var layer in call.VideoLayers)
+{
+    Console.WriteLine($"{layer.Name}: {layer.BitsPerSecond / 1000} kbit/s{(layer.Selected ? " ← diteruskan" : "")}");
+}
+
+client.MediaNotification += (_, e) =>
+{
+    if (e.Kind == "video-layer")
+    {
+        Console.WriteLine($"sekarang meneruskan {e.Detail}");
+    }
+};
+```
+
+Pilihannya mengikuti bitrate yang dilaporkan penerima (REMB): encoding terbesar yang masih menyisakan
+sepersepuluh anggaran, atau yang terkecil bila tidak ada yang muat, karena gambar seadanya lebih baik
+daripada tidak ada. Di konferensi, anggaran penonton terkecil yang menentukan, sebab semua orang
+dikirimi frame yang sama, dan setiap pergantian meminta keyframe ke pengirim — decoder tidak bisa
+mulai di tengah gambar. Encoding yang berhenti datang kehilangan pilihannya dalam dua detik.
+
+Mengirim simulcast belum ada: engine memilih di antara encoding yang dikirim lawan bicara, bukan
+membuatnya sendiri.
+
 ### Sinkronisasi bibir
 
 Audio dan video berjalan sebagai stream terpisah dengan clock yang tidak berhubungan, jadi timestamp

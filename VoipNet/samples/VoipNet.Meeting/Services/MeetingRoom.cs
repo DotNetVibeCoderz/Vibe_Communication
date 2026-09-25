@@ -35,6 +35,9 @@ public sealed class Participant
     /// <summary>Whole frames the room has reassembled from this browser.</summary>
     public int VideoFrames { get; internal set; }
 
+    /// <summary>Which of the browser's encodings the room is forwarding, when it sends several.</summary>
+    public string? Layer { get; internal set; }
+
     /// <summary>True while the call is up.</summary>
     public bool IsLive => Call.IsActive;
 
@@ -228,6 +231,17 @@ public sealed class MeetingRoom(ILogger<MeetingRoom> logger) : IHostedService, I
                 break;
             case "ice-connected":
                 Log("secure", $"ICE selected {e.Detail}");
+                break;
+            case "simulcast":
+                Log("media", $"{Participants.FirstOrDefault(p => p.Call.Id == e.Call.Id)?.Name ?? "a browser"}: {e.Detail}");
+                break;
+            case "video-layer":
+                if (Participants.FirstOrDefault(p => p.Call.Id == e.Call.Id) is { } sender)
+                {
+                    sender.Layer = e.Detail;
+                    Log("media", $"{sender.Name}: forwarding encoding {e.Detail}");
+                }
+
                 break;
             case "rtp-timeout":
                 if (Participants.FirstOrDefault(p => p.Call.Id == e.Call.Id) is { } gone)

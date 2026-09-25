@@ -101,6 +101,48 @@ client.MediaNotification += (_, e) =>
 };
 ```
 
+### Several encodings of one picture
+
+A browser can send the same camera two or three times over, at different sizes, and let the other end
+pick (simulcast, RFC 8853). When an offer asks for that, the answer takes all of them and keeps the
+header extension that names which encoding each packet belongs to (RFC 8852):
+
+```text
+a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid
+a=extmap:10 urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id
+a=rid:h recv
+a=rid:m recv
+a=rid:l recv
+a=simulcast:recv h;m;l
+```
+
+Each encoding is reassembled on its own — its own sequence numbers, its own frames — and measured, but
+only one is passed on to the application or forwarded to a conference:
+
+```csharp
+foreach (var layer in call.VideoLayers)
+{
+    Console.WriteLine($"{layer.Name}: {layer.BitsPerSecond / 1000} kbit/s{(layer.Selected ? " ← forwarded" : "")}");
+}
+
+client.MediaNotification += (_, e) =>
+{
+    if (e.Kind == "video-layer")
+    {
+        Console.WriteLine($"now forwarding {e.Detail}");
+    }
+};
+```
+
+The choice follows the bitrate the receivers report they can take (REMB): the largest encoding that
+leaves a tenth of the budget spare, or the smallest one when none of them fit, because some picture
+beats none. In a conference the smallest viewer budget decides, since everyone is sent the same
+frames, and each change asks the sender for a keyframe — a decoder cannot start mid-picture. An
+encoding that stops arriving loses the selection within two seconds.
+
+Sending simulcast is not implemented: the engine chooses between the encodings a peer sends, it does
+not produce them.
+
 ### Lip sync
 
 Audio and video travel as separate streams with unrelated clocks, so a frame's timestamp says nothing
