@@ -440,6 +440,7 @@ internal static class SipCommands
                 Height = source.Height,
                 FramesPerSecond = Math.Clamp(fps, 1, 60),
                 BitsPerSecond = screen ? 1_500_000 : 800_000,
+                Content = screen ? VideoContent.Detail : VideoContent.Motion,
             });
 
             call.KeyframeRequested += (_, _) => encoder.RequestKeyframe();

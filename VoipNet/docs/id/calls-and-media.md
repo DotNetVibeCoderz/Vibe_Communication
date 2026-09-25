@@ -421,6 +421,11 @@ Layar dibaca dengan cara yang sama, untuk stream video kedua tempat berbagi laya
 ```csharp
 call.ShareScreen();
 using var screen = VideoCapture.OpenScreen(wholeDesktop: false, width: 1280, height: 720, framesPerSecond: 10);
+using var encoder = VideoCodecs.CreateH264Encoder(new VideoEncoderOptions
+{
+    Width = screen.Width, Height = screen.Height, FramesPerSecond = 10, BitsPerSecond = 1_500_000,
+    Content = VideoContent.Detail,   // layar, bukan wajah
+});
 
 while (screen.Read() is { } picture)
 {
@@ -430,6 +435,11 @@ while (screen.Read() is { } picture)
     }
 }
 ```
+
+`VideoContent.Detail` memberi tahu encoder bahwa ini bukan wajah: kualitasnya dipertahankan dan
+lajunya dibiarkan turun ketika tidak ada yang bergerak, alih-alih menghabiskan bitrate tetap untuk
+mengaburkan teks diam, serta jauh lebih jarang meminta keyframe. Kamera memakai default,
+`VideoContent.Motion`.
 
 Desktop tidak punya laju frame sendiri, jadi angka yang diberikan adalah seberapa sering layar disalin,
 dan salinannya diskalakan sekalian — desktop 4K utuh lebih mahal untuk di-encode daripada bandwidth

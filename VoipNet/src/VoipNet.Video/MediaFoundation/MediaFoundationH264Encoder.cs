@@ -228,7 +228,31 @@ internal sealed unsafe class MediaFoundationH264Encoder : IVideoEncoder
             Mf.Release(ref attributes);
         }
 
-        // The output type comes first: this encoder decides what input it will take from what it has
+        // These are advice, not requirements: a driver that does not take one still encodes.
+        if (Mf.QueryInterface(_transform, Mf.CodecApiInterface, out _codec) == Mf.SOk)
+        {
+            Mf.SetCodecBool(_codec, Mf.LowLatencyMode, true);
+            if (_options.Content == VideoContent.Detail)
+            {
+                // A screen: hold the quality and let the rate fall away when nothing is moving, which
+                // is most of the time, instead of spending a fixed bitrate blurring still text.
+                Mf.SetCodecUInt32(_codec, Mf.RateControlMode, 3); // quality
+                Mf.SetCodecUInt32(_codec, Mf.CommonQuality, 78);
+            }
+            else
+            {
+                Mf.SetCodecUInt32(_codec, Mf.RateControlMode, 0); // constant bitrate
+            }
+
+            Mf.SetCodecUInt32(_codec, Mf.MeanBitRate, (uint)_options.BitsPerSecond);
+            var seconds = _options.Content == VideoContent.Detail
+                ? Math.Max(_options.KeyframeInterval.TotalSeconds, 10)
+                : _options.KeyframeInterval.TotalSeconds;
+            var gop = (uint)Math.Clamp(seconds * _options.FramesPerSecond, 1, 6000);
+            Mf.SetCodecUInt32(_codec, Mf.GopSize, gop);
+        }
+
+        // The output type comes next: this encoder decides what input it will take from what it has
         // been asked to produce.
         Mf.Check(Mf.MFCreateMediaType(out var output), "MFCreateMediaType");
         try
@@ -262,16 +286,6 @@ internal sealed unsafe class MediaFoundationH264Encoder : IVideoEncoder
         finally
         {
             Mf.Release(ref input);
-        }
-
-        // These are advice, not requirements: a driver that does not take one still encodes.
-        if (Mf.QueryInterface(_transform, Mf.CodecApiInterface, out _codec) == Mf.SOk)
-        {
-            Mf.SetCodecBool(_codec, Mf.LowLatencyMode, true);
-            Mf.SetCodecUInt32(_codec, Mf.RateControlMode, 0); // constant bitrate
-            Mf.SetCodecUInt32(_codec, Mf.MeanBitRate, (uint)_options.BitsPerSecond);
-            var gop = (uint)Math.Clamp(_options.KeyframeInterval.TotalSeconds * _options.FramesPerSecond, 1, 600);
-            Mf.SetCodecUInt32(_codec, Mf.GopSize, gop);
         }
 
         Mf.Check(Mf.GetOutputStreamInfo(_transform, 0, out var info), "GetOutputStreamInfo");

@@ -70,6 +70,20 @@ public interface IVideoDecoder : IDisposable
     IReadOnlyList<VideoPicture> Decode(ReadOnlySpan<byte> frame, TimeSpan timestamp);
 }
 
+/// <summary>What the pictures are, which changes how they are best encoded.</summary>
+public enum VideoContent
+{
+    /// <summary>A camera: faces and movement, where a steady bitrate matters more than sharp edges.</summary>
+    Motion,
+
+    /// <summary>
+    /// A screen: text, lines and long stretches where nothing moves at all. Encoded for quality
+    /// rather than to a fixed rate, so still text stays legible and a static screen costs almost
+    /// nothing to send.
+    /// </summary>
+    Detail,
+}
+
 /// <summary>How an encoder should run: size, rate and how much bandwidth it may take.</summary>
 public sealed class VideoEncoderOptions
 {
@@ -90,6 +104,9 @@ public sealed class VideoEncoderOptions
     /// from PLI, so this only bounds how long a late joiner waits.
     /// </summary>
     public TimeSpan KeyframeInterval { get; set; } = TimeSpan.FromSeconds(4);
+
+    /// <summary>What the pictures are: a camera by default, or a screen.</summary>
+    public VideoContent Content { get; set; } = VideoContent.Motion;
 }
 
 /// <summary>The codecs this machine can encode and decode with.</summary>

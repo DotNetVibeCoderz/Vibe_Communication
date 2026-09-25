@@ -58,6 +58,7 @@ internal static unsafe partial class Mf
     internal static readonly Guid RateControlMode = new("1c0608e9-370c-4710-8a58-cb6181c42423");
     internal static readonly Guid MeanBitRate = new("f7222374-2144-4815-b550-a37f8e12ee52");
     internal static readonly Guid GopSize = new("95f31b26-95a4-41aa-9303-246a7fc6eef1");
+    internal static readonly Guid CommonQuality = new("fcbf57a3-7ea5-4b0c-9644-69b40c39c391");
     internal static readonly Guid LowLatencyMode = new("9c27891a-ed7a-40e1-88e8-b22727a024ee");
 
     [LibraryImport("mfplat.dll")]

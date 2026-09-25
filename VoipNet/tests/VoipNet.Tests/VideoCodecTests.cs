@@ -196,6 +196,86 @@ public sealed class VideoCodecTests
     }
 
     [Fact]
+    public void ScreenContentIsEncodedForQualityRatherThanRate()
+    {
+        Assert.SkipUnless(VideoCodecs.IsH264Available, "No platform H.264 codec on this OS.");
+
+        // The same pictures through both settings: a screen encoded for quality spends less on a
+        // picture that barely moves, which is what a shared document mostly is.
+        var motion = Encode(VideoContent.Motion);
+        var detail = Encode(VideoContent.Detail);
+
+        Assert.True(motion.Frames > 0 && detail.Frames > 0, "neither setting produced anything");
+        Assert.True(detail.Bytes < motion.Bytes, $"detail {detail.Bytes} bytes, motion {motion.Bytes}");
+
+        // And what comes out is still decodable H.264 of the right size.
+        using var decoder = VideoCodecs.CreateH264Decoder();
+        var pictures = new List<VideoPicture>();
+        foreach (var frame in detail.Encoded)
+        {
+            pictures.AddRange(decoder.Decode(frame.Data.Span, frame.Timestamp));
+        }
+
+        Assert.NotEmpty(pictures);
+        Assert.Equal(Width, pictures[0].Width);
+    }
+
+    private static (int Frames, int Bytes, List<EncodedVideoFrame> Encoded) Encode(VideoContent content)
+    {
+        using var encoder = VideoCodecs.CreateH264Encoder(new VideoEncoderOptions
+        {
+            Width = Width,
+            Height = Height,
+            FramesPerSecond = 10,
+            BitsPerSecond = 1_000_000,
+            Content = content,
+        });
+
+        var nv12 = new byte[VideoPicture.Nv12Length(Width, Height)];
+        var encoded = new List<EncodedVideoFrame>();
+        var bytes = 0;
+        for (var i = 0; i < 20; i++)
+        {
+            VideoPictures.FromBgra(Text(i), Width, Height, nv12);
+            foreach (var frame in encoder.Encode(new VideoPicture(Width, Height, nv12, TimeSpan.FromSeconds(i / 10.0))))
+            {
+                encoded.Add(frame);
+                bytes += frame.Data.Length;
+            }
+        }
+
+        foreach (var frame in encoder.Drain())
+        {
+            encoded.Add(frame);
+            bytes += frame.Data.Length;
+        }
+
+        return (encoded.Count, bytes, encoded);
+    }
+
+    /// <summary>Lines of text on white with one blinking cursor: what a shared document looks like.</summary>
+    private static byte[] Text(int frame)
+    {
+        var bgra = new byte[Width * Height * 4];
+        for (var y = 0; y < Height; y++)
+        {
+            for (var x = 0; x < Width; x++)
+            {
+                var at = ((y * Width) + x) * 4;
+                var glyph = y % 14 < 9 && (x + (y / 14 * 3)) % 7 < 4 && x < Width - 60;
+                var cursor = x > Width - 60 && x < Width - 40 && (y / 20) % 2 == frame % 2;
+                var value = (byte)(glyph || cursor ? 30 : 245);
+                bgra[at] = value;
+                bgra[at + 1] = value;
+                bgra[at + 2] = value;
+                bgra[at + 3] = 255;
+            }
+        }
+
+        return bgra;
+    }
+
+    [Fact]
     public void CamerasCanBeListedWithoutOpeningOne()
     {
         // Listing is safe to run anywhere: it never opens a device, so no light goes on and a machine

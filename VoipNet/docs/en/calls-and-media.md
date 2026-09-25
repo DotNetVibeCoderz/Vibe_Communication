@@ -414,6 +414,11 @@ The screen is read the same way, for the second video stream a share goes out on
 ```csharp
 call.ShareScreen();
 using var screen = VideoCapture.OpenScreen(wholeDesktop: false, width: 1280, height: 720, framesPerSecond: 10);
+using var encoder = VideoCodecs.CreateH264Encoder(new VideoEncoderOptions
+{
+    Width = screen.Width, Height = screen.Height, FramesPerSecond = 10, BitsPerSecond = 1_500_000,
+    Content = VideoContent.Detail,   // a screen, not a face
+});
 
 while (screen.Read() is { } picture)
 {
@@ -423,6 +428,10 @@ while (screen.Read() is { } picture)
     }
 }
 ```
+
+`VideoContent.Detail` tells the encoder these are not faces: it holds the quality and lets the rate
+fall away when nothing is moving, rather than spending a fixed bitrate blurring still text, and asks
+for keyframes far less often. A camera wants the default, `VideoContent.Motion`.
 
 The desktop has no frame rate of its own, so the rate given is how often to copy it, and the copy is
 scaled on the way through — a whole 4K desktop costs more to encode than anyone has bandwidth for.
