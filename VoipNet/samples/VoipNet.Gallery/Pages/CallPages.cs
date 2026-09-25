@@ -1,4 +1,5 @@
 using VoipNet.Audio;
+using VoipNet.Video;
 using VoipNet.Gallery.Infrastructure;
 
 namespace VoipNet.Gallery.Pages;
@@ -325,6 +326,176 @@ public sealed class ConferencePage : DemoPage
         await Task.Delay(300);
         Write("Bob speaks; the trace is what Carol hears through the bridge");
         bobLeg?.SendAudio(Voice(5000, 150), 16000);
+    }
+
+    public override Task ResetAsync() => _lab.ResetAsync();
+}
+
+/// <summary>Video end to end: a picture encoded, sent over a real call, and decoded at the far end.</summary>
+public sealed class VideoPage : DemoPage
+{
+    private readonly Lab _lab = new();
+
+    public VideoPage()
+        : base("CALLS", "Video", "VoipNet.Video encodes and decodes H.264 with the platform's own codec, so a camera, a screen or anything else that makes pixels can go on a call — here a moving pattern goes out and is compared with what comes back.")
+    {
+        AddAction("Send 30 frames", RunAsync, "go");
+    }
+
+    public override string Code => """
+        using var camera = VideoCapture.OpenCamera(width: 640, height: 360);
+        using var encoder = VideoCodecs.CreateH264Encoder(new VideoEncoderOptions
+        {
+            Width = camera.Width, Height = camera.Height, FramesPerSecond = 30, BitsPerSecond = 800_000,
+        });
+
+        call.KeyframeRequested += (_, _) => encoder.RequestKeyframe();
+
+        while (camera.Read() is { } picture)
+        {
+            foreach (var frame in encoder.Encode(picture))
+            {
+                call.SendVideoFrame((uint)(picture.Timestamp.TotalSeconds * 90000), frame.Data.Span);
+            }
+        }
+
+        // And at the other end:
+        using var decoder = VideoCodecs.CreateH264Decoder();
+        call.VideoFrameReceived += (_, _, _, frame, _) =>
+        {
+            foreach (var picture in decoder.Decode(frame, elapsed))
+            {
+                VideoPictures.ToBgra(picture.Data.Span, picture.Width, picture.Height, pixels);
+            }
+        };
+        """;
+
+    private async Task RunAsync()
+    {
+        if (!VideoCodecs.IsH264Available)
+        {
+            // Only Windows has a platform codec wired up so far; saying so beats a broken demo.
+            Write("This machine has no H.264 codec. Media Foundation is wired up on Windows; VideoToolbox and VA-API are on the plan.");
+            SetMetric("Codec", "none here");
+            return;
+        }
+
+        const int width = 320;
+        const int height = 240;
+        await _lab.ResetAsync();
+        var caller = await _lab.StartAsync("camera", o => o.Video = true);
+        var viewer = await _lab.StartAsync("viewer", o => o.Video = true);
+        Lab.AutoAnswer(viewer, 50);
+        VoipCall? viewerLeg = null;
+        viewer.IncomingCall += (_, e) => viewerLeg = e.Call;
+
+        var call = await caller.CallAsync(Lab.Uri(viewer, "viewer")).WaitAsync(TimeSpan.FromSeconds(10));
+        await TestReady(() => viewerLeg is not null);
+        SetMetric("Codec", call.VideoCodec ?? "not negotiated");
+
+        var arrived = new List<byte[]>();
+        viewerLeg!.VideoFrameReceived += (_, _, _, frame, _) =>
+        {
+            lock (arrived)
+            {
+                arrived.Add(frame.ToArray());
+            }
+        };
+
+        using var encoder = VideoCodecs.CreateH264Encoder(new VideoEncoderOptions
+        {
+            Width = width,
+            Height = height,
+            FramesPerSecond = 25,
+            BitsPerSecond = 600_000,
+        });
+        SetMetric("Encoder", encoder.Implementation);
+
+        var nv12 = new byte[VideoPicture.Nv12Length(width, height)];
+        var sent = 0;
+        var bytes = 0;
+        for (var i = 0; i < 30; i++)
+        {
+            VideoPictures.FromBgra(Pattern(width, height, i), width, height, nv12);
+            foreach (var frame in encoder.Encode(new VideoPicture(width, height, nv12, TimeSpan.FromSeconds(i / 25.0))))
+            {
+                call.SendVideoFrame((uint)(90000 + (sent * 3600)), frame.Data.Span);
+                sent++;
+                bytes += frame.Data.Length;
+            }
+
+            await Task.Delay(40);
+        }
+
+        await TestReady(() =>
+        {
+            lock (arrived)
+            {
+                return arrived.Count >= sent - 2;
+            }
+        });
+
+        byte[][] frames;
+        lock (arrived)
+        {
+            frames = [.. arrived];
+        }
+
+        using var decoder = VideoCodecs.CreateH264Decoder();
+        var pictures = new List<VideoPicture>();
+        foreach (var frame in frames)
+        {
+            pictures.AddRange(decoder.Decode(frame, TimeSpan.Zero));
+        }
+
+        SetMetric("Frames", $"{sent} sent · {frames.Length} arrived · {pictures.Count} decoded");
+        SetMetric("Bitrate", $"{bytes * 8 / 1000 * 25 / Math.Max(sent, 1)} kbit/s");
+        if (pictures.Count > 0)
+        {
+            VideoPictures.FromBgra(Pattern(width, height, pictures.Count - 1), width, height, nv12);
+            double error = 0;
+            for (var i = 0; i < width * height; i++)
+            {
+                var difference = pictures[^1].Data.Span[i] - nv12[i];
+                error += difference * difference;
+            }
+
+            var psnr = 10 * Math.Log10(255.0 * 255.0 / (error / (width * height)));
+            SetMetric("Picture", $"{pictures[^1].Width}x{pictures[^1].Height} · {psnr:0.0} dB");
+            Write($"the last picture came back at {psnr:0.0} dB of the one that went in");
+        }
+
+        await call.HangupAsync();
+    }
+
+    /// <summary>Waits for something to become true, without a fixed sleep a slow machine would lose.</summary>
+    private static async Task TestReady(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(50);
+        }
+    }
+
+    /// <summary>Colour bars that move, so every frame differs from the one before it.</summary>
+    private static byte[] Pattern(int width, int height, int frame)
+    {
+        var bgra = new byte[width * height * 4];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var at = ((y * width) + x) * 4;
+                var bar = (x + (frame * 6)) % width;
+                bgra[at] = (byte)(bar < width / 3 ? 240 : 20);
+                bgra[at + 1] = (byte)(y * 255 / height);
+                bgra[at + 2] = (byte)(bar > width * 2 / 3 ? 240 : 40);
+                bgra[at + 3] = 255;
+            }
+        }
+
+        return bgra;
     }
 
     public override Task ResetAsync() => _lab.ResetAsync();

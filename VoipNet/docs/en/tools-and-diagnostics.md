@@ -170,7 +170,7 @@ Pass an `ILogger<VoipClient>`; engine log events (NAT discovery, send failures, 
 
 ![Gallery](../images/gallery-call-center.png)
 
-Thirteen live pages: overview, place a call, codecs, DTMF, hold and transfer, conference, recording, SRTP, language models (with a real tool call), voice agent, IVR builder, queues and agents, diagnostics. Each page shows the C# that does what the demo does. Configure models with `VOIPNET_AI_ENDPOINT`, `VOIPNET_AI_KEY`, `VOIPNET_AI_MODEL`.
+Fourteen live pages: overview, place a call, codecs, DTMF, hold and transfer, conference, video (encoded, sent over a real call and compared with what comes back), recording, SRTP, language models (with a real tool call), voice agent, IVR builder, queues and agents, diagnostics. Each page shows the C# that does what the demo does. Configure models with `VOIPNET_AI_ENDPOINT`, `VOIPNET_AI_KEY`, `VOIPNET_AI_MODEL`.
 
 ### Call Centre (Blazor Server)
 

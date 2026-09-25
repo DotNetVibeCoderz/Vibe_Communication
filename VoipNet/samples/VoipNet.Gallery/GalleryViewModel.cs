@@ -26,6 +26,7 @@ public sealed partial class GalleryViewModel : ObservableObject
             new DtmfPage(),
             new HoldTransferPage(),
             new ConferencePage(),
+            new VideoPage(),
             new RecordingPage(),
             new SecurityPage(),
             new ChatModelsPage(),
