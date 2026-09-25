@@ -6,10 +6,11 @@ namespace VoipNet.Tests;
 /// <summary>Opening hours: when a queue takes calls, and what happens when it does not.</summary>
 public class ScheduleTests
 {
-    /// <summary>Jakarta is UTC+7 all year, which keeps the arithmetic in these tests easy to follow.</summary>
+    /// <summary>A fixed +07:00, so the arithmetic is the same on every machine: zone ids depend on what
+    /// the operating system knows, and CI runners do not all know the same ones.</summary>
     private static RoutingSchedule OfficeHours() => new()
     {
-        TimeZone = "SE Asia Standard Time",
+        TimeZone = "+07:00",
         Hours =
         [
             new OpeningHours(DayOfWeek.Monday, new TimeOnly(8, 0), new TimeOnly(17, 0)),
@@ -92,6 +93,20 @@ public class ScheduleTests
         Assert.True(schedule.IsOpen(new DateTimeOffset(2026, 3, 6, 23, 30, 0, TimeSpan.Zero)));    // Friday night
         Assert.True(schedule.IsOpen(new DateTimeOffset(2026, 3, 7, 1, 30, 0, TimeSpan.Zero)));     // Saturday morning
         Assert.False(schedule.IsOpen(new DateTimeOffset(2026, 3, 7, 2, 30, 0, TimeSpan.Zero)));
+    }
+
+    [Fact]
+    public void AnUnknownTimeZoneFallsBackToUtcRatherThanGuessing()
+    {
+        var schedule = new RoutingSchedule
+        {
+            TimeZone = "Mars/Olympus",
+            Hours = [new OpeningHours(DayOfWeek.Wednesday, new TimeOnly(9, 0), new TimeOnly(17, 0))],
+        };
+
+        // 10:00 UTC on Wednesday: open, because the hours are read as UTC when the id means nothing here.
+        Assert.True(schedule.IsOpen(new DateTimeOffset(2026, 3, 4, 10, 0, 0, TimeSpan.Zero)));
+        Assert.False(schedule.IsOpen(new DateTimeOffset(2026, 3, 4, 20, 0, 0, TimeSpan.Zero)));
     }
 
     [Fact]

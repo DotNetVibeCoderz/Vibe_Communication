@@ -199,6 +199,10 @@ if (!status.IsOpen)
 }
 ```
 
+The time zone is an IANA id (`Asia/Jakarta`), a Windows id, or a fixed offset (`+07:00`). Zone ids
+depend on what the operating system knows, so an offset is the portable way to write a schedule into
+a configuration file; an id this machine does not know is read as UTC.
+
 An opening period whose closing time is at or before its opening time runs past midnight, so
 `(Friday, 22:00, 02:00)` keeps the queue open until two on Saturday morning. A schedule with no hours
 and no exceptions is always open. Closed calls are counted as offered in the metrics and stored in

@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace VoipNet.Enterprise.CallCenter;
 
 /// <summary>
@@ -51,7 +53,10 @@ public sealed class RoutingSchedule
     /// <summary>How far ahead <see cref="Check"/> looks for the next opening.</summary>
     private static readonly int LookaheadDays = 14;
 
-    /// <summary>The time zone the hours are written in, as an IANA or Windows id.</summary>
+    /// <summary>The time zone the hours are written in: an IANA id (<c>Asia/Jakarta</c>), a Windows id,
+    /// or a fixed offset (<c>+07:00</c>). Zone ids depend on what the operating system knows, so an
+    /// offset is the portable way to write a schedule down in a configuration file. An id this machine
+    /// does not know is read as UTC.</summary>
     public string TimeZone { get; init; } = "UTC";
 
     /// <summary>The ordinary week. An empty list means the queue is always open.</summary>
@@ -142,15 +147,49 @@ public sealed class RoutingSchedule
 
     private TimeZoneInfo Zone()
     {
+        var id = TimeZone?.Trim();
+        if (string.IsNullOrEmpty(id))
+        {
+            return TimeZoneInfo.Utc;
+        }
+
+        if (Offset(id) is { } offset)
+        {
+            var name = $"UTC{(offset < TimeSpan.Zero ? "-" : "+")}{offset.Duration().Hours:00}:{offset.Duration().Minutes:00}";
+            return TimeZoneInfo.CreateCustomTimeZone(name, offset, name, name);
+        }
+
         try
         {
-            return TimeZoneInfo.FindSystemTimeZoneById(TimeZone);
+            return TimeZoneInfo.FindSystemTimeZoneById(id);
         }
         catch (Exception e) when (e is TimeZoneNotFoundException or InvalidTimeZoneException)
         {
-            // An unknown zone must not silently move the opening hours: fall back to UTC, which is
-            // what the hours mean when nobody has said otherwise.
+            // An id this machine does not know must not silently move the hours by a random amount:
+            // fall back to UTC, which is what they mean when nobody has said otherwise.
             return TimeZoneInfo.Utc;
+        }
+    }
+
+    /// <summary>Reads a fixed offset such as <c>+07:00</c>, <c>-05:30</c> or <c>+07</c>.</summary>
+    private static TimeSpan? Offset(string id)
+    {
+        if (id.Length < 2 || (id[0] != '+' && id[0] != '-'))
+        {
+            return null;
+        }
+
+        var body = id[1..];
+        var value = TimeSpan.Zero;
+        var parsed = body.Contains(':')
+            ? TimeSpan.TryParseExact(body, @"h\:mm", CultureInfo.InvariantCulture, out value)
+            : int.TryParse(body, CultureInfo.InvariantCulture, out var hours) && hours is >= 0 and <= 14 && Set(hours, ref value);
+        return parsed ? id[0] == '-' ? -value : value : null;
+
+        static bool Set(int hours, ref TimeSpan value)
+        {
+            value = TimeSpan.FromHours(hours);
+            return true;
         }
     }
 

@@ -198,6 +198,10 @@ if (!status.IsOpen)
 }
 ```
 
+Zona waktu bisa berupa id IANA (`Asia/Jakarta`), id Windows, atau offset tetap (`+07:00`). Id zona
+bergantung pada apa yang dikenal sistem operasi, jadi offset adalah cara yang portabel untuk menulis
+jadwal di file konfigurasi; id yang tidak dikenal mesin ini dibaca sebagai UTC.
+
 Periode yang jam tutupnya sama atau lebih awal dari jam bukanya berarti melewati tengah malam, jadi
 `(Friday, 22:00, 02:00)` membuat antrean tetap buka sampai pukul dua Sabtu dini hari. Jadwal tanpa jam
 dan tanpa pengecualian selalu buka. Panggilan saat tutup tetap dihitung sebagai offered di metrik dan
