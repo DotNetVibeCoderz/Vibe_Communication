@@ -403,6 +403,28 @@ The size asked for is a preference: a device that cannot do it gives what it can
 and `camera.Height` say what that turned out to be — so read them before setting the encoder up, as
 above. Pictures come back as NV12 whatever the camera speaks natively; the reader converts and scales.
 
+The screen is read the same way, for the second video stream a share goes out on:
+
+```csharp
+call.ShareScreen();
+using var screen = VideoCapture.OpenScreen(wholeDesktop: false, width: 1280, height: 720, framesPerSecond: 10);
+
+while (screen.Read() is { } picture)
+{
+    foreach (var frame in encoder.Encode(picture))
+    {
+        call.SendVideoFrame((uint)(picture.Timestamp.TotalSeconds * 90000), frame.Data.Span, "slides");
+    }
+}
+```
+
+The desktop has no frame rate of its own, so the rate given is how often to copy it, and the copy is
+scaled on the way through — a whole 4K desktop costs more to encode than anyone has bandwidth for.
+What a copy costs depends entirely on the display driver: a plain local screen answers in a few
+milliseconds, while some virtual and remote displays take a third of a second whatever the size, so
+the rate is a ceiling rather than a promise. Desktop Duplication, which avoids that, is in
+[PLAN 1.3](../../PLAN.md#13---video--fitur-video).
+
 ## Recording
 
 ```csharp

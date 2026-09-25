@@ -215,6 +215,26 @@ public sealed class VideoCodecTests
         });
     }
 
+    [Fact]
+    public void TheScreenCanBeRead()
+    {
+        Assert.SkipUnless(VideoCapture.IsSupported, "Screen capture is not wired up on this OS.");
+
+        using var screen = VideoCapture.OpenScreen(wholeDesktop: false, width: 640, height: 360, framesPerSecond: 10);
+        Assert.Equal(640, screen.Width);
+        Assert.Equal(360, screen.Height);
+
+        var picture = screen.Read();
+        Assert.NotNull(picture);
+        Assert.Equal(VideoPicture.Nv12Length(640, 360), picture.Value.Data.Length);
+
+        // What is on the screen is the machine's business, not the test's: only that a whole picture
+        // of the right size arrived, and that the second one came after the first.
+        var second = screen.Read();
+        Assert.NotNull(second);
+        Assert.True(second.Value.Timestamp >= picture.Value.Timestamp);
+    }
+
     /// <summary>A smooth sweep through the colours, which is what half-resolution colour is made for.</summary>
     private static byte[] Gradient()
     {

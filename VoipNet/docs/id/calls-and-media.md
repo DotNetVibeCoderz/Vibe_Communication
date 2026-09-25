@@ -410,6 +410,28 @@ Ukuran yang diminta hanyalah preferensi: perangkat yang tidak sanggup memberi ya
 encoder, seperti di atas. Gambar selalu kembali dalam NV12 apa pun format asli kameranya, karena
 readernya yang mengonversi dan menskalakan.
 
+Layar dibaca dengan cara yang sama, untuk stream video kedua tempat berbagi layar dikirim:
+
+```csharp
+call.ShareScreen();
+using var screen = VideoCapture.OpenScreen(wholeDesktop: false, width: 1280, height: 720, framesPerSecond: 10);
+
+while (screen.Read() is { } picture)
+{
+    foreach (var frame in encoder.Encode(picture))
+    {
+        call.SendVideoFrame((uint)(picture.Timestamp.TotalSeconds * 90000), frame.Data.Span, "slides");
+    }
+}
+```
+
+Desktop tidak punya laju frame sendiri, jadi angka yang diberikan adalah seberapa sering layar disalin,
+dan salinannya diskalakan sekalian — desktop 4K utuh lebih mahal untuk di-encode daripada bandwidth
+siapa pun. Biaya satu salinan sepenuhnya bergantung pada driver layar: layar lokal biasa menjawab dalam
+beberapa milidetik, sementara sebagian layar virtual dan remote butuh sepertiga detik berapa pun
+ukurannya, jadi lajunya adalah batas atas, bukan janji. Desktop Duplication yang bebas dari masalah itu
+ada di [PLAN 1.3](../../PLAN.md#13---video--fitur-video).
+
 ## Perekaman
 
 ```csharp

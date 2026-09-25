@@ -63,8 +63,32 @@ public static class VideoCapture
         return OpenWindows(device, width, height, framesPerSecond);
     }
 
+    /// <summary>
+    /// Opens the screen as a source of pictures, for sharing it as the second video stream
+    /// (<c>a=content:slides</c>). The desktop has no frame rate of its own, so the reader paces
+    /// itself: ask for the next picture and it arrives when the interval is up.
+    /// </summary>
+    /// <param name="wholeDesktop">True for every screen side by side, false for the main one.</param>
+    /// <param name="width">Width to scale to; a whole 4K desktop costs more to encode than it is worth.</param>
+    /// <param name="height">Height to scale to.</param>
+    /// <param name="framesPerSecond">How often to copy the screen.</param>
+    /// <exception cref="PlatformNotSupportedException">Screen capture is not wired up on this platform.</exception>
+    public static IVideoCaptureSource OpenScreen(bool wholeDesktop = false, int width = 1280, int height = 720, int framesPerSecond = 10)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException("Screen capture is only wired up on Windows so far; see PLAN 1.3.");
+        }
+
+        return OpenWindowsScreen(wholeDesktop, width, height, framesPerSecond);
+    }
+
     [SupportedOSPlatform("windows")]
     private static IReadOnlyList<VideoCaptureDevice> ListWindows() => MediaFoundationCamera.Devices();
+
+    [SupportedOSPlatform("windows")]
+    private static IVideoCaptureSource OpenWindowsScreen(bool wholeDesktop, int width, int height, int framesPerSecond) =>
+        new Windows.GdiScreenCapture(wholeDesktop, width, height, framesPerSecond);
 
     [SupportedOSPlatform("windows")]
     private static IVideoCaptureSource OpenWindows(VideoCaptureDevice? device, int width, int height, int framesPerSecond) =>
