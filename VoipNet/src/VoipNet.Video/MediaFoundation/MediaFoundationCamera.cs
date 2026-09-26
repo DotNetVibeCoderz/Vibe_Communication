@@ -17,6 +17,7 @@ internal sealed unsafe class MediaFoundationCamera : IVideoCaptureSource
     private nint _source;
     private nint _reader;
     private int _stride;
+    private byte[] _picture = [];
     private bool _disposed;
 
     internal MediaFoundationCamera(string symbolicLink, string name, int width, int height, int framesPerSecond)
@@ -274,13 +275,18 @@ internal sealed unsafe class MediaFoundationCamera : IVideoCaptureSource
                     return default;
                 }
 
-                var picture = new byte[VideoPicture.Nv12Length(Width, Height)];
-                for (var row = 0; row < rows; row++)
+                var wanted = VideoPicture.Nv12Length(Width, Height);
+                if (_picture.Length != wanted)
                 {
-                    source.Slice(row * stride, Width).CopyTo(picture.AsSpan(row * Width));
+                    _picture = new byte[wanted];
                 }
 
-                return picture;
+                for (var row = 0; row < rows; row++)
+                {
+                    source.Slice(row * stride, Width).CopyTo(_picture.AsSpan(row * Width));
+                }
+
+                return _picture;
             }
             finally
             {

@@ -40,7 +40,9 @@ besar soal platform dan codec lain.
   The Softphone shares a screen with `VideoCapture.OpenScreen`, a browser shares one with
   `getDisplayMedia` in the meeting sample, and a room sends it to everybody at once. Still to do:
   capture beyond the GDI copy (Desktop Duplication, for the rate a driver will not give through GDI;
-  ScreenCaptureKit; PipeWire) and BFCP-style floor control. · **Berbagi layar** — stream kedua
+  ScreenCaptureKit; PipeWire), and the rest of BFCP floor control — the messages and the floor state
+  machine are in `sip/bfcp.rs` with tests, and what is left is negotiating it in SDP and running it
+  over its own socket. · **Berbagi layar** — stream kedua
   `a=content:slides`; Softphone membagikan layar, browser lewat `getDisplayMedia`, dan ruangan
   mengirimnya ke semua orang. Sisanya: penangkapan yang lebih cepat dan floor control BFCP.
 - **Video recording** — `RecordingFormat.Mp4` (H.264 with each frame's own duration) and

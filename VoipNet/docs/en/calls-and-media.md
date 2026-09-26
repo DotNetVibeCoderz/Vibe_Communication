@@ -430,7 +430,13 @@ while (camera.Read() is { } picture)
 
 The size asked for is a preference: a device that cannot do it gives what it can, and `camera.Width`
 and `camera.Height` say what that turned out to be — so read them before setting the encoder up, as
-above. Pictures come back as NV12 whatever the camera speaks natively; the reader converts and scales.
+above. Pictures come back as NV12 whatever the camera speaks natively; the reader converts and scales,
+and each one borrows the source's buffer until the next `Read`.
+
+`VideoCapture.OpenPattern()` is the same thing without a camera: colour bars, a sliding band and a
+corner that counts frames. It is the video equivalent of a test tone — a server, a CI runner or a
+laptop with the shutter closed can still put something recognisable on a call — and it works on every
+platform, because nothing outside the package draws it.
 
 The screen is read the same way, for the second video stream a share goes out on:
 

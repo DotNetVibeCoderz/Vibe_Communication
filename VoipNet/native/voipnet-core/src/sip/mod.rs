@@ -1,6 +1,7 @@
 //! SIP signaling (RFC 3261).
 
 pub mod auth;
+pub mod bfcp;
 pub mod dns;
 pub mod endpoint;
 pub mod message;

@@ -29,6 +29,11 @@ public interface IVideoCaptureSource : IDisposable
     /// Waits for the next picture. Returns null when the device has stopped, which is the end of the
     /// stream and not an error.
     /// </summary>
+    /// <remarks>
+    /// The picture borrows the source's own buffer and is valid until the next call, which is what
+    /// keeps a capture loop from allocating a frame at a time. Encode it, copy it, or compose with
+    /// it before reading again.
+    /// </remarks>
     VideoPicture? Read();
 }
 
@@ -99,6 +104,17 @@ public static class VideoCapture
 
         return OpenWindowsScreen(wholeDesktop, width, height, framesPerSecond);
     }
+
+    /// <summary>
+    /// A moving test pattern as a source of pictures: colour bars, a sliding band and a corner that
+    /// counts frames. The video equivalent of a test tone, for a machine with no camera and for
+    /// tests, and it works on every platform because nothing outside this package draws it.
+    /// </summary>
+    /// <param name="width">Width in pixels; must be even.</param>
+    /// <param name="height">Height in pixels; must be even.</param>
+    /// <param name="framesPerSecond">How often a new picture is drawn.</param>
+    public static IVideoCaptureSource OpenPattern(int width = 640, int height = 360, int framesPerSecond = 15) =>
+        new PatternSource(width, height, framesPerSecond);
 
     [SupportedOSPlatform("windows")]
     private static IReadOnlyList<VideoCaptureDevice> ListWindows() => MediaFoundationCamera.Devices();

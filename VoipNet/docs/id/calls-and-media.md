@@ -437,7 +437,13 @@ while (camera.Read() is { } picture)
 Ukuran yang diminta hanyalah preferensi: perangkat yang tidak sanggup memberi yang bisa, dan
 `camera.Width` serta `camera.Height` menyebut hasilnya — jadi bacalah keduanya sebelum menyiapkan
 encoder, seperti di atas. Gambar selalu kembali dalam NV12 apa pun format asli kameranya, karena
-readernya yang mengonversi dan menskalakan.
+readernya yang mengonversi dan menskalakan, dan tiap gambar meminjam buffer sumbernya sampai `Read`
+berikutnya.
+
+`VideoCapture.OpenPattern()` adalah hal yang sama tanpa kamera: bar warna, pita yang bergeser, dan
+pojok yang menghitung frame. Ini padanan video dari nada uji — server, runner CI, atau laptop dengan
+penutup kamera tertutup tetap bisa mengirim sesuatu yang dikenali — dan berjalan di semua platform,
+karena tidak ada yang di luar paket ini yang menggambarnya.
 
 Layar dibaca dengan cara yang sama, untuk stream video kedua tempat berbagi layar dikirim:
 

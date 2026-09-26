@@ -42,6 +42,22 @@ public sealed class CallVideo : IDisposable
     /// <summary>Whether this machine has the codec and the camera to do any of this.</summary>
     public static bool IsSupported => VideoCodecs.IsH264Available;
 
+    /// <summary>Send the test pattern rather than a camera, for a run with nobody in front of one.</summary>
+    public static bool TestPattern { get; set; }
+
+    private static IVideoCaptureSource OpenCameraOrPattern()
+    {
+        try
+        {
+            return VideoCapture.OpenCamera(width: 640, height: 360, framesPerSecond: 30);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException)
+        {
+            // No camera, or somebody else has it: the call still gets a picture.
+            return VideoCapture.OpenPattern(640, 360, framesPerSecond: 15);
+        }
+    }
+
     /// <summary>Raised on the UI thread when either picture has changed.</summary>
     public event Action? Changed;
 
@@ -158,7 +174,11 @@ public sealed class CallVideo : IDisposable
     {
         try
         {
-            _camera = VideoCapture.OpenCamera(width: 640, height: 360, framesPerSecond: 30);
+            // A machine with no camera — a server, a laptop with the shutter closed, a headless run
+            // taking the documentation screenshots — still has something to send.
+            _camera = TestPattern || !VideoCapture.IsSupported
+                ? VideoCapture.OpenPattern(640, 360, framesPerSecond: 15)
+                : OpenCameraOrPattern();
             CameraName = _camera.Name;
             _encoder = VideoCodecs.CreateH264Encoder(new VideoEncoderOptions
             {
@@ -190,12 +210,15 @@ public sealed class CallVideo : IDisposable
             var elapsed = DateTime.UtcNow - started;
             foreach (var encoded in _encoder.Encode(frame))
             {
-                if (!_call.IsActive)
+                try
                 {
+                    _call.SendVideoFrame((uint)(elapsed.TotalSeconds * 90_000), encoded.Data.Span);
+                }
+                catch (VoipException)
+                {
+                    // The call ended between one frame and the next, which is how calls end.
                     return;
                 }
-
-                _call.SendVideoFrame((uint)(elapsed.TotalSeconds * 90_000), encoded.Data.Span);
             }
         }
     }
@@ -224,12 +247,19 @@ public sealed class CallVideo : IDisposable
 
                 foreach (var frame in encoder.Encode(picture))
                 {
-                    if (!_sharing || !_call.IsActive)
+                    if (!_sharing)
                     {
                         return;
                     }
 
-                    _call.SendVideoFrame((uint)(picture.Timestamp.TotalSeconds * 90_000), frame.Data.Span, "slides");
+                    try
+                    {
+                        _call.SendVideoFrame((uint)(picture.Timestamp.TotalSeconds * 90_000), frame.Data.Span, "slides");
+                    }
+                    catch (VoipException)
+                    {
+                        return;
+                    }
                 }
             }
         }

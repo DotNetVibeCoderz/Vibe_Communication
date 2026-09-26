@@ -372,6 +372,46 @@ public sealed class VideoCodecTests
     }
 
     [Fact]
+    public void ThePatternMovesAndIsThereOnEveryPlatform()
+    {
+        // No codec and no camera needed: this is the video equivalent of a test tone, and a machine
+        // with neither should still be able to put something recognisable on a call.
+        using var pattern = VideoCapture.OpenPattern(320, 240, framesPerSecond: 30);
+        Assert.Equal("Test pattern", pattern.Name);
+
+        var read = pattern.Read();
+        Assert.NotNull(read);
+        Assert.Equal(VideoPicture.Nv12Length(320, 240), read.Value.Data.Length);
+        // A picture borrows the source's buffer until the next one, so keep a copy to compare with.
+        var first = new VideoPicture(read.Value.Width, read.Value.Height, read.Value.Data.ToArray(), read.Value.Timestamp);
+        var second = pattern.Read();
+        Assert.NotNull(second);
+        Assert.True(second.Value.Timestamp > first.Timestamp, "the pictures are paced");
+
+        // Every frame differs from the last, which is what makes it worth more than a still picture.
+        var changed = 0;
+        for (var i = 0; i < 320 * 240; i++)
+        {
+            if (first.Data.Span[i] != second.Value.Data.Span[i])
+            {
+                changed++;
+            }
+        }
+
+        Assert.True(changed > 500, $"only {changed} pixels moved between frames");
+
+        // And it is a picture, not a flat colour: the bars cover the range.
+        int low = 255, high = 0;
+        for (var i = 0; i < 320 * 240; i++)
+        {
+            low = Math.Min(low, first.Data.Span[i]);
+            high = Math.Max(high, first.Data.Span[i]);
+        }
+
+        Assert.True(high - low > 100, $"the picture only spans {high - low} of the brightness range");
+    }
+
+    [Fact]
     public void TheScreenCanBeRead()
     {
         Assert.SkipUnless(VideoCapture.IsSupported, "Screen capture is not wired up on this OS.");

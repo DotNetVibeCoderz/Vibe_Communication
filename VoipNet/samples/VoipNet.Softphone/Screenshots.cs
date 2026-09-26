@@ -46,6 +46,25 @@ internal static class Screenshots
         Wait(() => false, TimeSpan.FromSeconds(3.5));
         Save(window, folder, "softphone-call.png");
 
+        // A video call, on the echo line: it sends every stream back the way it came, so the picture
+        // on screen has been encoded, sent over RTP, returned and decoded. Nobody is sitting in front
+        // of this run, so the camera is the sample's test pattern.
+        Services.CallVideo.TestPattern = true;
+        viewModel.ActiveCall?.HangupCommand.Execute(null);
+        Wait(() => viewModel.ActiveCall?.IsEnded == true, TimeSpan.FromSeconds(5));
+        viewModel.DismissCallCommand.Execute(null);
+        viewModel.DialTarget = "echo";
+        viewModel.DialCommand.Execute(null);
+        Wait(() => viewModel.ActiveCall?.IsConnected == true, TimeSpan.FromSeconds(10));
+        if (viewModel.ActiveCall is { } videoCall)
+        {
+            Wait(() => videoCall.VideoAvailable, TimeSpan.FromSeconds(5));
+            videoCall.ToggleCameraCommand.Execute(null);
+            Wait(() => videoCall.RemotePicture is not null, TimeSpan.FromSeconds(25));
+            Wait(() => false, TimeSpan.FromSeconds(1.5));
+            Save(window, folder, "softphone-video.png");
+        }
+
         viewModel.IsSettingsOpen = true;
         viewModel.AiEndpoint = "https://your-resource.openai.azure.com/";
         Wait(() => false, TimeSpan.FromSeconds(0.6));

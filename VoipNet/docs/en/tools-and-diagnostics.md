@@ -160,9 +160,11 @@ Pass an `ILogger<VoipClient>`; engine log events (NAT discovery, send failures, 
 
 ![Softphone](../images/softphone-idle.png)
 
+![A video call on the echo line](../images/softphone-video.png)
+
 - Demo mode starts two in-process lines: **echo** (hear yourself) and **music** (a melody that answers keypad presses with tones).
 - Live audio traces for both directions, codec and MOS, mute/hold/keypad/record/transfer.
-- **Camera** turns the webcam on where there is a platform codec (Windows so far): it is captured, encoded to H.264, sent over RTP and shown back decoded, with the far end large and the self-view in the corner. **Share screen** then adds the screen beside it as a second stream (`a=content:slides`, a re-INVITE), encoded for text rather than faces. The echo line sends each stream back on the stream it came from, so the whole path can be seen on one machine.
+- **Camera** turns the webcam on where there is a platform codec (Windows so far): it is captured, encoded to H.264, sent over RTP and shown back decoded, with the far end large and the self-view in the corner. **Share screen** then adds the screen beside it as a second stream (`a=content:slides`, a re-INVITE), encoded for text rather than faces. The echo line sends each stream back on the stream it came from, so the whole path can be seen on one machine — the picture above has been encoded, sent over RTP, returned and decoded. A machine with no camera sends the test pattern instead, which is what the shot shows.
 - Notes panel with **Summarise with AI** (any OpenAI-compatible endpoint).
 - `dotnet run --project samples/VoipNet.Softphone -- --screenshot docs/images` renders the documentation screenshots headlessly.
 

@@ -33,6 +33,7 @@ dotnet run --project tests/VoipNet.Tests -- -class VoipNet.Tests.EnterpriseTests
 ## Architecture (big picture)
 
 **Native engine** (`native/voipnet-core/src`):
+- `sip/bfcp.rs`: sans-IO floor control (BFCP, RFC 4582 with the RFC 8855 header): message codec plus a participant/server state machine that asks for a floor, grants or refuses it, and gives it back. Not yet negotiated in SDP or given a socket — that is the remaining half (PLAN 1.3).
 - `sip/dns.rs`: a small DNS client (queries, name compression, NAPTR/SRV/A) plus RFC 3263 resolution with a 60 s cache and a penalty list, so a server that stops answering goes last. `endpoint.rs` uses it from `resolve_addresses`; an explicit port or a numeric host skips it.
 - `sip/endpoint.rs` is the user agent: transactions keyed by `branch|METHOD`, dialogs, digest auth, registration refresh, re-INVITE hold, REFER/NOTIFY, a 50 ms timer thread. State is behind one mutex; events go through an mpsc channel to a dispatcher thread, so callbacks never run while the state lock is held. Keep that invariant (callbacks into .NET may re-enter the engine).
 - `media/session.rs`: per call a UDP socket plus receive and playout threads. Outbound audio is queued and paced one frame per ptime; `send_audio` resamples to the codec rate. Sink callbacks must also be invoked outside rx/tx locks.
