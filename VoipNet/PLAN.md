@@ -16,14 +16,49 @@ SIP over TLS and WebSocket, DTLS-SRTP, the full ICE agent with trickle and resta
 
 ## 1.3 — 🎥 Video · Fitur video
 
-Today H.264, VP8 and VP9 are negotiated as pass-through payloads only. This milestone makes video a first-class media type. · Saat ini H.264, VP8, dan VP9 hanya dinegosiasikan sebagai payload pass-through; milestone ini menjadikan video tipe media utama.
+Video is a first-class media type now: negotiated, packetised, encoded and decoded, recorded, composed
+and forwarded. What is left is mostly other platforms and other codecs. · Video kini tipe media penuh:
+dinegosiasikan, dipaketkan, di-encode dan didekode, direkam, disusun, dan diteruskan. Sisanya sebagian
+besar soal platform dan codec lain.
 
-- **Video call support** — voice + video in one SIP session: `m=video` offer/answer next to audio, a second RTP stream per call, H.264 (RFC 6184) and VP8 (RFC 7741) packetisation with frame assembly, the .NET API `VoipCall.SendVideoFrame`/`VideoFrameReceived` and keyframe requests (RTCP PLI/FIR, automatic on loss and on demand through `RequestKeyframe`) (all done); still to do: platform codecs and capture beyond Windows — `VoipNet.Video` encodes and decodes H.264 and reads a camera through Media Foundation; VideoToolbox, VA-API/FFmpeg, AVFoundation and V4L2 are not wired up. · **Dukungan panggilan video** — suara + video dalam satu sesi SIP: offer/answer `m=video`, stream RTP kedua per panggilan, paketisasi H.264/VP8, jitter buffer dan perakitan frame, permintaan keyframe (PLI/FIR), estimasi bandwidth (REMB), sinkronisasi bibir lewat sender report; API .NET untuk frame video, kamera, serta encode/decode via codec platform.
-- **Video conferencing** — speaker-focus and pin are done (the bridge forwards one participant's video to the rest, with active-speaker detection and a keyframe before each switch); still to do: SVC layer selection. Simulcast goes both ways now: `VideoEncodings` offers several encodings and `SendVideoFrameAs` labels each frame, and a peer's encodings are measured and chosen between. `VideoCompositor` lays several pictures out in a grid, picture-in-picture or spotlight, which with the platform codec is the mixing half of a conference; the engine itself still forwards rather than mixes. · **Konferensi video** — video multipihak dengan kontrol layout: mode mixing (compositor grid, fokus pembicara, picture-in-picture berdasarkan deteksi pembicara aktif) dan mode SFU dengan simulcast/SVC; mute, pin, dan spotlight per peserta.
-- **Screen sharing**: the second video stream (`a=content:slides`, offered and withdrawn by re-INVITE, frames labelled per stream) is done; still to do: capture beyond the GDI copy `VideoCapture.OpenScreen` does (Desktop Duplication for the rate a driver will not give through GDI, ScreenCaptureKit, PipeWire), BFCP-style floor control, and BFCP-style floor control. Sharing works from the desktop (the Softphone) and from a browser (`getDisplayMedia` in the meeting sample, forwarded to everyone in the room). · **Berbagi layar** untuk aplikasi desktop/web: tangkap layar, jendela, atau area, kirim sebagai stream video kedua dengan floor control, encoding yang dioptimalkan untuk konten; di browser lewat `getDisplayMedia` lewat jalur media WebRTC yang sudah ada.
-- **Video recording** — done for a single call: `RecordingFormat.Mp4` (H.264 with PCM audio, one duration per frame from the RTP timestamps) and `RecordingFormat.Avi` (H.264 or VP8, one measured frame rate), neither re-encoding anything. Still to do: AAC audio, which needs an encoder this SDK does not carry, and in-browser playback of video recordings in the Call Centre sample; `ConferenceRecorder` records a whole room as one composed picture with the voices mixed. · **Perekaman video** — untuk satu panggilan sudah selesai: `RecordingFormat.Mp4` (H.264 + audio PCM, durasi tiap frame dari timestamp RTP) dan `RecordingFormat.Avi`, keduanya tanpa encode ulang. Sisanya: audio AAC (butuh encoder), rekaman konferensi dari keluaran compositor, dan pemutaran di sample Call Centre.
-- **Samples and tools** — the Blazor meeting page (`samples/VoipNet.Meeting`), `voipnet sip call --video` and RTP video stream analysis are done; still to do: video in the Gallery sample. The Softphone sends its camera and shows what arrives, where the platform has a codec. · **Sample dan tools** — halaman rapat Blazor, `voipnet sip call --video`, dan analisis stream video RTP sudah ada; sisanya video di sample Softphone dan Gallery.
-- **GPU acceleration** — `VoipNet.Video` takes a card's encoder when it will work from ordinary memory and says which one it got (`IVideoEncoder.Implementation`); still to do: the asynchronous transform model most cards want (NVENC, Quick Sync, AMF, VideoToolbox), Direct3D surfaces end to end, and GPU scaling/compositing for conferences. · **Akselerasi GPU** — encoder kartu grafis dipakai bila mau bekerja dari memori biasa; sisanya model transform asinkron, surface Direct3D, dan compositing GPU.
+- **Video calls** — `m=video` next to audio, a second RTP stream per call with its own port,
+  encryption and ICE, H.264 (RFC 6184) and VP8 (RFC 7741) packetisation with frame assembly, keyframe
+  requests both ways, bandwidth estimation (REMB) and lip sync. `VoipNet.Video` encodes and decodes
+  H.264 and reads a camera through Media Foundation. Still to do: the same for other platforms —
+  VideoToolbox, VA-API/FFmpeg, AVFoundation and V4L2. · **Panggilan video** — stream `m=video` kedua
+  dengan enkripsi, ICE, paketisasi H.264/VP8, permintaan keyframe, REMB, dan sinkronisasi bibir;
+  `VoipNet.Video` meng-encode/decode H.264 dan membaca kamera di Windows. Sisanya: platform lain.
+- **Video conferencing** — the bridge forwards one participant to the rest, chosen by active speaker
+  or by pin, holding each viewer until a keyframe arrives. Simulcast goes both ways: `VideoEncodings`
+  offers several encodings and `SendVideoFrameAs` labels each frame, and a peer's encodings are
+  measured and chosen between. `VideoCompositor` lays pictures out in a grid, picture-in-picture or
+  spotlight for an application that would rather mix than forward. Still to do: SVC layer selection.
+  · **Konferensi video** — bridge meneruskan satu peserta ke yang lain (pembicara aktif atau yang
+  dipin); simulcast dua arah; `VideoCompositor` menyusun grid/PiP/spotlight. Sisanya: pemilihan layer
+  SVC.
+- **Screen sharing** — a second stream marked `a=content:slides`, offered and withdrawn by re-INVITE.
+  The Softphone shares a screen with `VideoCapture.OpenScreen`, a browser shares one with
+  `getDisplayMedia` in the meeting sample, and a room sends it to everybody at once. Still to do:
+  capture beyond the GDI copy (Desktop Duplication, for the rate a driver will not give through GDI;
+  ScreenCaptureKit; PipeWire) and BFCP-style floor control. · **Berbagi layar** — stream kedua
+  `a=content:slides`; Softphone membagikan layar, browser lewat `getDisplayMedia`, dan ruangan
+  mengirimnya ke semua orang. Sisanya: penangkapan yang lebih cepat dan floor control BFCP.
+- **Video recording** — `RecordingFormat.Mp4` (H.264 with each frame's own duration) and
+  `RecordingFormat.Avi` (H.264 or VP8 at one measured rate), neither re-encoding anything, and
+  `ConferenceRecorder` for a whole room as one composed picture with the voices mixed. Still to do:
+  AAC audio, which needs an encoder this SDK does not carry, and in-browser playback of video
+  recordings in the Call Centre sample. · **Perekaman video** — MP4 dan AVI tanpa encode ulang, serta
+  `ConferenceRecorder` untuk seluruh ruangan. Sisanya: audio AAC dan pemutaran video di sample Call
+  Centre.
+- **Samples and tools** — the Blazor meeting room, the Softphone's camera and screen share, the
+  gallery's video page, `voipnet sip call --video|--camera|--screen`, and RTP video stream analysis.
+  · **Sample dan tools** — ruang rapat Blazor, kamera dan berbagi layar di Softphone, halaman video di
+  gallery, serta opsi video di CLI.
+- **GPU acceleration** — a card's encoder is used when it will work from ordinary memory, and
+  `IVideoEncoder.Implementation` says which one answered. Still to do: the asynchronous transform
+  model most cards want (NVENC, Quick Sync, AMF, VideoToolbox), Direct3D surfaces end to end, and GPU
+  scaling for conferences. · **Akselerasi GPU** — encoder kartu grafis dipakai bila mau bekerja dari
+  memori biasa; sisanya model asinkron, surface Direct3D, dan penskalaan di GPU.
 
 ## 1.4 — AI · Kecerdasan buatan
 
