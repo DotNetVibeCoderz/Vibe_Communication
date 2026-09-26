@@ -2,7 +2,7 @@
 
 Voip.NET — made by Gravicode Studios, led by Kang Fadhil · dibuat oleh Gravicode Studios, dipimpin oleh Kang Fadhil
 
-Last updated · Terakhir diperbarui: **2026-09-17** · Version · Versi: **1.2.0**
+Last updated · Terakhir diperbarui: **2026-09-26** · Version · Versi: **1.3.0**
 
 Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ planned · direncanakan (see · lihat [PLAN.md](PLAN.md))
 
@@ -190,6 +190,34 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 - Mutual TLS: callers can be asked for a certificate, and a connection that dies mid-request (a rejected handshake, a restart) now fails that request immediately instead of after the 32 second timeout. · TLS dua arah, dan koneksi yang putus langsung menggagalkan request.
 - Browser interop runs in CI: Chrome and Firefox place a real call through the WebRTC gateway sample on every build. · Interop browser dijalankan di CI pada setiap build.
 - Criterion benchmarks for codecs, SRTP and the conference mixer, run in CI; the mixer no longer allocates per frame and the G.722 delay line no longer copies its history on every sample pair. · Benchmark Criterion dijalankan di CI.
+
+### 1.3.0 — 2026-09-26
+
+- **`VoipNet.Video`, a new package**: H.264 encoding and decoding through the platform's own codec
+  (Media Foundation on Windows, a graphics card's encoder where one takes pictures from ordinary
+  memory), camera capture, screen capture, a grid/picture-in-picture compositor, BGRA/NV12 conversion,
+  and a test pattern for machines with neither camera nor screen. `VideoCodecs.IsH264Available` asks
+  the platform rather than assuming. · **Paket baru `VoipNet.Video`**: encode/decode H.264 lewat codec
+  platform, penangkapan kamera dan layar, compositor grid/PiP, konversi warna, dan pola uji.
+- Video recording to MP4 (`RecordingFormat.Mp4`): the call's own H.264 with each frame's RTP timestamp
+  as its duration, next to PCM audio, nothing re-encoded. `ConferenceRecorder` records a whole room as
+  one composed picture with the voices mixed. · Perekaman ke MP4 dan perekaman satu ruangan penuh.
+- Simulcast now goes both ways (RFC 8853): `VideoEncodings` offers several encodings of one picture
+  and `SendVideoFrameAs` labels each frame. · Simulcast dua arah.
+- Screen sharing works end to end: from the desktop (Softphone), from a browser (`getDisplayMedia` in
+  the meeting sample), and forwarded to everyone in a room. · Berbagi layar dari desktop dan browser.
+- Amazon Transcribe streaming and a Gemini Live agent, both without an SDK — SigV4 query signing and
+  AWS event stream framing are public for other Amazon streaming services. Tested against stand-ins
+  that speak the protocols; neither has been run against the live service. · Transcribe dan Gemini
+  Live, diuji dengan tiruan protokolnya.
+- Engine fixes found by two browsers in a room: a padding packet no longer looks like a loss, a
+  simulcast encoding is followed by its stream once the browser stops labelling it, a viewer's
+  keyframe request reaches whoever it is watching, and ZRTP no longer deadlocks when the first Hello
+  goes out before the other end is listening. · Perbaikan engine: paket padding, pelacakan encoding
+  simulcast, permintaan keyframe di ruangan, dan kebuntuan ZRTP.
+- `VoipCall.KeyframeRequested`, `voipnet sip call --camera|--screen`, a video page in the gallery, and
+  floor control (BFCP) messages and state machine, not yet negotiated in SDP. · Tambahan API, opsi
+  CLI, halaman gallery, dan inti BFCP.
 
 ### 1.2.0 — 2026-09-17
 

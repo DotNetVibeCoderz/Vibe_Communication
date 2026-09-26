@@ -14,7 +14,7 @@
 
   <!-- Package identity: Voip.NET by Gravicode Studios, led by Kang Fadhil. -->
   <PropertyGroup>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
     <Authors>Gravicode Studios</Authors>
     <Company>Gravicode Studios</Company>
     <Product>Voip.NET</Product>
