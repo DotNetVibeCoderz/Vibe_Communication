@@ -708,8 +708,29 @@ internal static class H264
             var widthMbs = reader.ReadUnsigned() + 1;
             var heightMapUnits = reader.ReadUnsigned() + 1;
             var frameMbsOnly = reader.ReadBit();
+            if (frameMbsOnly == 0)
+            {
+                reader.Skip(1); // mb_adaptive_frame_field_flag
+            }
+
+            reader.Skip(1); // direct_8x8_inference_flag
             var width = (int)(widthMbs * 16);
             var height = (int)((2 - frameMbsOnly) * heightMapUnits * 16);
+
+            // A picture is encoded in whole sixteen-pixel blocks and cropped back to its real size, so
+            // 360 rows are stored as 368 and trimmed. Without this a recording would claim the padding.
+            if (reader.ReadBit() == 1)
+            {
+                var left = (int)reader.ReadUnsigned();
+                var right = (int)reader.ReadUnsigned();
+                var top = (int)reader.ReadUnsigned();
+                var bottom = (int)reader.ReadUnsigned();
+                // The crop is counted in colour samples, which in 4:2:0 are two luma samples wide and,
+                // for a progressive picture, two tall.
+                width -= (left + right) * 2;
+                height -= (top + bottom) * 2 * (int)(2 - frameMbsOnly);
+            }
+
             return width is > 0 and <= 8192 && height is > 0 and <= 8192 ? (width, height) : (0, 0);
         }
         catch (InvalidOperationException)

@@ -5,6 +5,15 @@ public static class TestHelpers
 {
     private static int _portSeed = 31000;
 
+    /// <param name="user">SIP user name.</param>
+    /// <param name="configure">Anything else the test wants set.</param>
+    public static VoipClientOptions LoopbackOptions(string user, Action<VoipClientOptions>? configure)
+    {
+        var options = LoopbackOptions(user);
+        configure?.Invoke(options);
+        return options;
+    }
+
     public static VoipClientOptions LoopbackOptions(string user) => new()
     {
         BindAddress = "127.0.0.1",

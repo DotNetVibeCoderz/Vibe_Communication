@@ -35,7 +35,7 @@ await call.HangupAsync();
 | `VoipNet.Audio` | Microphone and speakers (OpenAL, cross-platform), WAV/MP3 call recording, resampling, voice activity detection, tones. |
 | `VoipNet.Video` | H.264 encoding and decoding, camera and screen capture through the platform's own codec (Media Foundation on Windows), a grid/PiP compositor, and BGRA/NV12 conversion. |
 | `VoipNet.AI` | Chat clients for OpenAI, Azure OpenAI, DeepSeek/OpenAI-compatible, Anthropic Claude and Google Gemini; speech providers; `VoiceAgent`; `RealtimeVoiceAgent`. |
-| `VoipNet.Enterprise` | IVR builder and runner, `CallCenterService` (queues, agents, routing), `RecordingService`, CRM tool set. |
+| `VoipNet.Enterprise` | IVR builder and runner, `CallCenterService` (queues, agents, routing), `RecordingService`, `ConferenceRecorder`, CRM tool set. |
 | `VoipNet.Cli` | `voipnet` .NET tool: SIP ping/register/call/listen/message and RTP analysis. |
 
 ## Features

@@ -523,6 +523,32 @@ VP8 ditulis ke AVI dan `recorder.Path` menyebutkannya. AVI menyimpan satu laju f
 file, diukur dari panggilan dan ditulis ke header saat file ditutup. Panggilan tanpa video otomatis
 direkam sebagai WAV.
 
+### Merekam satu ruangan
+
+Konferensi diteruskan, bukan dicampur, jadi tidak ada satu gambar untuk direkam — kecuali dibuatkan.
+`ConferenceRecorder` (di `VoipNet.Enterprise`) mendekode setiap peserta, menyusunnya dalam grid,
+meng-encode hasilnya sekali, lalu menulisnya ke MP4 dengan suara mereka tercampur di trek audio:
+
+```csharp
+using var recorder = ConferenceRecorder.Start("meeting.mp4", width: 960, height: 540, framesPerSecond: 12);
+
+foreach (var call in conference.Participants)
+{
+    recorder?.Add(call);
+}
+
+client.CallEnded += (_, e) => recorder?.Remove(e.Call);
+```
+
+Gambarnya disusun pada clocknya sendiri, bukan saat frame kebetulan tiba, sehingga peserta yang
+videonya macet tetap seperti terakhir terlihat alih-alih menghentikan rekaman, dan grid mempertahankan
+urutan bergabung agar tidak berpindah-pindah saat ditonton.
+
+Inilah satu-satunya tempat SDK ini mendekode lalu meng-encode ulang, dengan biaya yang menyertainya:
+satu decode per peserta dan satu encode per frame selama rekaman berjalan. Butuh codec platform —
+`ConferenceRecorder.IsSupported` memberi tahu ada atau tidak, dan `Start` mengembalikan null alih-alih
+berpura-pura — dan pesertanya harus mengirim H.264, karena itulah yang ada decodernya.
+
 ## Keamanan
 
 ```csharp

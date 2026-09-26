@@ -512,6 +512,32 @@ is as large as a WAV of the same call; and MP4 here holds H.264 only, so a VP8 c
 instead and `recorder.Path` says so. An AVI stores one frame rate for the whole file, measured from the
 call and patched into the header on close. A call without video falls back to WAV.
 
+### Recording a room
+
+A conference is forwarded, not mixed, so there is no single picture to record — unless one is made.
+`ConferenceRecorder` (in `VoipNet.Enterprise`) decodes every participant, lays them out in a grid,
+encodes the result once and writes it to MP4 with their voices mixed into the sound track:
+
+```csharp
+using var recorder = ConferenceRecorder.Start("meeting.mp4", width: 960, height: 540, framesPerSecond: 12);
+
+foreach (var call in conference.Participants)
+{
+    recorder?.Add(call);
+}
+
+client.CallEnded += (_, e) => recorder?.Remove(e.Call);
+```
+
+The picture is composed on its own clock rather than when frames happen to arrive, so a participant
+whose video stalls stays as they were instead of stopping the recording, and the grid keeps the order
+people joined in so it does not shuffle while somebody is watching.
+
+This is the one place the SDK decodes and re-encodes, and it costs what that implies: one decode per
+participant and one encode per frame, for as long as the recording runs. It needs a platform codec —
+`ConferenceRecorder.IsSupported` says whether there is one, and `Start` returns null rather than
+pretending — and the participants have to be sending H.264, since that is what there is a decoder for.
+
 ## Security
 
 ```csharp
