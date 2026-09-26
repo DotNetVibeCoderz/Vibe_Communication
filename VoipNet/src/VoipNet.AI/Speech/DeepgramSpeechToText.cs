@@ -142,39 +142,46 @@ public sealed class DeepgramSpeechToText(DeepgramOptions options, HttpClient? ht
 
         var buffer = new byte[16 * 1024];
         var message = new StringBuilder();
-        while (socket.State is WebSocketState.Open or WebSocketState.CloseSent && !cts.IsCancellationRequested)
+        try
         {
-            WebSocketReceiveResult result;
-            try
+            while (socket.State is WebSocketState.Open or WebSocketState.CloseSent && !cts.IsCancellationRequested)
             {
-                result = await socket.ReceiveAsync(buffer, cts.Token).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is OperationCanceledException or WebSocketException)
-            {
-                break;
-            }
+                WebSocketReceiveResult result;
+                try
+                {
+                    result = await socket.ReceiveAsync(buffer, cts.Token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is OperationCanceledException or WebSocketException)
+                {
+                    break;
+                }
 
-            if (result.MessageType == WebSocketMessageType.Close)
-            {
-                break;
-            }
+                if (result.MessageType == WebSocketMessageType.Close)
+                {
+                    break;
+                }
 
-            message.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
-            if (!result.EndOfMessage)
-            {
-                continue;
-            }
+                message.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                if (!result.EndOfMessage)
+                {
+                    continue;
+                }
 
-            var json = message.ToString();
-            message.Clear();
-            if (Parse(json) is { } segment)
-            {
-                yield return segment;
+                var json = message.ToString();
+                message.Clear();
+                if (Parse(json) is { } segment)
+                {
+                    yield return segment;
+                }
             }
         }
-
-        await cts.CancelAsync().ConfigureAwait(false);
-        await sender.ConfigureAwait(false);
+        finally
+        {
+            // Whoever is listening may stop at any moment, and the sending task shares the
+            // enumerator with this loop: it has to be finished with before either is let go.
+            await cts.CancelAsync().ConfigureAwait(false);
+            await sender.ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc/>

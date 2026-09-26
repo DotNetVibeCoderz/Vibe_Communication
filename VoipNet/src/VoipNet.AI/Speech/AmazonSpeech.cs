@@ -151,6 +151,78 @@ public static class AwsSignatureV4
             $"AWS4-HMAC-SHA256 Credential={accessKeyId}/{credentialScope}, SignedHeaders={signedHeaders}, Signature={signature}");
     }
 
+    /// <summary>
+    /// Signs a WebSocket URL by putting the credentials in its query, which is how the streaming
+    /// services are opened: a socket has no request to add headers to.
+    /// </summary>
+    /// <param name="endpoint">The endpoint to open, scheme and path included.</param>
+    /// <param name="query">Query parameters the service itself needs.</param>
+    /// <param name="service">AWS service name, for example <c>transcribe</c>.</param>
+    /// <param name="region">AWS region.</param>
+    /// <param name="accessKeyId">Access key id.</param>
+    /// <param name="secretAccessKey">Secret access key.</param>
+    /// <param name="sessionToken">Optional session token.</param>
+    /// <param name="lifetime">How long the signature stays valid.</param>
+    /// <param name="now">The time to sign for; the default is now.</param>
+    public static Uri PresignWebSocket(
+        Uri endpoint,
+        IReadOnlyList<(string Key, string Value)> query,
+        string service,
+        string region,
+        string accessKeyId,
+        string secretAccessKey,
+        string? sessionToken = null,
+        TimeSpan? lifetime = null,
+        DateTime? now = null)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+        ArgumentNullException.ThrowIfNull(query);
+        var host = endpoint.IsDefaultPort ? endpoint.Host : endpoint.Authority;
+        var path = endpoint.AbsolutePath;
+        var at = now ?? DateTime.UtcNow;
+        var amzDate = at.ToString("yyyyMMddTHHmmssZ", CultureInfo.InvariantCulture);
+        var dateStamp = at.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+        var credentialScope = $"{dateStamp}/{region}/{service}/aws4_request";
+        var seconds = (int)Math.Clamp((lifetime ?? TimeSpan.FromMinutes(5)).TotalSeconds, 1, 604800);
+
+        var parameters = new List<(string Key, string Value)>
+        {
+            ("X-Amz-Algorithm", "AWS4-HMAC-SHA256"),
+            ("X-Amz-Credential", $"{accessKeyId}/{credentialScope}"),
+            ("X-Amz-Date", amzDate),
+            ("X-Amz-Expires", seconds.ToString(CultureInfo.InvariantCulture)),
+            ("X-Amz-SignedHeaders", "host"),
+        };
+        if (sessionToken is { Length: > 0 })
+        {
+            parameters.Add(("X-Amz-Security-Token", sessionToken));
+        }
+
+        parameters.AddRange(query);
+
+        // The canonical query is sorted by the encoded name, and every value is encoded the same way.
+        var canonicalQuery = string.Join(
+            '&',
+            parameters
+                .Select(p => (Key: Escape(p.Key), Value: Escape(p.Value)))
+                .OrderBy(p => p.Key, StringComparer.Ordinal)
+                .ThenBy(p => p.Value, StringComparer.Ordinal)
+                .Select(p => $"{p.Key}={p.Value}"));
+
+        // A socket carries no body, so the payload hash is the hash of nothing at all.
+        var emptyPayload = Hex(SHA256.HashData([]));
+        var canonicalRequest = string.Join('\n', "GET", path, canonicalQuery, $"host:{host}\n", "host", emptyPayload);
+        var stringToSign = string.Join('\n',
+            "AWS4-HMAC-SHA256",
+            amzDate,
+            credentialScope,
+            Hex(SHA256.HashData(Encoding.UTF8.GetBytes(canonicalRequest))));
+        var signature = Hex(HmacSHA256(HmacChain($"AWS4{secretAccessKey}", dateStamp, region, service, "aws4_request"), stringToSign));
+        return new Uri($"{endpoint.Scheme}://{endpoint.Authority}{path}?{canonicalQuery}&X-Amz-Signature={signature}");
+    }
+
+    private static string Escape(string value) => Uri.EscapeDataString(value).Replace("%7E", "~", StringComparison.Ordinal);
+
     private static byte[] HmacChain(string key, params string[] parts)
     {
         var current = Encoding.UTF8.GetBytes(key);

@@ -86,10 +86,40 @@ Audio is always 16-bit mono PCM; the engine converts sample rates.
 | Google Cloud | `GoogleCloudSpeechToText` | `GoogleCloudTextToSpeech` (LINEAR16) | API key or OAuth token; `telephony` model |
 | Azure AI Speech | `AzureSpeechToText` (short audio, per utterance) | `AzureTextToSpeech` (raw PCM 8/16/24/48 kHz, streamed) | regional endpoint plus subscription key; neural voices such as `id-ID-GadisNeural` |
 | Cartesia | — | `CartesiaTextToSpeech` (raw PCM, streamed) | low latency; `sonic-2` by default |
-| Amazon | — | `AmazonPollyTextToSpeech` (PCM 8/16 kHz, SigV4 signed, no AWS SDK) | Transcribe is on the roadmap |
+| Amazon | `AmazonTranscribeSpeechToText` — streaming over a signed web socket, interim results | `AmazonPollyTextToSpeech` (PCM 8/16 kHz, SigV4 signed, no AWS SDK) | no AWS SDK either way; see the note below |
 | ElBruno.Realtime | `ElBrunoRealtimeSpeechToText` (web socket) | `ElBrunoRealtimeTextToSpeech` (HTTP PCM) | self-hosted, open source |
 
 Providers without a streaming recogniser derive from `BufferedSpeechToText`: a voice activity detector cuts utterances (with 300 ms pre-roll) and each utterance is transcribed as it ends.
+
+### Amazon Transcribe
+
+Transcribe's streaming API is opened differently from the others: the credentials go in the URL rather
+than in a header, because a web socket has none, and both directions speak AWS's event stream framing
+rather than plain JSON.
+
+```csharp
+var recogniser = new AmazonTranscribeSpeechToText(new AmazonTranscribeOptions
+{
+    Region = "ap-southeast-1",
+    AccessKeyId = keyId,
+    SecretAccessKey = secret,
+    Language = "id-ID",
+});
+
+await foreach (var segment in recogniser.TranscribeAsync(call.ReadAudioAsync()))
+{
+    Console.WriteLine(segment.IsFinal ? segment.Text : $"… {segment.Text}");
+}
+```
+
+No AWS SDK is involved: `AwsSignatureV4.PresignWebSocket` signs the URL and `AwsEventStream` wraps the
+audio and unwraps the transcripts, both of which are public for anyone talking to another Amazon
+streaming service. `TranscribeOnceAsync` puts a recording through the same session, since the batch
+API works on files in S3 rather than on bytes.
+
+This one has been tested against a stand-in that speaks the protocol, not against the service: there
+is no AWS account here. The signing and the framing are what this SDK is responsible for, and both are
+covered; the first live run may still turn up something only Amazon knows.
 
 ### ElBruno.Realtime protocol
 

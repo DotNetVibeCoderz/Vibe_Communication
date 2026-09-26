@@ -86,10 +86,40 @@ Audio selalu PCM 16-bit mono; engine yang mengonversi sample rate.
 | Google Cloud | `GoogleCloudSpeechToText` | `GoogleCloudTextToSpeech` (LINEAR16) | API key atau token OAuth; model `telephony` |
 | Azure AI Speech | `AzureSpeechToText` (short audio, per ucapan) | `AzureTextToSpeech` (PCM mentah 8/16/24/48 kHz, streaming) | endpoint regional plus subscription key; suara neural seperti `id-ID-GadisNeural` |
 | Cartesia | — | `CartesiaTextToSpeech` (PCM mentah, streaming) | latensi rendah; bawaan `sonic-2` |
-| Amazon | — | `AmazonPollyTextToSpeech` (PCM 8/16 kHz, SigV4, tanpa AWS SDK) | Transcribe ada di roadmap |
+| Amazon | `AmazonTranscribeSpeechToText` — streaming lewat web socket bertanda tangan, hasil sementara | `AmazonPollyTextToSpeech` (PCM 8/16 kHz, SigV4, tanpa AWS SDK) | tanpa AWS SDK di kedua arah; lihat catatan di bawah |
 | ElBruno.Realtime | `ElBrunoRealtimeSpeechToText` (web socket) | `ElBrunoRealtimeTextToSpeech` (HTTP PCM) | self-hosted, open source |
 
 Provider tanpa pengenal streaming diturunkan dari `BufferedSpeechToText`: voice activity detector memotong ucapan (dengan pre-roll 300 ms) dan setiap ucapan ditranskripsi saat selesai.
+
+### Amazon Transcribe
+
+API streaming Transcribe dibuka dengan cara berbeda dari yang lain: kredensialnya ada di URL, bukan di
+header, karena web socket tidak punya header — dan kedua arahnya memakai framing event stream milik
+AWS, bukan JSON biasa.
+
+```csharp
+var recogniser = new AmazonTranscribeSpeechToText(new AmazonTranscribeOptions
+{
+    Region = "ap-southeast-1",
+    AccessKeyId = keyId,
+    SecretAccessKey = secret,
+    Language = "id-ID",
+});
+
+await foreach (var segment in recogniser.TranscribeAsync(call.ReadAudioAsync()))
+{
+    Console.WriteLine(segment.IsFinal ? segment.Text : $"… {segment.Text}");
+}
+```
+
+Tidak ada AWS SDK di dalamnya: `AwsSignatureV4.PresignWebSocket` menandatangani URL-nya dan
+`AwsEventStream` membungkus audio serta membuka transkripnya — keduanya publik agar bisa dipakai untuk
+layanan streaming Amazon lain. `TranscribeOnceAsync` menjalankan rekaman lewat sesi yang sama, karena
+API batch-nya bekerja pada file di S3, bukan pada byte.
+
+Yang satu ini baru diuji dengan tiruan yang berbicara dengan protokol yang sama, belum ke layanannya:
+di sini tidak ada akun AWS. Penandatanganan dan framing adalah tanggung jawab SDK ini dan keduanya
+sudah diuji; menjalankannya sungguhan masih bisa memunculkan hal yang hanya Amazon yang tahu.
 
 ### Protokol ElBruno.Realtime
 
