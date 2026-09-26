@@ -202,6 +202,34 @@ agent.ErrorReceived += (_, error) => Console.WriteLine($"provider error: {error}
 
 The agent speaks the generally available realtime protocol by default (`session.type = "realtime"`, audio settings under `audio.input` and `audio.output`); set `Protocol = RealtimeProtocol.Beta` for endpoints that still expect `OpenAI-Beta: realtime=v1`. On Azure, caller transcription needs its own deployment: set `InputTranscriptionModel` to enable `CallerSaid`.
 
+## Gemini Live
+
+Google's Live API is the same idea with a different protocol underneath, so it has an agent of its own:
+
+```csharp
+var agent = new GeminiLiveVoiceAgent(new GeminiLiveOptions
+{
+    ApiKey = googleKey,
+    Model = "models/gemini-2.0-flash-live-001",
+    Voice = "Kore",
+    Instructions = "You are a helpful phone agent. Answer briefly, in Indonesian.",
+    Greeting = "Halo, ada yang bisa dibantu?",
+});
+
+agent.CallerSaid += (_, text) => Console.WriteLine($"caller: {text}");
+await agent.RunAsync(call);
+```
+
+The session opens with a `setup` message and the model answers `setupComplete`; nothing may be sent
+before that. Audio goes up as base64 blobs at 16 kHz and comes back at 24 kHz, and the engine
+resamples both ways to whatever the call negotiated. A caller who talks over the agent is reported as
+`interrupted`, and whatever the agent still had queued on the call is dropped so the two are not
+speaking at once.
+
+This one has been tested against a stand-in that speaks the protocol — the setup, the greeting, audio
+in both directions, transcripts and barge-in — but not against Google: there is no key here. The
+message shapes follow the published Live API reference.
+
 ## Post-call analytics
 
 `CallAnalyzer` turns a finished call into something a supervisor can read: a summary, the caller's

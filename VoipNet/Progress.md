@@ -94,7 +94,7 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 | Item | Status | Notes · Catatan |
 | --- | --- | --- |
 | OpenAI, Azure OpenAI, OpenAI-compatible (DeepSeek…), Anthropic, Gemini | ✅ | `IChatClient`, streaming, tools; Azure/DeepSeek verified live · diverifikasi langsung |
-| Realtime models | ✅ | `RealtimeVoiceAgent`, GA and beta protocols, OpenAI and Azure OpenAI; verified live on a call with Azure `gpt-realtime-2.1-mini` (greeting, then an answer to the caller's speech via server VAD) · diuji langsung pada panggilan dengan Azure |
+| Realtime models | ✅ | `RealtimeVoiceAgent`, GA and beta protocols, OpenAI and Azure OpenAI; verified live on a call with Azure `gpt-realtime-2.1-mini` (greeting, then an answer to the caller's speech via server VAD). `GeminiLiveVoiceAgent` speaks Google's Live API — setup, audio both ways, transcripts, barge-in — tested against a stand-in, not yet against Google · plus agen Gemini Live yang baru diuji dengan tiruan protokolnya |
 | Kernel / AI functions (Semantic Kernel, Microsoft.Extensions.AI) | ✅ | call-control tools, CRM tools |
 | audio → STT → LLM → TTS → RTP loop, barge-in | ✅ | `VoiceAgent` |
 | Semantic turn detection | ✅ | `ITurnDetector`/`SemanticTurnDetector` holds the answer while a caller is mid-sentence and joins the parts, with a grace timeout and fail-open behaviour · menahan jawaban selama penelepon belum selesai, dengan batas waktu |

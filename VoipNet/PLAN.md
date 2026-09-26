@@ -28,7 +28,7 @@ Today H.264, VP8 and VP9 are negotiated as pass-through payloads only. This mile
 ## 1.4 — AI · Kecerdasan buatan
 
 - Amazon Transcribe streaming is implemented (`AmazonTranscribeSpeechToText`) and tested against a stand-in; it still needs a run against the live service, which needs an AWS account. · Amazon Transcribe streaming sudah ada, tinggal diuji ke layanan aslinya.
-- Realtime agent for Gemini Live (OpenAI and Azure OpenAI realtime are done). · Agen realtime Gemini Live.
+- Gemini Live has an agent (`GeminiLiveVoiceAgent`) tested against a stand-in; it still needs a run against Google, which needs a key. · Agen Gemini Live sudah ada, tinggal diuji ke layanan aslinya.
 
 ## 1.5 — Contact centre · Contact center
 

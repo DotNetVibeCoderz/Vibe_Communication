@@ -202,6 +202,35 @@ agent.ErrorReceived += (_, error) => Console.WriteLine($"error provider: {error}
 
 Secara bawaan agen memakai protokol realtime GA (`session.type = "realtime"`, pengaturan audio di `audio.input` dan `audio.output`); set `Protocol = RealtimeProtocol.Beta` untuk endpoint yang masih memerlukan `OpenAI-Beta: realtime=v1`. Di Azure, transkripsi penelepon memerlukan deployment tersendiri: isi `InputTranscriptionModel` untuk mengaktifkan `CallerSaid`.
 
+## Gemini Live
+
+Live API dari Google adalah gagasan yang sama dengan protokol berbeda di bawahnya, jadi ia punya
+agennya sendiri:
+
+```csharp
+var agent = new GeminiLiveVoiceAgent(new GeminiLiveOptions
+{
+    ApiKey = googleKey,
+    Model = "models/gemini-2.0-flash-live-001",
+    Voice = "Kore",
+    Instructions = "Anda agen telepon yang membantu. Jawab singkat, dalam bahasa Indonesia.",
+    Greeting = "Halo, ada yang bisa dibantu?",
+});
+
+agent.CallerSaid += (_, text) => Console.WriteLine($"penelepon: {text}");
+await agent.RunAsync(call);
+```
+
+Sesinya dibuka dengan pesan `setup` dan model menjawab `setupComplete`; sebelum itu tidak ada yang
+boleh dikirim. Audio naik sebagai blob base64 pada 16 kHz dan kembali pada 24 kHz, dan engine
+melakukan resample di kedua arah sesuai hasil negosiasi panggilan. Penelepon yang memotong pembicaraan
+dilaporkan sebagai `interrupted`, dan sisa audio agen yang masih mengantre di panggilan dibuang agar
+keduanya tidak bicara bersamaan.
+
+Yang satu ini diuji dengan tiruan yang berbicara protokolnya — setup, sapaan, audio dua arah,
+transkrip, dan barge-in — tetapi belum ke Google: di sini tidak ada kuncinya. Bentuk pesannya mengikuti
+dokumentasi resmi Live API.
+
 ## Analitik pasca-panggilan
 
 `CallAnalyzer` mengubah panggilan yang sudah selesai menjadi laporan yang bisa dibaca supervisor:
