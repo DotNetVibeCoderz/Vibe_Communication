@@ -3,7 +3,7 @@
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <PackageId>VoipNet.Video</PackageId>
-    <Description>Voip.NET Video — H.264 encoding and decoding through the platform's own codecs (Media Foundation on Windows), colour conversion, and test patterns for video calls.</Description>
+    <Description>Voip.NET Video — H.264 encoding and decoding through the platform's own codec (Media Foundation on Windows), camera and screen capture, a grid and picture-in-picture compositor, BGRA/NV12 conversion, and a test pattern for machines with no camera.</Description>
     <RootNamespace>VoipNet.Video</RootNamespace>
   </PropertyGroup>
 
