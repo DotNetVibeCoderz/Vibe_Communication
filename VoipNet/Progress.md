@@ -212,8 +212,9 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
   Live, diuji dengan tiruan protokolnya.
 - Engine fixes found by two browsers in a room: a padding packet no longer looks like a loss, a
   simulcast encoding is followed by its stream once the browser stops labelling it, a viewer's
-  keyframe request reaches whoever it is watching, and ZRTP no longer deadlocks when the first Hello
-  goes out before the other end is listening. · Perbaikan engine: paket padding, pelacakan encoding
+  keyframe request reaches whoever it is watching, a viewer that has just been switched is offered a
+  few keyframes rather than one, and ZRTP no longer deadlocks when the first Hello goes out before
+  the other end is listening. · Perbaikan engine: paket padding, pelacakan encoding
   simulcast, permintaan keyframe di ruangan, dan kebuntuan ZRTP.
 - `VoipCall.KeyframeRequested`, `voipnet sip call --camera|--screen`, a video page in the gallery, and
   floor control (BFCP) messages and state machine, not yet negotiated in SDP. · Tambahan API, opsi
