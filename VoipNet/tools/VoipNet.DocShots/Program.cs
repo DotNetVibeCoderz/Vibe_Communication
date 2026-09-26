@@ -206,13 +206,14 @@ static async Task<int> MeetingAsync(string baseUrl, string output)
     const string hasPicture = "(() => { const v = document.querySelector('.stage-frame video'); return v && v.videoWidth > 0; })()";
     await Pin(first, 0);
     var second_picture = await second.WaitForAsync(hasPicture, TimeSpan.FromSeconds(60));
+    // Say what each of them made of that, whether it worked or not: a black stage with packets
+    // arriving is a different fault from one with none.
+    await Report(first, "Sari", second, "Budi");
+
     await Pin(first, 1);
     var picture = await first.WaitForAsync(hasPicture, TimeSpan.FromSeconds(60));
+    await Report(first, "Sari", second, "Budi");
 
-    foreach (var (browser, name) in new[] { (first, "Sari"), (second, "Budi") })
-    {
-        Console.WriteLine($"{name} sees: {await browser.EvaluateAsync("(document.querySelector('.on-screen')?.innerText ?? '') + ' | ' + (document.querySelector('.stage-caption .mono')?.innerText ?? '') + ' | ' + [...document.querySelectorAll('.facts div')].map(d => d.innerText.replace(String.fromCharCode(10), ': ')).join(' ; ')")}");
-    }
 
     // One of them shares a screen: it has a stream of its own, so it arrives beside the faces rather
     // than replacing one, and the room sends it to everybody without the floor being involved.
@@ -250,6 +251,15 @@ static async Task<int> MeetingAsync(string baseUrl, string output)
     Console.WriteLine($"forwarded video: {width}px wide");
     Console.WriteLine(ok ? "meeting: OK" : $"meeting: FAILED (joined={joined}, first sees video={picture}, second sees video={second_picture}, screen shared={shared})");
     return ok ? 0 : 1;
+}
+
+/// <summary>Prints what each browser has on screen and what its own statistics say about it.</summary>
+static async Task Report(Browser first, string firstName, Browser second, string secondName)
+{
+    foreach (var (browser, name) in new[] { (first, firstName), (second, secondName) })
+    {
+        Console.WriteLine($"{name} sees: {await browser.EvaluateAsync("(document.querySelector('.on-screen')?.innerText ?? '') + ' | ' + (document.querySelector('.stage-caption .mono')?.innerText ?? '') + ' | ' + [...document.querySelectorAll('.facts div')].map(d => d.innerText.replace(String.fromCharCode(10), ': ')).join(' ; ')")}");
+    }
 }
 
 /// <summary>Pins the participant in that row of the roster, so the room forwards them to everyone else.</summary>

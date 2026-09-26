@@ -43,10 +43,10 @@ async function collectStats(pc) {
     report.forEach(s => {
         if (s.type === "media-source" && s.kind === "audio") out.level = s.audioLevel ?? 0;
         if (s.type === "outbound-rtp" && s.kind === "video") {
-            out.videoOut = s.framesEncoded ?? 0;
-            // How often the room asked for a keyframe, and how many the encoder made in answer.
-            out.pli = s.pliCount ?? 0;
-            out.keyframesOut = s.keyFramesEncoded ?? 0;
+            // Simulcast means one of these per encoding, so they are added up rather than overwritten.
+            out.videoOut += s.framesEncoded ?? 0;
+            out.pli += s.pliCount ?? 0;
+            out.keyframesOut += s.keyFramesEncoded ?? 0;
         }
         if (s.type === "inbound-rtp" && s.kind === "video") {
             out.videoIn = s.framesDecoded ?? 0;
