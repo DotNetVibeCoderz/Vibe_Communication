@@ -17,9 +17,9 @@ The CI workflow also runs the benchmarks and a browser interop test: Chrome and 
 
 ```
 native/voipnet-core     Rust engine (cdylib + rlib), unit and loopback tests
-src/                    VoipNet.Core, .Audio, .AI, .Enterprise
+src/                    VoipNet.Core, .Audio, .Video, .AI, .Enterprise
 tools/                  VoipNet.Cli (voipnet), VoipNet.DocShots
-samples/                Softphone, Gallery (Avalonia) · CallCenter, IvrStudio, WebPhone (Blazor) · RealtimeAgent
+samples/                Softphone, Gallery (Avalonia) · CallCenter, IvrStudio, WebPhone, Meeting (Blazor) · RealtimeAgent
 tests/VoipNet.Tests     xUnit v3 end-to-end tests over loopback
 docs/en, docs/id        documentation
 build/                  build.ps1, build.sh
@@ -96,7 +96,7 @@ The repository workflow `.github/workflows/voipnet-ci.yml` (in [Vibe_Communicati
 
 1. **native** — builds and tests the engine for win-x64, win-arm64, linux-x64, linux-arm64, osx-x64 and osx-arm64;
 2. **dotnet** — stages the matching library into `src/VoipNet.Core/runtimes/<rid>/native`, builds the solution and runs the tests on Windows, Linux and macOS;
-3. **pack** — stages all six libraries, packs the five packages and checks that `VoipNet.Core` contains exactly one `runtimes/<rid>/native/` library per runtime;
+3. **pack** — stages all six libraries, packs the six packages and checks that `VoipNet.Core` contains exactly one `runtimes/<rid>/native/` library per runtime;
 4. **publish** — pushes to nuget.org with the `NUGET_API_KEY` repository secret.
 
 Publishing happens only for a release tag or a manual run with *publish* ticked:

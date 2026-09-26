@@ -17,9 +17,9 @@ Workflow CI juga menjalankan benchmark dan uji interop browser: Chrome dan Firef
 
 ```
 native/voipnet-core     Engine Rust (cdylib + rlib), unit test dan test loopback
-src/                    VoipNet.Core, .Audio, .AI, .Enterprise
+src/                    VoipNet.Core, .Audio, .Video, .AI, .Enterprise
 tools/                  VoipNet.Cli (voipnet), VoipNet.DocShots
-samples/                Softphone, Gallery (Avalonia) · CallCenter, IvrStudio, WebPhone (Blazor) · RealtimeAgent
+samples/                Softphone, Gallery (Avalonia) · CallCenter, IvrStudio, WebPhone, Meeting (Blazor) · RealtimeAgent
 tests/VoipNet.Tests     Test end-to-end xUnit v3 lewat loopback
 docs/en, docs/id        dokumentasi
 build/                  build.ps1, build.sh
@@ -96,7 +96,7 @@ Workflow repositori `.github/workflows/voipnet-ci.yml` (di [Vibe_Communication](
 
 1. **native** — membangun dan menguji engine untuk win-x64, win-arm64, linux-x64, linux-arm64, osx-x64, dan osx-arm64;
 2. **dotnet** — menaruh library yang sesuai di `src/VoipNet.Core/runtimes/<rid>/native`, membangun solusi, dan menjalankan test di Windows, Linux, dan macOS;
-3. **pack** — menaruh keenam library, membuat lima paket, dan memeriksa bahwa `VoipNet.Core` berisi tepat satu library `runtimes/<rid>/native/` per runtime;
+3. **pack** — menaruh keenam library, membuat enam paket, dan memeriksa bahwa `VoipNet.Core` berisi tepat satu library `runtimes/<rid>/native/` per runtime;
 4. **publish** — push ke nuget.org memakai secret repositori `NUGET_API_KEY`.
 
 Publikasi hanya terjadi untuk tag rilis atau run manual dengan opsi *publish* dicentang:
