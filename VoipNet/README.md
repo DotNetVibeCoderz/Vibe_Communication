@@ -45,17 +45,18 @@ await call.HangupAsync();
 | SIP: REGISTER (digest auth, refresh, NAT keep-alive), INVITE/ACK/BYE/CANCEL, re-INVITE hold, REFER blind and attended (Replaces), OPTIONS, INFO, MESSAGE, NOTIFY | ✅ |
 | Transports: UDP, TCP, TLS (certificate pinning), WebSocket `ws`/`wss` (RFC 7118) | ✅ |
 | RTP/RTCP with adaptive jitter buffer, packet-loss concealment, symmetric RTP | ✅ |
-| Codecs: Opus (48 kHz, in-band FEC), G.722, G.711 μ-law/A-law, L16 (native) · G.729, SILK, Speex, H.264, VP8, VP9 (negotiated as pass-through) | ✅ / pass-through |
+| Codecs: Opus (48 kHz, in-band FEC), G.722, G.711 μ-law/A-law, L16 (native) · H.264 encoded and decoded through the platform codec (`VoipNet.Video`, Windows so far) · G.729, SILK, Speex, VP8, VP9 negotiated as pass-through | ✅ |
 | DTMF: RFC 4733, SIP INFO, in-band generation and detection | ✅ |
 | SRTP: AES-CM-128-HMAC-SHA1-80, AEAD-AES-128/256-GCM; keys via SDES or DTLS-SRTP | ✅ |
 | WebRTC browsers calling SIP (SIP over WebSocket, ICE, DTLS-SRTP, data channels), verified with Edge and Firefox | ✅ |
 | ICE (RFC 8445): candidate pairs, nomination, role conflicts, peer-reflexive candidates, trickle ICE, ICE restart, consent freshness · STUN, TURN | ✅ |
-| Conferencing with mix-minus | ✅ |
-| Recording WAV/MP3, stereo or mono | ✅ |
+| Conferencing with mix-minus, speaker-focus video forwarding, simulcast both ways, screen sharing to the whole room | ✅ |
+| Recording WAV/MP3, stereo or mono · video calls to MP4 or AVI · a whole conference as one composed picture | ✅ |
 | LLMs: OpenAI, Azure OpenAI, DeepSeek & compatible servers, Anthropic, Gemini — streaming and tool calling | ✅ |
-| STT: Deepgram (streaming), OpenAI, Google Cloud, ElevenLabs, ElBruno.Realtime · TTS: ElevenLabs, OpenAI, Google Cloud, Amazon Polly, ElBruno.Realtime | ✅ · Amazon Transcribe planned |
-| Voice agent: barge-in, sentence streaming, call-control tools, conversation memory, hand-off · Realtime speech-to-speech agent | ✅ |
+| STT: Deepgram and Amazon Transcribe (streaming), OpenAI, Google Cloud, ElevenLabs, ElBruno.Realtime · TTS: ElevenLabs, OpenAI, Google Cloud, Amazon Polly, ElBruno.Realtime | ✅ |
+| Voice agent: barge-in, sentence streaming, call-control tools, conversation memory, hand-off · Realtime speech-to-speech agents (OpenAI, Azure OpenAI, Gemini Live) | ✅ |
 | IVR builder, queues & skill routing, supervisor listen-in, recording service, metrics, CRM tools | ✅ |
+| Video: H.264 encode and decode, camera and screen capture, a grid compositor, a test pattern (`VoipNet.Video`, Windows so far) | ✅ |
 | Diagnostics: SIP to pcap, RTP stream analyser, `dotnet-counters` metrics | ✅ |
 | Platforms: Windows x64 built and tested; Linux/macOS build from source | ✅ / see [building](docs/en/building.md) |
 

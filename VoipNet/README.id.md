@@ -45,17 +45,18 @@ await call.HangupAsync();
 | SIP: REGISTER (digest auth, refresh, NAT keep-alive), INVITE/ACK/BYE/CANCEL, hold via re-INVITE, REFER blind dan attended (Replaces), OPTIONS, INFO, MESSAGE, NOTIFY | ✅ |
 | Transport: UDP, TCP, TLS (certificate pinning), WebSocket `ws`/`wss` (RFC 7118) | ✅ |
 | RTP/RTCP dengan jitter buffer adaptif, packet-loss concealment, symmetric RTP | ✅ |
-| Codec: Opus (48 kHz, FEC in-band), G.722, G.711 μ-law/A-law, L16 (native) · G.729, SILK, Speex, H.264, VP8, VP9 (dinegosiasikan sebagai pass-through) | ✅ / pass-through |
+| Codec: Opus (48 kHz, FEC in-band), G.722, G.711 μ-law/A-law, L16 (native) · H.264 di-encode dan didekode lewat codec platform (`VoipNet.Video`, baru Windows) · G.729, SILK, Speex, VP8, VP9 dinegosiasikan sebagai pass-through | ✅ |
 | DTMF: RFC 4733, SIP INFO, pembangkitan dan deteksi in-band | ✅ |
 | SRTP: AES-CM-128-HMAC-SHA1-80, AEAD-AES-128/256-GCM; kunci lewat SDES atau DTLS-SRTP | ✅ |
 | Browser WebRTC menelepon SIP (SIP over WebSocket, ICE, DTLS-SRTP, kanal data), diverifikasi dengan Edge dan Firefox | ✅ |
 | ICE (RFC 8445): pasangan kandidat, nominasi, konflik peran, kandidat peer-reflexive, trickle ICE, ICE restart, consent freshness · STUN, TURN | ✅ |
-| Konferensi dengan mix-minus | ✅ |
-| Rekaman WAV/MP3, stereo atau mono | ✅ |
+| Konferensi dengan mix-minus, penerusan video pembicara aktif, simulcast dua arah, berbagi layar ke seluruh ruangan | ✅ |
+| Rekaman WAV/MP3, stereo atau mono · panggilan video ke MP4 atau AVI · satu konferensi penuh sebagai satu gambar tersusun | ✅ |
 | LLM: OpenAI, Azure OpenAI, DeepSeek & server kompatibel, Anthropic, Gemini — streaming dan tool calling | ✅ |
-| STT: Deepgram (streaming), OpenAI, Google Cloud, ElevenLabs, ElBruno.Realtime · TTS: ElevenLabs, OpenAI, Google Cloud, Amazon Polly, ElBruno.Realtime | ✅ · Amazon Transcribe direncanakan |
-| Voice agent: barge-in, streaming per kalimat, tools kontrol panggilan, memori percakapan, hand-off · Agen realtime speech-to-speech | ✅ |
+| STT: Deepgram dan Amazon Transcribe (streaming), OpenAI, Google Cloud, ElevenLabs, ElBruno.Realtime · TTS: ElevenLabs, OpenAI, Google Cloud, Amazon Polly, ElBruno.Realtime | ✅ |
+| Voice agent: barge-in, streaming per kalimat, tools kontrol panggilan, memori percakapan, hand-off · Agen realtime speech-to-speech (OpenAI, Azure OpenAI, Gemini Live) | ✅ |
 | Builder IVR, antrean & routing skill, supervisor listen-in, layanan rekaman, metrik, tools CRM | ✅ |
+| Video: encode dan decode H.264, penangkapan kamera dan layar, compositor grid, pola uji (`VoipNet.Video`, baru Windows) | ✅ |
 | Diagnostik: SIP ke pcap, analisis stream RTP, metrik `dotnet-counters` | ✅ |
 | Platform: Windows x64 dibangun dan diuji; Linux/macOS dibangun dari source | ✅ / lihat [build](docs/id/building.md) |
 
