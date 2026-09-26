@@ -2337,7 +2337,7 @@ impl Inner {
             (conference, video)
         };
 
-        let (targets, wants_keyframe) = conference.video_targets(from, keyframe);
+        let (targets, wants_keyframe) = conference.video_targets(from, keyframe, Instant::now());
         // With several encodings on the way in, the room keeps the one that fits the viewer who can
         // take the least: everyone is sent the same frames, so the smallest budget decides.
         if let Some(session) = source_video.as_ref().filter(|s| s.video_layers().len() > 1) {
