@@ -45,7 +45,32 @@ struct VideoView {
     source: u64,
     /// True until a keyframe from the new source arrives: a decoder cannot start mid-picture.
     needs_keyframe: bool,
+    /// When they were switched to this source, and how many keyframes have gone since.
+    switched: Instant,
+    keyframes: u8,
 }
+
+impl VideoView {
+    fn new(source: u64) -> Self {
+        Self { source, needs_keyframe: true, switched: Instant::now(), keyframes: 0 }
+    }
+
+    fn switch(&mut self, source: u64) {
+        self.source = source;
+        self.needs_keyframe = true;
+        self.switched = Instant::now();
+        self.keyframes = 0;
+    }
+}
+
+/// How long a freshly switched viewer is given more than one keyframe, and how many it gets.
+///
+/// The first one can be lost on the way — a transport that has only just finished its handshake, a
+/// packet dropped, a decoder not yet listening — and a viewer that misses it has no way to say so
+/// until its own decoder complains, which some browsers are slow to do. A couple more cost almost
+/// nothing and turn a minute of black screen into a second of it.
+const SETTLING: Duration = Duration::from_secs(4);
+const SETTLING_KEYFRAMES: u8 = 3;
 
 #[derive(Default)]
 pub struct Conference {
@@ -146,10 +171,9 @@ impl Conference {
         let mut targets = Vec::with_capacity(viewers.len());
         let mut wants_keyframe = false;
         for viewer in viewers {
-            let view = views.entry(viewer).or_insert(VideoView { source: from, needs_keyframe: true });
+            let view = views.entry(viewer).or_insert_with(|| VideoView::new(from));
             if view.source != from {
-                view.source = from;
-                view.needs_keyframe = true;
+                view.switch(from);
             }
 
             if view.needs_keyframe && !keyframe {
@@ -158,6 +182,15 @@ impl Conference {
             }
 
             view.needs_keyframe = false;
+            if keyframe {
+                view.keyframes = view.keyframes.saturating_add(1);
+            }
+
+            // Still settling: ask for another in case the last one did not arrive.
+            if view.keyframes < SETTLING_KEYFRAMES && view.switched.elapsed() < SETTLING {
+                wants_keyframe = true;
+            }
+
             targets.push(viewer);
         }
 
@@ -173,6 +206,7 @@ impl Conference {
         let mut views = self.views.lock();
         let view = views.get_mut(&viewer)?;
         view.needs_keyframe = true;
+        view.keyframes = 0;
         Some(view.source)
     }
 
@@ -292,6 +326,41 @@ mod tests {
     }
 
     #[test]
+    fn a_freshly_switched_viewer_is_offered_more_than_one_keyframe() {
+        // The first keyframe after a switch can be lost — a transport that has only just finished
+        // its handshake, a dropped packet — and the viewer has no way to say so until its own
+        // decoder complains. For a few seconds the room keeps asking.
+        let c = Conference::new();
+        for id in [1, 2] {
+            c.join(id);
+        }
+
+        c.set_layout(ConferenceLayout::Pinned(1));
+
+        // The first frame is a delta: held back, and the source is asked.
+        let (targets, wants) = c.video_targets(1, false);
+        assert!(targets.is_empty() && wants, "the viewer waits for a picture to start on");
+
+        // The keyframe arrives and is forwarded — and another is asked for anyway.
+        let (targets, wants) = c.video_targets(1, true);
+        assert_eq!(targets, vec![2]);
+        assert!(wants, "a second keyframe is asked for while the viewer is settling");
+
+        // Delta frames in between keep flowing and keep asking, up to the third keyframe.
+        let (targets, wants) = c.video_targets(1, false);
+        assert_eq!(targets, vec![2], "the stream is not held back a second time");
+        assert!(wants);
+
+        for _ in 0..2 {
+            let _ = c.video_targets(1, true);
+        }
+
+        let (targets, wants) = c.video_targets(1, false);
+        assert_eq!(targets, vec![2]);
+        assert!(!wants, "once it has had a few, the room stops asking");
+    }
+
+    #[test]
     fn a_viewer_asking_for_a_keyframe_names_who_it_is_watching() {
         let c = Conference::new();
         for id in [1, 2, 3] {
@@ -334,11 +403,12 @@ mod tests {
         assert!(targets.is_empty());
         assert!(wants_keyframe);
 
-        // The keyframe reaches both viewers, and the frames after it follow.
+        // The keyframe reaches both viewers, and the frames after it follow. Another keyframe is
+        // asked for while they settle, in case this one did not arrive at one of them.
         let (mut targets, wants_keyframe) = c.video_targets(1, true);
         targets.sort_unstable();
         assert_eq!(targets, vec![2, 3]);
-        assert!(!wants_keyframe);
+        assert!(wants_keyframe);
         let (targets, _) = c.video_targets(1, false);
         assert_eq!(targets.len(), 2);
     }
@@ -354,8 +424,9 @@ mod tests {
         c.set_layout(ConferenceLayout::Pinned(2));
         assert_eq!(c.layout(), ConferenceLayout::Pinned(2));
 
-        assert_eq!(c.video_targets(1, true), (vec![], false));
-        assert_eq!(c.video_targets(2, true), (vec![1], false));
+        assert_eq!(c.video_targets(1, true), (vec![], false), "nobody is watching the one who is talking");
+        // The viewer is sent the pinned participant, and asked after again while they settle.
+        assert_eq!(c.video_targets(2, true), (vec![1], true));
     }
 
     #[test]
