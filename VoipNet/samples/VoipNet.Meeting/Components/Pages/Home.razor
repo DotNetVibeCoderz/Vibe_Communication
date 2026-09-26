@@ -21,6 +21,8 @@
             }
 
             <video @ref="_self" autoplay playsinline muted class="self @(InRoom ? "" : "hidden")"></video>
+            @* A shared screen has its own stream, so it sits beside the faces rather than replacing one. *@
+            <video @ref="_screen" autoplay playsinline muted class="shared @(_screenShared ? "" : "hidden")"></video>
         </div>
         <figcaption class="stage-caption">
             <div>
@@ -33,7 +35,7 @@
 
     <article class="module join">
         <h1 class="display">Meet in the browser,<br />mixed by Voip.NET</h1>
-        <p class="soft lede">Every tab calls the same SIP address over a WebSocket. The engine mixes the audio minus your own voice and forwards the camera of whoever is talking.</p>
+        <p class="soft lede">Every tab calls the same SIP address over a WebSocket. The engine mixes the audio minus your own voice, forwards the camera of whoever is talking, and sends a shared screen to everybody at once.</p>
 
         @if (!InRoom)
         {
@@ -54,6 +56,7 @@
             <div class="actions">
                 <button class="btn danger" @onclick="LeaveAsync">Leave</button>
                 <button class="btn" @onclick="ToggleMuteAsync">@(_muted ? "Unmute" : "Mute")</button>
+                <button class="btn share" @onclick="ToggleScreenAsync">@(_sharing ? "Stop sharing" : "Share screen")</button>
                 <span class="status" role="status">@PhaseText</span>
             </div>
             <div class="meters">
@@ -186,12 +189,16 @@
 
     public sealed record BrowserStats(
         double Level, long VideoIn, long VideoOut, long VideoPackets, long VideoAssembled, long VideoAsked,
-        string Size, string Codec, string Srtp, string Pair, long Pli, long KeyframesOut, long Allowance);
+        string Size, string Codec, string Srtp, string Pair, long Pli, long KeyframesOut, long Allowance,
+        bool ScreenShared);
 
     private IJSObjectReference? _module;
     private DotNetObjectReference<Home>? _self_ref;
     private ElementReference _stage;
     private ElementReference _self;
+    private ElementReference _screen;
+    private bool _sharing;
+    private bool _screenShared;
     private ElementReference _audio;
     private string _name = "";
     private string _phase = "idle";
@@ -214,6 +221,7 @@
         "ringing" => "Ringing…",
         "joined" or "pc-new" or "pc-connecting" => "Answered. Securing the media path…",
         "pc-connected" => _muted ? "In the room, muted." : "In the room.",
+        "share-refused" => "Screen sharing was refused, or there was nothing to share.",
         "left" => $"You left: {_detail}.",
         "failed" => $"Could not join: {_detail}",
         _ => _detail,
@@ -245,7 +253,7 @@
         _stats = null;
         _muted = false;
         _phase = "devices";
-        await _module.InvokeVoidAsync("join", _self_ref, $"ws://{Host}:{MeetingRoom.WebSocketPort}", _name.Trim(), _self, _stage, _audio);
+        await _module.InvokeVoidAsync("join", _self_ref, $"ws://{Host}:{MeetingRoom.WebSocketPort}", _name.Trim(), _self, _stage, _audio, _screen);
     }
 
     private async Task LeaveAsync()
@@ -284,11 +292,32 @@
         return InvokeAsync(StateHasChanged);
     }
 
+    /// <summary>Shares this tab's screen with the room, or stops.</summary>
+    private async Task ToggleScreenAsync()
+    {
+        if (_module is null)
+        {
+            return;
+        }
+
+        var wanted = !_sharing;
+        _sharing = await _module.InvokeAsync<bool>("shareScreen", wanted);
+        if (wanted && !_sharing)
+        {
+            // The browser asked and was told no, or had nothing to offer: say so rather than leaving
+            // the button looking as though it did nothing.
+            _phase = "share-refused";
+        }
+    }
+
     [JSInvokable]
     public Task OnStats(BrowserStats stats)
     {
+        var appeared = stats.ScreenShared != _screenShared;
         _stats = stats;
-        return Task.CompletedTask;
+        _screenShared = stats.ScreenShared;
+        // Only a screen appearing or going away changes the layout; the numbers redraw on their own.
+        return appeared ? InvokeAsync(StateHasChanged) : Task.CompletedTask;
     }
 
     private static string Show(string? value) => string.IsNullOrEmpty(value) ? "—" : value;

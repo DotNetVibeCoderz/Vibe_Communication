@@ -2248,6 +2248,31 @@ impl Inner {
         }]
     }
 
+    /// Sends a shared screen to everyone else in the room, on the stream they have for one.
+    ///
+    /// Unlike the camera there is nothing to choose: a screen is not in competition with anything, so
+    /// it goes to every participant that has a stream to receive it on. Giving them one is the
+    /// application's business — it decides who may share and who should see it — and until it does,
+    /// the frames have nowhere to go and are dropped.
+    fn forward_conference_screen(&self, from: u64, frame: &[u8], content: &str) {
+        let sessions: Vec<Arc<MediaSession>> = {
+            let st = self.state.lock();
+            let Some(call) = st.calls.get(&from) else { return };
+            let Some(media) = call.media.as_ref() else { return };
+            let Some(conference) = media.conference() else { return };
+            conference
+                .participants()
+                .into_iter()
+                .filter(|id| *id != from)
+                .filter_map(|id| st.calls.get(&id))
+                .filter_map(|call| call.videos.iter().find(|v| v.content == content).and_then(|v| v.session.clone()))
+                .collect()
+        };
+        for session in sessions {
+            session.forward_video_frame(frame);
+        }
+    }
+
     /// Passes a viewer's keyframe request on to the participant it is watching.
     ///
     /// A browser that joins a room mid-stream, or loses the picture, asks its peer — us — for a
@@ -2276,14 +2301,30 @@ impl Inner {
         if let Some(session) = session {
             session.request_keyframe(false);
         }
+
+        // The request does not say which stream it is about, so anybody sharing a screen is asked too.
+        let sharing: Vec<Arc<MediaSession>> = {
+            let state = self.state.lock();
+            state
+                .calls
+                .values()
+                .filter(|call| call.id != viewer)
+                .filter_map(|call| call.videos.iter().find(|v| v.content != "main"))
+                .filter_map(|v| v.session.clone())
+                .collect()
+        };
+        for session in sharing {
+            session.request_keyframe(false);
+        }
     }
 
     /// Sends a conference participant's video on to whoever the layout says should see it.
     ///
     /// Forwarded, not mixed: the frame goes out on each viewer's own video stream exactly as it came in.
     fn forward_conference_video(&self, from: u64, keyframe: bool, frame: &[u8], content: &str) {
-        // Screen shares are their own stream on their own call; only the camera is routed by layout.
+        // A shared screen is its own stream and has no floor to win: everybody sees it at once.
         if content != "main" {
+            self.forward_conference_screen(from, frame, content);
             return;
         }
 
@@ -4577,6 +4618,76 @@ m=audio {} RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n",
 
         for leg in legs {
             let _ = host.hangup(leg);
+        }
+    }
+
+    #[test]
+    fn a_shared_screen_reaches_everyone_in_the_room() {
+        // One guest shares a screen; the other should see it on their own screen stream, without the
+        // floor being involved at all — a screen is not in competition with a face.
+        let mut host_cfg = cfg("host");
+        host_cfg.video = true;
+        let host_rec = Arc::new(Recorder::default());
+        let host = Endpoint::start(host_cfg, host_rec.clone()).unwrap();
+
+        let mut guests = Vec::new();
+        for name in ["sharer", "watcher"] {
+            let mut c = cfg(name);
+            c.video = true;
+            let rec = Arc::new(Recorder::default());
+            let endpoint = Endpoint::start(c, rec.clone()).unwrap();
+            guests.push((endpoint, rec, name));
+        }
+
+        let conference = host.conference_create();
+        let mut host_legs = Vec::new();
+        for (endpoint, rec, name) in &guests {
+            let target = format!("sip:{name}@{}", endpoint.local_address());
+            let host_call = host.make_call(&target).unwrap();
+            let Some(Event::IncomingCall { call_id, .. }) = rec.wait_for(4000, |e| matches!(e, Event::IncomingCall { .. })) else {
+                panic!("{name} was not called");
+            };
+            endpoint.answer(call_id).unwrap();
+            host_rec
+                .wait_for(4000, |e| matches!(e, Event::CallState { call_id: id, state: "connected", .. } if *id == host_call))
+                .expect("host connected");
+            rec.wait_for(4000, |e| matches!(e, Event::MediaEvent { kind, detail, .. } if kind == "video" && detail.starts_with("main H264")))
+                .expect("guest video");
+            host.conference_add(conference, host_call).unwrap();
+            host_legs.push(host_call);
+        }
+
+        // Both legs get a screen stream: the one that shares, and the one that watches. Who is
+        // allowed to share is the application's decision, which is why the room does not do this.
+        for leg in &host_legs {
+            host.share_screen(*leg).unwrap();
+        }
+
+        for (_, rec, name) in &guests {
+            rec.wait_for(4000, |e| matches!(e, Event::MediaEvent { kind, detail, .. } if kind == "video" && detail.starts_with("slides")))
+                .unwrap_or_else(|| panic!("{name} has no screen stream"));
+        }
+
+        let mut screen = vec![0, 0, 0, 1, 0x67, 0x42, 0xe0, 0x1f];
+        screen.extend_from_slice(&[0, 0, 0, 1, 0x65]);
+        screen.extend((0..1500).map(|i| (i % 241) as u8 | 1));
+
+        let mut seen = Vec::new();
+        for i in 0..20u32 {
+            let call = guests[0].0.calls()[0].call_id;
+            guests[0].0.send_video_frame(call, 90_000 + (i * 3000), &screen, "slides").unwrap();
+            seen = guests[1].1.wait_video(1, 250);
+            if seen.iter().any(|(_, _, _, content)| content == "slides") {
+                break;
+            }
+        }
+
+        let shared = seen.iter().find(|(_, _, _, content)| content == "slides");
+        assert!(shared.is_some(), "the other guest saw the shared screen: {seen:?}");
+        assert_eq!(shared.expect("a frame").2, screen, "and it is the picture that was shared");
+
+        for (endpoint, _, _) in &guests {
+            let _ = endpoint.hangup(endpoint.calls()[0].call_id);
         }
     }
 

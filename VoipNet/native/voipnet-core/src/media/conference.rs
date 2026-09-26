@@ -176,6 +176,11 @@ impl Conference {
         Some(view.source)
     }
 
+    /// Everybody in the room, by call.
+    pub fn participants(&self) -> Vec<u64> {
+        self.participants.lock().keys().copied().collect()
+    }
+
     pub fn len(&self) -> usize {
         self.participants.lock().len()
     }

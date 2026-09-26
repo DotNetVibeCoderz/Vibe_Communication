@@ -74,7 +74,35 @@ async function collectStats(pc) {
 }
 
 /** Joins the room. `view` receives OnPhase(phase, detail) and OnStats(stats). */
-export async function join(view, wsUrl, name, localVideo, stageVideo, audioElement) {
+/// Shares this tab's screen on the stream kept for it, or stops sharing and leaves it empty.
+export async function shareScreen(share) {
+    const state = session;
+    if (!state?.screen) return false;
+    if (!share) {
+        state.display?.getTracks().forEach(t => t.stop());
+        state.display = null;
+        await state.screen.sender.replaceTrack(null);
+        return false;
+    }
+
+    try {
+        // A browser run by a test has no desktop to offer and nobody to pick from it, so it asks for
+        // this tab instead; a person gets the ordinary picker.
+        const wanted = { video: { frameRate: 8 }, audio: false };
+        if (window.__captureCurrentTab === true) wanted.preferCurrentTab = true;
+        state.display = await navigator.mediaDevices.getDisplayMedia(wanted);
+    } catch {
+        // Somebody said no, or there is nothing to capture: the call carries on without it.
+        return false;
+    }
+
+    const [track] = state.display.getVideoTracks();
+    track.onended = () => shareScreen(false);
+    await state.screen.sender.replaceTrack(track);
+    return true;
+}
+
+export async function join(view, wsUrl, name, localVideo, stageVideo, audioElement, screenVideo) {
     leave();
     const host = new URL(wsUrl).host;
     const domain = `${token(8)}.invalid`;
@@ -138,11 +166,19 @@ export async function join(view, wsUrl, name, localVideo, stageVideo, audioEleme
                 pc.addTrack(track, state.stream);
             }
         }
+        // A second video stream, reserved for a shared screen and empty until somebody shares one.
+        // Having it from the start means sharing is a track swap rather than a new offer, and the
+        // room has somewhere to send a screen the moment one appears.
+        state.screen = pc.addTransceiver("video", { direction: "sendrecv" });
+
         pc.ontrack = e => {
-            const element = e.track.kind === "video" ? stageVideo : audioElement;
+            const element = e.track.kind !== "video"
+                ? audioElement
+                : e.transceiver === state.screen ? screenVideo : stageVideo;
             if (!element) return;
             element.srcObject = e.streams[0] ?? new MediaStream([e.track]);
             element.play().catch(() => { });
+
         };
         pc.onconnectionstatechange = () => report(`pc-${pc.connectionState}`);
         state.pendingCandidates = [];
@@ -158,7 +194,12 @@ export async function join(view, wsUrl, name, localVideo, stageVideo, audioEleme
         report("inviting", name);
 
         state.timer = setInterval(async () => {
-            if (state.pc && !state.ended) view.invokeMethodAsync("OnStats", await collectStats(state.pc));
+            if (!state.pc || state.ended) return;
+            const stats = await collectStats(state.pc);
+            // A stream with nothing on it reads as muted, which is how a screen nobody is sharing
+            // looks — the m-line is there from the start, waiting for one.
+            stats.screenShared = state.screen?.receiver?.track?.muted === false;
+            view.invokeMethodAsync("OnStats", stats);
         }, 500);
     } catch (err) {
         finish(state, report, err.message ?? String(err), true);

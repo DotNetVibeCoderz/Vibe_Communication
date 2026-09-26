@@ -174,6 +174,16 @@ Pass an `ILogger<VoipClient>`; engine log events (NAT discovery, send failures, 
 
 Fourteen live pages: overview, place a call, codecs, DTMF, hold and transfer, conference, video (encoded, sent over a real call and compared with what comes back), recording, SRTP, language models (with a real tool call), voice agent, IVR builder, queues and agents, diagnostics. Each page shows the C# that does what the demo does. Configure models with `VOIPNET_AI_ENDPOINT`, `VOIPNET_AI_KEY`, `VOIPNET_AI_MODEL`.
 
+### Meeting room (Blazor Server)
+
+Every tab calls the same SIP address over a WebSocket and joins one conference, so the engine mixes the
+audio and forwards the speaker's camera. **Share screen** uses `getDisplayMedia` on a second video
+stream that each tab reserves when it joins — the room sends it to everybody at once, since a screen
+has no floor to win — and the sharer's own picture carries on beside it.
+
+`dotnet run --project tools/VoipNet.DocShots -- meeting <baseUrl> docs/images` drives two browsers
+through all of it and fails if either one cannot decode the other, or the shared screen never arrives.
+
 ### Call Centre (Blazor Server)
 
 A PBX, five agent softphones and a Poisson traffic generator, all real SIP/RTP on loopback. Wallboard with service level, waiting callers drawn against their target, agent board, live call quality, events, traffic controls and an **AI supervisor**; a Recordings page with in-browser playback.

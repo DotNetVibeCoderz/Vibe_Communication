@@ -214,6 +214,19 @@ static async Task<int> MeetingAsync(string baseUrl, string output)
         Console.WriteLine($"{name} sees: {await browser.EvaluateAsync("(document.querySelector('.on-screen')?.innerText ?? '') + ' | ' + (document.querySelector('.stage-caption .mono')?.innerText ?? '') + ' | ' + [...document.querySelectorAll('.facts div')].map(d => d.innerText.replace(String.fromCharCode(10), ': ')).join(' ; ')")}");
     }
 
+    // One of them shares a screen: it has a stream of its own, so it arrives beside the faces rather
+    // than replacing one, and the room sends it to everybody without the floor being involved.
+    // Headless Chrome has no desktop to share, so the page is told to offer its own tab instead.
+    await second.EvaluateAsync("window.__captureCurrentTab = true");
+    await second.EvaluateAsync("[...document.querySelectorAll('button')].find(b => b.innerText.includes('Share screen'))?.click()");
+    await Task.Delay(TimeSpan.FromSeconds(3));
+    Console.WriteLine($"sharer says: {await second.EvaluateAsync("document.querySelector('.status')?.innerText ?? ''")}"
+        + $" · buttons: {await second.EvaluateAsync("[...document.querySelectorAll('button')].map(b => b.innerText).join('/')")}");
+    var shared = await first.WaitForAsync(
+        "(() => { const v = document.querySelector('.stage-frame video.shared'); return v && v.videoWidth > 0 && !v.classList.contains('hidden'); })()",
+        TimeSpan.FromSeconds(45));
+    Console.WriteLine($"shared screen seen by the other browser: {shared}");
+
     // The second participant stays pinned for the shot, so the picture is settled.
     await Task.Delay(TimeSpan.FromSeconds(6));
     var pinnedIn = Number(await first.EvaluateAsync("""
@@ -233,9 +246,9 @@ static async Task<int> MeetingAsync(string baseUrl, string output)
     Console.WriteLine(await first.EvaluateAsync("document.querySelector('.on-screen')?.innerText ?? ''"));
     var width = Number(await first.EvaluateAsync("document.querySelector('.stage-frame video').videoWidth"));
 
-    var ok = joined == 2 && picture && second_picture;
+    var ok = joined == 2 && picture && second_picture && shared;
     Console.WriteLine($"forwarded video: {width}px wide");
-    Console.WriteLine(ok ? "meeting: OK" : $"meeting: FAILED (joined={joined}, first sees video={picture}, second sees video={second_picture})");
+    Console.WriteLine(ok ? "meeting: OK" : $"meeting: FAILED (joined={joined}, first sees video={picture}, second sees video={second_picture}, screen shared={shared})");
     return ok ? 0 : 1;
 }
 

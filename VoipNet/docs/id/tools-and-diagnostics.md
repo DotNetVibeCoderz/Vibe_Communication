@@ -163,6 +163,18 @@ Berikan `ILogger<VoipClient>`; event log engine (deteksi NAT, kegagalan kirim, e
 
 Empat belas halaman langsung: overview, melakukan panggilan, codec, DTMF, hold dan transfer, konferensi, video (di-encode, dikirim lewat panggilan nyata, lalu dibandingkan dengan yang kembali), perekaman, SRTP, model bahasa (dengan tool call nyata), voice agent, builder IVR, antrean dan agen, diagnostik. Setiap halaman menampilkan kode C# yang melakukan hal yang sama. Atur model dengan `VOIPNET_AI_ENDPOINT`, `VOIPNET_AI_KEY`, `VOIPNET_AI_MODEL`.
 
+### Ruang rapat (Blazor Server)
+
+Setiap tab menelepon alamat SIP yang sama lewat WebSocket dan bergabung ke satu konferensi, sehingga
+engine mencampur audionya dan meneruskan kamera siapa pun yang sedang bicara. **Share screen** memakai
+`getDisplayMedia` pada stream video kedua yang disiapkan tiap tab saat bergabung — ruangan mengirimnya
+ke semua orang sekaligus, karena layar tidak bersaing memperebutkan panggung — dan kamera si pembagi
+tetap berjalan di sampingnya.
+
+`dotnet run --project tools/VoipNet.DocShots -- meeting <baseUrl> docs/images` menjalankan dua browser
+melewati semuanya dan gagal bila salah satunya tidak bisa mendekode yang lain, atau layar yang
+dibagikan tidak pernah sampai.
+
 ### Call Centre (Blazor Server)
 
 Sebuah PBX, lima softphone agen, dan generator trafik Poisson — semuanya SIP/RTP nyata di loopback. Wallboard dengan service level, penelepon yang menunggu digambar terhadap targetnya, papan agen, kualitas panggilan langsung, event, kontrol trafik, dan **supervisor AI**; halaman Recordings dengan pemutaran di browser.
