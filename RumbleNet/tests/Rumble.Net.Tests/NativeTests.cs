@@ -69,6 +69,21 @@ public class NativeTests
     }
 
     [Fact]
+    public async Task Device_watcher_polls_without_throwing()
+    {
+        using var watcher = new AudioDeviceWatcher(TimeSpan.FromMilliseconds(300));
+        var changes = 0;
+        watcher.DevicesChanged += (_, _) => Interlocked.Increment(ref changes);
+
+        // Machines without audio hardware (CI containers) report an empty list rather than failing.
+        Assert.NotNull(watcher.Devices);
+        await Task.Delay(900, TestContext.Current.CancellationToken);
+
+        // Nothing is plugged or unplugged during the test, so the list must stay stable.
+        Assert.Equal(0, changes);
+    }
+
+    [Fact]
     public void Wave_roundtrip()
     {
         var tone = ToneGenerator.Sine(300, TimeSpan.FromMilliseconds(100));

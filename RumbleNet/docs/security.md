@@ -10,6 +10,11 @@
   - the countermeasures against the XEX\* attack (eprint 2019/311, section 9)
 
   It is verified against the OCB2 test vectors and uses AES-NI when the CPU has it.
+
+  One consequence of the countermeasure is worth knowing: when a packet is digital silence, the
+  sender flips the lowest bit of one sample block rather than refusing to send, exactly as upstream
+  Mumble does. The receiver therefore gets the payload back with that single bit changed, which is
+  inaudible. `digital_silence_is_delivered_with_a_single_flipped_bit` pins this behavior down.
 - **Fallback.** When UDP is blocked, voice travels inside the TLS control channel (`UDPTunnel`). Set `ForceTcpVoice = true` to always use the tunnel.
 
 A note on the spec: Mumble itself does **not** use DTLS. Its voice security is the OCB2 scheme above, keyed through the TLS channel with `CryptSetup`. Rumble.Net implements that scheme so it stays interoperable with every Mumble server.
@@ -46,7 +51,7 @@ A certificate mismatch is fatal and is never retried.
 | Certificate | `CertificatePem` and `PrivateKeyPem` hold a PKCS#8, SEC1 or PKCS#1 key. The server identifies registered users by the certificate's SHA-1 hash, which you get from `RumbleNative.GenerateCertificate("name")`. Call `RegisterSelf()` to register. |
 | Tokens | `Tokens` holds access tokens that grant membership in ACL groups. |
 
-Store private keys and passwords the way your platform expects: DPAPI or Credential Manager on Windows, Keychain on Apple platforms, Keystore on Android. RumbleApp stores them in its app data directory for demonstration only.
+Store private keys and passwords the way your platform expects. RumbleApp does this through `SecretStore`: MAUI `SecureStorage` (Keychain on Apple platforms, Keystore on Android, DPAPI on Windows), falling back to a DPAPI-encrypted file on Windows configurations where SecureStorage is unavailable. Its `servers.json` and `settings.json` hold no passwords and no private key; secrets written by older versions are migrated on first start.
 
 ## Memory safety
 

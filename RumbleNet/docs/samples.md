@@ -25,7 +25,7 @@ Features:
   - channel and private chat
   - a transmit strip with mic and deafen toggles, the input meter with the VAD threshold marker, a big push-to-talk key (also the <kbd>Space</kbd> key), and a Push / Voice / Open mode switch
   - reconnect notices
-- **Settings.** Default name, transmit mode, speech threshold, voice quality, latency, noise gate, input and output devices, positional audio, TCP voice, and certificate identity creation.
+- **Settings.** Default name, transmit mode, speech threshold, voice quality, latency, noise gate, input and output devices, positional audio, TCP voice, and certificate identity creation. Passwords and the certificate private key go to the platform's secure storage, never to the JSON files.
 - **Responsive layout.** A side rail on desktop. Below 900 px the Channels and Chat panes become tabs, and below 720 px the rail moves to a bottom bar.
 
 ### Design

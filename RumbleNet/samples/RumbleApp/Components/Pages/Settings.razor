@@ -1,8 +1,10 @@
 @page "/settings"
 @using Rumble.Net
 @using Rumble.Net.Models
+@using Rumble.Net.Audio
 @inject SettingsStore Store
 @inject VoiceSession Voice
+@implements IDisposable
 
 <PageTitle>Settings · RumbleApp</PageTitle>
 
@@ -114,6 +116,7 @@
 @code {
     private IReadOnlyList<AudioDevice>? _devices;
     private string? _deviceProblem;
+    private AudioDeviceWatcher? _watcher;
 
     private AppSettings S => Store.Current;
 
@@ -122,11 +125,29 @@
         await Store.LoadSecretsAsync();
         try
         {
-            _devices = await Task.Run(RumbleNative.GetAudioDevices);
+            // The watcher polls, so plugging a headset in or out updates these lists.
+            _watcher = await Task.Run(() => new AudioDeviceWatcher(TimeSpan.FromSeconds(2)));
+            _devices = _watcher.Devices;
+            _watcher.DevicesChanged += OnDevicesChanged;
         }
         catch (RumbleException ex)
         {
             _deviceProblem = $"Audio devices are unavailable: {ex.Message}";
+        }
+    }
+
+    private void OnDevicesChanged(object? sender, AudioDevicesChangedEventArgs e)
+    {
+        _devices = e.Devices;
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        if (_watcher is not null)
+        {
+            _watcher.DevicesChanged -= OnDevicesChanged;
+            _watcher.Dispose();
         }
     }
 

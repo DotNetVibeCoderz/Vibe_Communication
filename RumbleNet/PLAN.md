@@ -35,11 +35,14 @@ This file is the development plan. Current status is tracked in [Progress.md](Pr
 - RumbleApp (MAUI Blazor Hybrid) and RumbleGallery (Avalonia, 20 runnable samples)
 - Documentation in `docs/`, bilingual README, Criterion and BenchmarkDotNet suites, latency probe, CI
 
-### M6: Hardening and platform reach ⏳ (0.2.0)
-- [ ] Interop matrix against Murmur 1.3, 1.4 and 1.5 and Grumble in CI (Docker service containers). A first manual check against a production Murmur 1.5.0 server passed.
-- [ ] Android arm64 and iOS arm64 native builds in CI, and RumbleApp running on real devices
-- [ ] Compile-verify the Unity package (IL2CPP) and the Unreal plugin (UE 5.4+) in CI
-- [ ] Fuzz the control and voice decoders (`cargo fuzz`) and the OCB2 decryptor
+### M6: Hardening and platform reach 🚧 (0.2.0)
+- [x] Interop matrix in CI against official `mumble-server` containers 1.4.287, 1.5 and 1.6, covering both UDP formats. A manual check against a production Murmur 1.5.0 server also passed.
+- [x] Fuzz the control and voice decoders and the OCB2 decryptor (`cargo fuzz`, 60 s per target in CI). First finding: digital silence comes back with one flipped bit (the XEX* countermeasure), now documented and unit tested.
+- [x] Secrets at rest: RumbleApp keeps passwords and the certificate private key in platform secure storage, migrating older plain-text files
+- [x] Android arm64/x64 and iOS arm64 native builds in CI
+- [x] Compile-verify the Unity bridge bindings (netstandard2.1) in CI
+- [ ] RumbleApp running on real Android and iOS devices
+- [ ] Compile-verify the Unity package under IL2CPP and the Unreal plugin (UE 5.4+); both need an engine install on the runner
 - [ ] Android foreground service and iOS audio session handling for background voice in RumbleApp
 - [ ] Echo cancellation and noise suppression (for example a WebRTC APM or RNNoise port)
 - [ ] Audio device hot-plug and change notifications through to .NET

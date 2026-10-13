@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Compiles the Unity bridge's P/Invoke layer the way Unity would: netstandard2.1, C# 9.
+    The MonoBehaviour (RumbleVoiceClient.cs) needs UnityEngine and can only be compiled inside
+    Unity, so it is deliberately left out; this at least keeps the bindings honest in CI.
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AssemblyName>Gravicode.Rumble.Bindings</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\com.gravicode.rumble\Runtime\RumbleNativeUnity.cs" />
+  </ItemGroup>
+
+</Project>

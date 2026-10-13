@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/icon.png" width="104" align="right" alt="Rumble.Net" />
+
 # Rumble.Net
 
 **A Mumble voice chat SDK for .NET, powered by a Rust core.**

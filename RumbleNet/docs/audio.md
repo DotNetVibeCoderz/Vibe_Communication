@@ -85,6 +85,24 @@ client.Audio.SetListener(position, forward, up);                     // call eve
 
 Coordinates are in meters, left-handed: +X right, +Y up, +Z forward. The same convention as Unity. The mixer applies equal-power stereo panning, linear distance attenuation down to `MinVolume`, and `RearAttenuation` for sources behind the listener. It computes the gains for all speakers in one auto-vectorized pass, which takes about 5 µs for 256 sources.
 
+## Reacting to device changes
+
+The platform backends do not raise device-change events through cpal, so the SDK polls:
+
+```csharp
+using var watcher = new AudioDeviceWatcher(TimeSpan.FromSeconds(2));
+watcher.DevicesChanged += (_, e) =>
+{
+    foreach (var device in e.Removed) Console.WriteLine($"gone: {device.Name}");
+    foreach (var device in e.Added) Console.WriteLine($"new: {device.Name}");
+    // e.Devices holds the full list; refresh pickers, or call Audio.SetMode(...) to switch device.
+};
+```
+
+Changes are seen within one interval. On machines with no audio stack at all the list is simply
+empty, so the watcher is safe to run on servers and in containers. RumbleApp's settings page uses
+it to keep its microphone and speaker lists current.
+
 ## Helpers
 
 - `ToneGenerator.Sine` and `ToneGenerator.Melody` generate test signals.

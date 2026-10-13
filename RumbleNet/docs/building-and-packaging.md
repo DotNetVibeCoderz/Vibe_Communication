@@ -40,6 +40,15 @@ Two packages are produced:
 
 For a release that covers every platform, use the **CI workflow** (`.github/workflows/rumblenet-ci.yml` at the root of the Vibe_Communication repository). It builds the native library on Windows (x64 and arm64), Linux (x64 and arm64) and macOS (x64 and arm64), runs the tests on all three operating systems, stages every RID, and uploads the `nuget` artifact.
 
+### Mobile binaries
+
+CI also builds the core for **android-arm64, android-x64 and ios-arm64** and uploads them as
+`mobile-<rid>` artifacts. They are not part of the NuGet package, because .NET for Android and iOS
+consume native libraries through `AndroidNativeLibrary` and `NativeReference` instead. Download the
+artifacts (or run `build/build-native.*`) into `src/Rumble.Net/runtimes/<rid>/native/`, where
+RumbleApp's project file picks them up. Android needs API level 26 or newer, since the audio
+backend uses AAudio.
+
 ### Publishing from CI (recommended)
 
 The workflow publishes to nuget.org with the `NUGET_API_KEY` repository secret. It only publishes after the following succeed:

@@ -17,6 +17,39 @@ dotnet test --project tests/Rumble.Net.Tests/Rumble.Net.Tests.csproj -- --filter
 
 The .NET suite uses Microsoft.Testing.Platform (configured in `global.json`), so filters go after `--`.
 
+## Interop with real Mumble servers
+
+`tests/Rumble.Net.InteropTests` runs against an actual server instead of the mock one. It skips
+unless you point it at a server:
+
+```powershell
+$env:RUMBLE_INTEROP_HOST = "voice.example.org"
+$env:RUMBLE_INTEROP_PORT = "64738"        # optional, default 64738
+$env:RUMBLE_INTEROP_PASSWORD = "secret"   # optional
+dotnet test --project tests/Rumble.Net.InteropTests/Rumble.Net.InteropTests.csproj
+```
+
+It covers the UDP server query, TLS login and synchronization, encrypted UDP coming up, text
+between two clients, voice between two clients, and Mumble's server loopback (voice target 31).
+
+CI runs the suite against the official `mumblevoip/mumble-server` containers for **1.4.287, 1.5 and
+1.6**, which exercises both UDP formats: 1.4 uses the legacy binary format, 1.5 and 1.6 the
+protobuf one. Releases wait for this job.
+
+## Fuzzing
+
+`native/fuzz` holds cargo-fuzz targets for everything that parses attacker-controlled bytes:
+`control_frames`, `voice_packets`, `varint` and `ocb2_decrypt`. CI runs each for 60 seconds on
+every push; run them locally on Linux or macOS with a nightly toolchain:
+
+```bash
+cd native
+cargo +nightly fuzz run voice_packets -- -max_total_time=60
+```
+
+The OCB2 target already paid for itself: it surfaced that a digital-silence payload comes back with
+one flipped bit (the XEX* countermeasure), which is now documented and covered by a unit test.
+
 ## Mock server
 
 `MockMumbleServer` (.NET) and `rumble_mock_server::MockServer` (Rust) implement:

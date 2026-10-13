@@ -85,6 +85,9 @@ jobs:
       - name: Run gallery samples
         shell: bash
         run: dotnet run -c Release --project samples/RumbleGallery -p:RumbleSkipNativeBuild=true -- --run-all
+      - name: Compile the Unity bridge bindings (netstandard2.1)
+        if: matrix.rid == 'linux-x64'
+        run: dotnet build bridges/unity/compile-check/UnityBindings.CompileCheck.csproj -c Release
 
   interop:
     name: Interop with mumble-server ${{ matrix.tag }}
