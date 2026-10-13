@@ -14,7 +14,7 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>icon.png</PackageIcon>
-    <PackageReleaseNotes>Preview release built and tested by CI. Native binaries: win-x64, win-arm64, linux-x64, linux-arm64, osx-x64, osx-arm64. Android and iOS: build with build/build-native.*. See https://github.com/DotNetVibeCoderz/Vibe_Communication/tree/main/RumbleNet</PackageReleaseNotes>
+    <PackageReleaseNotes>Preview release built and tested by CI, including interop runs against mumble-server 1.4, 1.5 and 1.6. Native binaries: win-x64, win-arm64, linux-x64, linux-arm64, osx-x64, osx-arm64. Android and iOS: build with build/build-native.*. See https://github.com/DotNetVibeCoderz/Vibe_Communication/tree/main/RumbleNet</PackageReleaseNotes>
     <PackageProjectUrl>https://github.com/DotNetVibeCoderz/Vibe_Communication/tree/main/RumbleNet</PackageProjectUrl>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
