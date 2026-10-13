@@ -8,6 +8,10 @@ The header is [`native/include/rumble.h`](../native/include/rumble.h), and the l
 - Strings are UTF-8 with an explicit length.
 - Rich data (config, commands, events, snapshots) crosses the boundary as JSON. Audio uses raw `float*` or `int16_t*` pointers.
 - Free buffers returned through `(uint8_t** out_ptr, size_t* out_len)` with `rumble_free`.
+- On Android, call `rumble_android_init(vm, context)` once before any audio call: the audio backend
+  reaches `AudioManager` through JNI, and hosts that `dlopen` the library never run `JNI_OnLoad`.
+  `context` must be a JNI global reference that outlives the audio session. It is a no-op that
+  returns `RUMBLE_OK` on other platforms.
 - Callbacks run on native threads. None are invoked after `rumble_client_destroy` returns, and you must not call destroy from inside a callback.
 
 ## Example

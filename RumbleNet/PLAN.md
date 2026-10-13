@@ -41,11 +41,12 @@ This file is the development plan. Current status is tracked in [Progress.md](Pr
 - [x] Secrets at rest: RumbleApp keeps passwords and the certificate private key in platform secure storage, migrating older plain-text files
 - [x] Android arm64/x64 and iOS arm64 native builds in CI
 - [x] Compile-verify the Unity bridge bindings (netstandard2.1) in CI
-- [ ] RumbleApp running on real Android and iOS devices
+- [x] RumbleApp on a real Android device (Poco F3, Android 11, arm64): connect, channel tree, chat and two-way voice over UDP. Needed `rumble_android_init` to hand the Java VM to the AAudio backend.
+- [ ] RumbleApp on a real iOS device
 - [ ] Compile-verify the Unity package under IL2CPP and the Unreal plugin (UE 5.4+); both need an engine install on the runner
 - [ ] Android foreground service and iOS audio session handling for background voice in RumbleApp
 - [ ] Echo cancellation and noise suppression (for example a WebRTC APM or RNNoise port)
-- [ ] Audio device hot-plug and change notifications through to .NET
+- [x] Audio device hot-plug and change notifications through to .NET (`AudioDeviceWatcher`)
 
 ### M7: Advanced features 🗓 (0.3.0)
 - [ ] Client-side ACL editor models and a group/ACL write API

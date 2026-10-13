@@ -52,6 +52,28 @@ public static unsafe class RumbleNative
         }
     }
 
+    /// <summary>
+    /// Hands the Java VM and the Android application context to the native core. Call this once on
+    /// Android, before touching audio; it does nothing on other platforms.
+    /// </summary>
+    /// <param name="javaVm">
+    /// The process <c>JavaVM*</c>; on .NET for Android this is
+    /// <c>Java.Interop.JniRuntime.CurrentRuntime.InvocationPointer</c>.
+    /// </param>
+    /// <param name="applicationContext">
+    /// A JNI global reference to the application context that lives as long as the process; on
+    /// .NET for Android this is <c>Android.App.Application.Context.Handle</c>.
+    /// </param>
+    /// <remarks>
+    /// The audio backend reads the device list and the mixer burst size from Android's
+    /// <c>AudioManager</c> over JNI. .NET loads the native library with <c>dlopen</c>, so
+    /// <c>JNI_OnLoad</c> never runs and the core cannot find the VM on its own: without this call
+    /// opening devices fails with "audio thread terminated" and <see cref="GetAudioDevices"/>
+    /// returns nothing. Calls after the first are ignored.
+    /// </remarks>
+    public static void InitializeAndroid(nint javaVm, nint applicationContext) =>
+        Native.Check(NativeMethods.rumble_android_init(javaVm, applicationContext));
+
     /// <summary>Lists audio input and output devices.</summary>
     public static IReadOnlyList<AudioDevice> GetAudioDevices()
     {

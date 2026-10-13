@@ -17,7 +17,8 @@
 | Symptom | Fix |
 |---|---|
 | `SendPcm` throws `Unsupported` | PCM push only works in `AudioMode.Headless`. |
-| No sound in `Devices` mode | Call `RumbleNative.GetAudioDevices()` and check that input and output devices exist. On Android and iOS, grant microphone permission before connecting. |
+| No sound in `Devices` mode | Check `Audio.StartupError`; it says why the devices did not open. On Android and iOS, grant microphone permission before connecting. |
+| On Android: "audio thread terminated", and no devices are listed | Call `RumbleNative.InitializeAndroid(vm, context)` at startup — see [audio.md](audio.md#android-hand-over-the-java-vm-first). Android never lists devices through cpal, so an empty list is normal and is not a reason to fall back to `Headless`. |
 | Others can't hear you | Check `Audio.IsTransmitting`. In `VoiceActivity` mode, lower `VoiceActivityThresholdDb`. The server may also have you suppressed (`User.Suppress`) or muted. |
 | Choppy audio | Look at `PingUpdated.Local.Lost` and `Local.Late`. Increase `FramesPerPacket` or keep `InbandFec` on. Heavy work inside `AudioFrameReceived` blocks the audio thread, so keep handlers fast. |
 | Echo or feedback | Use headphones, or use push-to-talk. |

@@ -12,6 +12,10 @@ Package: [`bridges/unity/com.gravicode.rumble`](../bridges/unity/com.gravicode.r
 - Native events are queued from the native thread and dispatched through the `onEvent` UnityEvent on the main thread in `Update`.
 - The IL2CPP callback uses `[MonoPInvokeCallback]`. On iOS the static library is linked through `__Internal`.
 - Unity's coordinate system matches Mumble's (left-handed, Y up, Z forward, meters), so positions pass through unchanged.
+- On Android, call `RumbleNativeUnity.rumble_android_init(vm, context)` once before touching audio,
+  passing the VM and a global reference to the activity's application context (IL2CPP loads the
+  library with `dlopen`, so `JNI_OnLoad` never runs). Without it the audio thread dies as soon as it
+  opens a device — see [audio.md](audio.md#android-hand-over-the-java-vm-first).
 
 ## Unreal Engine
 

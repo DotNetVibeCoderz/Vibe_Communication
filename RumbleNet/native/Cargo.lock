@@ -1515,6 +1515,7 @@ name = "rumble-ffi"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "ndk-context",
  "parking_lot",
  "rumble-client",
  "rumble-mock-server",

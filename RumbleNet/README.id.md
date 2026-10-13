@@ -32,9 +32,9 @@ var teramai = client.Channels.MaxBy(c => c.TotalUserCount);   // LINQ atas model
 
 ![Layar suara RumbleApp terhubung ke server demo](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-voice.png)
 
-| Server | Pengaturan | Mobile: channel | Mobile: chat |
-|---|---|---|---|
-| ![Server](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-servers.png) | ![Pengaturan](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-settings.png) | ![Channel mobile](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-mobile-channels.png) | ![Chat mobile](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-mobile-chat.png) |
+| Server | Pengaturan | Mobile: channel | Mobile: chat  Android: suara |
+|---|---|---|---|---|
+| ![Server](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-servers.png) | ![Pengaturan](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-settings.png) | ![Channel mobile](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-mobile-channels.png) | ![Chat mobile](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-mobile-chat.png) | ![Android: suara](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-mobile-voice.png) |
 
 **RumbleGallery** adalah galeri contoh SDK berbasis Avalonia yang bisa dijalankan langsung. Setiap contoh menampilkan kode sumbernya apa adanya beserta output live-nya.
 
@@ -117,9 +117,9 @@ Mulai dari **[docs/README.md](docs/README.md)**. Dokumentasi teknis ditulis dala
 
 [![NuGet](https://img.shields.io/nuget/vpre/Rumble.Net)](https://www.nuget.org/packages/Rumble.Net) `dotnet add package Rumble.Net --prerelease`
 
-Paket NuGet sudah menyertakan inti native untuk **Windows, Linux, dan macOS (x64 dan arm64)** yang di-build dan dites oleh CI. Untuk Android dan iOS, build intinya dengan `build/build-native.*`.
+Paket NuGet sudah menyertakan inti native untuk **Windows, Linux, dan macOS (x64 dan arm64)** yang di-build dan dites oleh CI. Untuk Android dan iOS, build intinya dengan `build/build-native.*`; khusus Android, panggil `RumbleNative.InitializeAndroid(...)` saat aplikasi mulai (lihat [docs/audio.md](docs/audio.md#android-hand-over-the-java-vm-first)).
 
-Versi 0.1.0 sudah lengkap untuk protokol klien dan terverifikasi *end-to-end* terhadap mock server bawaan di Windows x64. Validasi terhadap server Murmur produksi, build native untuk mobile, dan bridge game engine masih dalam proses. Semua dicatat secara jujur di Progress.md.
+Versi 0.1.0 sudah lengkap untuk protokol klien dan terverifikasi *end-to-end* terhadap mock server bawaan, terhadap `mumble-server` 1.4, 1.5 dan 1.6 di CI, serta terhadap server Murmur 1.5.0 produksi. RumbleApp sudah dijalankan di perangkat Android asli; pengujian di perangkat iOS dan build bridge Unity/Unreal di dalam engine-nya masih dalam proses. Semua dicatat secara jujur di Progress.md.
 
 ## Lisensi
 

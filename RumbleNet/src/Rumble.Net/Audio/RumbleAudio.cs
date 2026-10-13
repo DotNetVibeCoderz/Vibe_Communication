@@ -75,6 +75,19 @@ public sealed class RumbleAudio
     /// <summary>Current audio mode.</summary>
     public AudioMode Mode { get; private set; }
 
+    /// <summary>
+    /// Why the last attempt to open audio devices failed, or <see langword="null"/> when devices
+    /// are running.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="RumbleClient.ConnectAsync"/> logs a failure here instead of failing the
+    /// connection, so an app can connect, check this, and fall back to
+    /// <see cref="AudioMode.Headless"/>. Do not infer availability from
+    /// <see cref="RumbleNative.GetAudioDevices"/>: some platforms (Android) enumerate no devices
+    /// even though capture and playback work. Cleared once devices start.
+    /// </remarks>
+    public RumbleException? StartupError { get; private set; }
+
     /// <summary>Transmit mode.</summary>
     public TransmitMode TransmitMode
     {
@@ -366,7 +379,20 @@ public sealed class RumbleAudio
         fixed (byte* pi = input.Span)
         fixed (byte* po = output.Span)
         {
-            Native.Check(NativeMethods.rumble_audio_set_mode(h, (int)Mode, pi, (nuint)input.Span.Length, po, (nuint)output.Span.Length));
+            try
+            {
+                Native.Check(NativeMethods.rumble_audio_set_mode(h, (int)Mode, pi, (nuint)input.Span.Length, po, (nuint)output.Span.Length));
+            }
+            catch (RumbleException ex) when (Mode == AudioMode.Devices)
+            {
+                StartupError = ex;
+                throw;
+            }
+        }
+
+        if (Mode == AudioMode.Devices)
+        {
+            StartupError = null;
         }
 
         _client.Logger.LogDebug("Audio mode set to {Mode}", Mode);

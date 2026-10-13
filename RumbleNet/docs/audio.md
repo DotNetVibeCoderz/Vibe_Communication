@@ -16,6 +16,33 @@ options.Audio.InputDeviceId = RumbleNative.GetAudioDevices().First(d => d.IsInpu
 client.Audio.SetMode(AudioMode.Headless);   // switch at runtime; the pipeline is rebuilt
 ```
 
+## Android: hand over the Java VM first
+
+The AAudio backend reads the device list and the mixer burst size from Android's `AudioManager`
+over JNI. .NET, Unity and Unreal all load the native library with `dlopen`, so `JNI_OnLoad` never
+runs and the core cannot find the VM by itself. Call this once at startup, before any audio call:
+
+```csharp
+// Platforms/Android/MainApplication.cs, in OnCreate (after base.OnCreate)
+RumbleNative.InitializeAndroid(JniRuntime.CurrentRuntime.InvocationPointer, Handle);
+```
+
+The second argument is a JNI **global** reference to the application context that lives as long as
+the process. Without the call, opening devices fails with *"audio thread terminated"* and
+`RumbleNative.GetAudioDevices()` comes back empty, so apps fall back to `Headless` and nobody hears
+you. The method does nothing on other platforms, so it is safe to call unconditionally.
+
+Android also lists no devices through cpal even when audio works. Decide between `Devices` and
+`Headless` from `RumbleAudio.StartupError` rather than from the device list:
+
+```csharp
+await client.ConnectAsync();
+if (client.Audio.StartupError is not null)      // null once devices are running
+{
+    client.Audio.SetMode(AudioMode.Headless);   // chat and playback only
+}
+```
+
 ## Transmitting
 
 | Option | Default | Meaning |
@@ -99,8 +126,9 @@ watcher.DevicesChanged += (_, e) =>
 };
 ```
 
-Changes are seen within one interval. On machines with no audio stack at all the list is simply
-empty, so the watcher is safe to run on servers and in containers. RumbleApp's settings page uses
+Changes are seen within one interval. On machines with no audio stack at all — and on Android,
+which does not enumerate devices — the list is simply empty, so the watcher is safe to run on
+servers and in containers. RumbleApp's settings page uses
 it to keep its microphone and speaker lists current.
 
 ## Helpers

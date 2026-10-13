@@ -73,6 +73,10 @@ typedef void (*rumble_log_callback)(void *user_data, int32_t level, const uint8_
 const char *rumble_version(void);
 int32_t rumble_last_error(uint8_t *buffer, size_t capacity);
 void rumble_free(uint8_t *ptr, size_t len);
+/* Android only (a no-op returning RUMBLE_OK elsewhere): hands over the process JavaVM and a JNI
+ * global reference to the application context. Required before any audio call, because hosts that
+ * dlopen this library never run JNI_OnLoad and the audio backend needs AudioManager. */
+int32_t rumble_android_init(void *vm, void *context);
 int32_t rumble_set_log_callback(rumble_log_callback callback, void *user_data, int32_t min_level);
 
 /* ---- client ---- */

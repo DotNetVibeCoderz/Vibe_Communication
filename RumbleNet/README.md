@@ -32,9 +32,9 @@ var busiest = client.Channels.MaxBy(c => c.TotalUserCount);   // LINQ over the l
 
 ![RumbleApp voice screen connected to the demo server](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-voice.png)
 
-| Servers | Settings | Mobile: channels | Mobile: chat |
-|---|---|---|---|
-| ![Servers](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-servers.png) | ![Settings](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-settings.png) | ![Mobile channels](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-mobile-channels.png) | ![Mobile chat](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-mobile-chat.png) |
+| Servers | Settings | Mobile: channels | Mobile: chat  Android: voice |
+|---|---|---|---|---|
+| ![Servers](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-servers.png) | ![Settings](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-settings.png) | ![Mobile channels](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-mobile-channels.png) | ![Mobile chat](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-mobile-chat.png) | ![Android: voice](https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/RumbleNet/docs/images/rumbleapp-mobile-voice.png) |
 
 **RumbleGallery** is an Avalonia gallery of runnable SDK samples. Each one shows its exact source code and live output.
 
@@ -132,9 +132,9 @@ Project tracking lives in [PLAN.md](PLAN.md) (roadmap) and [Progress.md](Progres
 
 [![NuGet](https://img.shields.io/nuget/vpre/Rumble.Net)](https://www.nuget.org/packages/Rumble.Net) `dotnet add package Rumble.Net --prerelease`
 
-The NuGet package includes the native core for **Windows, Linux and macOS (x64 and arm64)**, built and tested by CI. For Android and iOS, build the core with `build/build-native.*`.
+The NuGet package includes the native core for **Windows, Linux and macOS (x64 and arm64)**, built and tested by CI. For Android and iOS, build the core with `build/build-native.*`; on Android, call `RumbleNative.InitializeAndroid(...)` at startup (see [docs/audio.md](docs/audio.md#android-hand-over-the-java-vm-first)).
 
-Version 0.1.0 is feature complete for the client protocol and verified end to end against the bundled mock server on Windows x64. Validation against production Murmur servers, the mobile native builds and the game engine bridges is still open. Progress.md tracks these items honestly.
+Version 0.1.0 is feature complete for the client protocol, verified end to end against the bundled mock server, against `mumble-server` 1.4, 1.5 and 1.6 in CI, and against a production Murmur 1.5.0 server. RumbleApp has been run on a real Android device; an iOS device run and in-engine builds of the Unity and Unreal bridges are still open. Progress.md tracks these items honestly.
 
 ## License
 

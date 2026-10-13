@@ -164,10 +164,13 @@ public sealed class VoiceSession : IAsyncDisposable
                 client.Audio.EnablePositionalAudio();
             }
 
-            if (options.Audio.Mode == AudioMode.Devices && !AudioDevicesWork())
+            // Ask whether audio actually started rather than looking at the device list: Android
+            // enumerates no devices even though capture and playback work.
+            if (client.Audio.StartupError is { } audioError)
             {
                 client.Audio.SetMode(AudioMode.Headless);
                 AudioNotice = "No microphone or speakers were found. You can still chat and see who is talking.";
+                _loggerFactory.CreateLogger<VoiceSession>().LogWarning(audioError, "Audio devices could not be started");
             }
 
             AddSystem($"Connected to {server.Name} as {client.Self?.Name}.");
@@ -412,19 +415,6 @@ public sealed class VoiceSession : IAsyncDisposable
         }
 
         Tick?.Invoke();
-    }
-
-    private bool AudioDevicesWork()
-    {
-        try
-        {
-            var devices = RumbleNative.GetAudioDevices();
-            return devices.Any(d => d.IsInput) && devices.Any(d => d.IsOutput);
-        }
-        catch (RumbleException)
-        {
-            return false;
-        }
     }
 
     private static async Task<bool> MicrophoneAllowedAsync()

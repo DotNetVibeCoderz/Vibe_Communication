@@ -27,6 +27,11 @@ namespace Gravicode.Rumble
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern int rumble_last_error(byte* buffer, UIntPtr capacity);
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern void rumble_free(byte* ptr, UIntPtr len);
 
+        // Android only (a no-op elsewhere). IL2CPP loads the library with dlopen, so JNI_OnLoad
+        // never runs and the audio backend cannot reach AudioManager on its own. Pass the VM from
+        // AndroidJavaClass("android.os.Build") era helpers or JNI, and a global ref to the context.
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern int rumble_android_init(IntPtr vm, IntPtr context);
+
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern int rumble_client_create(byte* configJson, UIntPtr configLen, EventCallback callback, IntPtr userData, out IntPtr client);
 

@@ -21,6 +21,9 @@ internal static unsafe partial class NativeMethods
     internal static partial void rumble_free(byte* ptr, nuint len);
 
     [LibraryImport(Library)]
+    internal static partial int rumble_android_init(nint vm, nint context);
+
+    [LibraryImport(Library)]
     internal static partial int rumble_set_log_callback(
         delegate* unmanaged[Cdecl]<nint, int, byte*, nuint, byte*, nuint, void> callback,
         nint userData,

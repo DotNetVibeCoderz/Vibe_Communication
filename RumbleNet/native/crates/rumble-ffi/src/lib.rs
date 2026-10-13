@@ -171,6 +171,42 @@ pub extern "C" fn rumble_version() -> *const c_char {
     concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr() as *const c_char
 }
 
+/// Hands the Java VM and the Android application context to the native core. Android only;
+/// a no-op that returns `RUMBLE_OK` everywhere else, so callers need no platform checks.
+///
+/// Call this once before any audio call. The audio backend reaches `AudioManager` through JNI to
+/// list devices and read the mixer burst size, and hosts that load this library with `dlopen`
+/// (.NET, Unity, Unreal) never run `JNI_OnLoad`, so the core cannot find the VM by itself. Without
+/// it, opening devices fails and the device list comes back empty.
+///
+/// `vm` is the process `JavaVM*`. `context` must be a **JNI global reference** to the application
+/// context that outlives all audio use; a local reference, or one that is released, leads to
+/// undefined behaviour on the audio thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rumble_android_init(vm: *mut c_void, context: *mut c_void) -> i32 {
+    #[cfg(target_os = "android")]
+    {
+        if vm.is_null() || context.is_null() {
+            return set_error(RUMBLE_ERR_INVALID_ARGUMENT, "vm and context must not be null".into());
+        }
+
+        // Initialise once: the second call would overwrite a context the audio thread may be using.
+        static ANDROID_INIT: Once = Once::new();
+        ANDROID_INIT.call_once(|| {
+            // SAFETY: the caller passes the process VM and a global reference to the application
+            // context, both valid until the process exits.
+            unsafe { ndk_context::initialize_android_context(vm, context) };
+        });
+        RUMBLE_OK
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (vm, context);
+        RUMBLE_OK
+    }
+}
+
 /// Copies the last error message of this thread into `buffer` (UTF-8, not NUL-terminated).
 /// Returns the full message length (which may exceed `capacity`).
 #[unsafe(no_mangle)]

@@ -51,6 +51,14 @@ Android and iOS need the core built for their targets:
 
 The app's `.csproj` picks up `src/Rumble.Net/runtimes/android-arm64/native/librumble_native.so` and `ios-arm64/native/librumble_native.a` when they exist.
 
+`Platforms/Android/MainApplication.cs` calls `RumbleNative.InitializeAndroid(...)` in `OnCreate`,
+which the native audio backend needs on Android (see [audio.md](audio.md#android-hand-over-the-java-vm-first)).
+
+Verified on a Poco F3 (Android 11, arm64): connect, channel tree, chat and two-way voice over UDP
+against the built-in demo server.
+
+![RumbleApp talking to EchoBot on Android](images/rumbleapp-mobile-voice.png)
+
 ## RumbleGallery — SDK sample gallery (Avalonia)
 
 `samples/RumbleGallery` is a desktop app for Windows, Linux and macOS. It lists runnable samples, shows each sample's **exact source** with syntax highlighting (AvaloniaEdit and TextMate), and streams the output while the sample runs against a mock server built into the app.

@@ -26,3 +26,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry", "std"] }
 bytes = "1.12.1"
 serde = { version = "1.0.229", features = ["derive"] }
+
+# The audio backend needs the Java VM to reach AudioManager; see `rumble_android_init`.
+[target.'cfg(target_os = "android")'.dependencies]
+ndk-context = "0.1.1"

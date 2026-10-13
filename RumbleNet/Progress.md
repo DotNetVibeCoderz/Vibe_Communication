@@ -28,13 +28,21 @@ The roadmap is in [PLAN.md](PLAN.md). This file records what exists and how it w
 | CI workflow | ✅ | `.github/workflows/rumblenet-ci.yml`: run 34973752150 was green. It covers 6 native builds (win, linux and osx, each x64 and arm64), .NET tests and all gallery samples on Windows, Linux and macOS, and a pack step that checks all 6 native binaries are included. Pushing a `rumblenet-v*` tag also publishes with the `NUGET_API_KEY` secret. |
 | Linux and macOS | ✅ (CI) | Native builds, Rust tests (linux-x64, osx-arm64), .NET tests and gallery samples pass on GitHub runners |
 | NuGet packages | ✅ (preview) | **0.1.0-preview.3** published, with package icons and all 6 desktop native binaries. CI built and packed it; the first publish attempt hit a 403 on a stale `NUGET_API_KEY`, so the packages went up from the same CI artifacts with the local key. The secret has since been rotated and the publish job re-run: it authenticated and skipped both packages as already present (run 38388884661, job 115287259277), so the whole release run is green and the next tag publishes end to end. 0.1.0-preview.1 was published locally with win-x64 only; before publishing it was installed into a fresh app from a local feed and tested there. |
-| RumbleApp Android, iOS, macOS | 🟡 | Project, permissions and native library hooks are in place. The mobile native builds and on-device runs haven't happened yet. |
+| RumbleApp Android | ✅ | Run on a Poco F3 (Android 11, arm64): connect, channel tree, chat with EchoBot and two-way voice over UDP (3 ms) against the demo server. |
+| RumbleApp iOS, macOS | 🟡 | Project, permissions and native library hooks are in place; no on-device run yet. |
 | Unity bridge | 🟡 | Bindings compile in CI; the MonoBehaviour has still not been built inside Unity (IL2CPP) |
 | Unreal bridge | 🟡 | UE plugin written against `rumble.h`, not yet compiled in Unreal |
 | CELT/Speex decoding | ⏳ (non-goal) | Frames are parsed and concealed. Opus is required by all modern servers. |
 | DTLS | n/a | Mumble uses OCB2-AES over UDP keyed through TLS, not DTLS. That scheme is implemented. See `docs/security.md`. |
 
 ## Log
+
+### 2026-10-13 (Android on device)
+- RumbleApp runs on a real Android device (Poco F3, Android 11, arm64): connected to the embedded demo server, browsed the channel tree, chatted with EchoBot and held a two-way voice session over UDP at 3 ms, with live input levels and talking indicators on both sides.
+- Fixed the reason audio was dead there: cpal's AAudio backend reaches `AudioManager` through JNI, and .NET loads the native library with `dlopen`, so `JNI_OnLoad` never runs and `ndk_context` stayed uninitialised. The audio thread panicked on the first device call ("audio thread terminated") and device enumeration returned nothing. New `rumble_android_init` entry point (C ABI, `RumbleNative.InitializeAndroid` in .NET, also bound for Unity) hands over the VM and the application context; RumbleApp calls it in `MainApplication.OnCreate`.
+- `RumbleAudio.StartupError` reports why devices did not open. Apps should branch on it instead of on the device list, because Android enumerates no devices even when capture and playback work — which is what made RumbleApp fall back to headless.
+- Mobile layout: the page and session bar now respect `env(safe-area-inset-top)`, so the heading is no longer under the status bar.
+- Build note: the Android core is built locally with `cargo ndk --platform 26 -t arm64-v8a` (NDK r27c).
 
 ### 2026-10-13 (preview.3)
 - Published 0.1.0-preview.3 from the CI-built artifacts. The CI publish job first returned 403 on an expired `NUGET_API_KEY`; after the secret was rotated, the re-run authenticated and reported both packages as already present, so release run 38388884661 is green end to end.

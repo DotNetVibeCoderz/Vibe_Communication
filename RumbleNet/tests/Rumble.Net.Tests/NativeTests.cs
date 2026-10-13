@@ -12,6 +12,13 @@ public class NativeTests
     }
 
     [Fact]
+    public void Android_initialisation_is_a_no_op_off_android()
+    {
+        // Apps call this unconditionally at startup, so it must stay harmless elsewhere.
+        RumbleNative.InitializeAndroid(0, 0);
+    }
+
+    [Fact]
     public void Opus_roundtrip_preserves_signal()
     {
         using var encoder = new OpusEncoder(bitrate: 64_000);

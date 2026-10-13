@@ -92,6 +92,10 @@
                     </select>
                 </div>
             </div>
+            @if (_devices.Count == 0)
+            {
+                <p class="notice">This platform does not list audio devices, so the system default is used.</p>
+            }
         }
         <label class="toggle"><input type="checkbox" checked="@S.PositionalAudio" @onchange="e => Store.Update(s => s with { PositionalAudio = (bool)e.Value! })" /> Positional audio (hear game players from where they stand)</label>
         <label class="toggle"><input type="checkbox" checked="@S.ForceTcpVoice" @onchange="e => Store.Update(s => s with { ForceTcpVoice = (bool)e.Value! })" /> Send voice over TCP (use on networks that block UDP)</label>
