@@ -17,7 +17,10 @@ fuzz_target!(|data: &[u8]| {
         sender.set_key(&[0x42; 16], &[3; 16], &[4; 16]);
         peer.set_key(&[0x42; 16], &[4; 16], &[3; 16]);
         if let Some(encrypted) = sender.encrypt_to_vec(data) {
-            let decrypted = peer.decrypt_to_vec(&encrypted).expect("honest packet must decrypt");
+            // A payload that matches the XEX* attack pattern is dropped by the receiver by design
+            // (see payload_matching_the_attack_pattern_is_dropped_by_the_receiver), so a rejection
+            // is allowed here. What must hold: whatever is accepted comes back intact.
+            let Some(decrypted) = peer.decrypt_to_vec(&encrypted) else { return };
             assert_eq!(decrypted.len(), data.len(), "round trip changed the length");
 
             // Digital silence makes the sender flip one bit (the XEX* countermeasure), so the

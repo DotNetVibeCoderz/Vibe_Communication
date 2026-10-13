@@ -15,6 +15,12 @@
   sender flips the lowest bit of one sample block rather than refusing to send, exactly as upstream
   Mumble does. The receiver therefore gets the payload back with that single bit changed, which is
   inaudible. `digital_silence_is_delivered_with_a_single_flipped_bit` pins this behavior down.
+
+  The sender's rewrite rule and the receiver's rejection rule do not cover exactly the same inputs,
+  so a rare payload is encrypted happily and then dropped on arrival. Upstream Mumble behaves the
+  same way, and for voice it costs a single packet, which the jitter buffer conceals. The fuzzer
+  found such a payload; `payload_matching_the_attack_pattern_is_dropped_by_the_receiver` keeps the
+  behavior documented, including that the session carries on normally afterwards.
 - **Fallback.** When UDP is blocked, voice travels inside the TLS control channel (`UDPTunnel`). Set `ForceTcpVoice = true` to always use the tunnel.
 
 A note on the spec: Mumble itself does **not** use DTLS. Its voice security is the OCB2 scheme above, keyed through the TLS channel with `CryptSetup`. Rumble.Net implements that scheme so it stays interoperable with every Mumble server.

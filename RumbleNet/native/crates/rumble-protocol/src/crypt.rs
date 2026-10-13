@@ -557,6 +557,32 @@ mod tests {
         }
     }
 
+    /// The sender only rewrites packets whose second-to-last block is "digital silence", while the
+    /// receiver rejects any packet whose last block matches the XEX* attack pattern. The two checks
+    /// do not cover exactly the same inputs, so a rare payload (found by the `ocb2_decrypt` fuzz
+    /// target) is encrypted happily and then dropped by the receiver. Upstream Mumble behaves the
+    /// same way; for voice it costs one packet, which the jitter buffer conceals.
+    #[test]
+    fn payload_matching_the_attack_pattern_is_dropped_by_the_receiver() {
+        let data: [u8; 32] = [
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 135, 0, 48, 61, 0, 187, 75, 8, 198, 98, 145, 190,
+            106, 104, 120, 191, 122, 48, 72, 8, 0,
+        ];
+        // Whether a payload hits the pattern depends on the key and nonce; these are the ones the
+        // fuzz target uses.
+        let mut client = CryptState::new();
+        let mut server = CryptState::new();
+        client.set_key(&[0x42; 16], &[3; 16], &[4; 16]);
+        server.set_key(&[0x42; 16], &[4; 16], &[3; 16]);
+
+        let encrypted = client.encrypt_to_vec(&data).expect("sender accepts the payload");
+        assert!(server.decrypt_to_vec(&encrypted).is_none(), "receiver must reject the attack pattern");
+
+        // The session keeps working: the next packet decrypts normally.
+        let next = client.encrypt_to_vec(b"ordinary voice payload").unwrap();
+        assert_eq!(server.decrypt_to_vec(&next).unwrap(), b"ordinary voice payload");
+    }
+
     #[test]
     fn xex_star_silence_blocks_roundtrip() {
         // Digital silence triggers the countermeasure path on encrypt; decrypt must still succeed.
