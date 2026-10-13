@@ -119,6 +119,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        await Store.LoadSecretsAsync();
         try
         {
             _devices = await Task.Run(RumbleNative.GetAudioDevices);
@@ -131,13 +132,15 @@
 
     private static string? Blank(object? value) => string.IsNullOrEmpty(value?.ToString()) ? null : value.ToString();
 
-    private void CreateCertificate()
+    private async Task CreateCertificate()
     {
         var name = string.IsNullOrWhiteSpace(S.DefaultUsername) ? "RumbleApp user" : S.DefaultUsername;
         var cert = RumbleNative.GenerateCertificate(name);
-        Store.Update(s => s with { CertificatePem = cert.CertificatePem, PrivateKeyPem = cert.PrivateKeyPem, CertificateFingerprint = cert.Sha1Fingerprint });
+        await Store.UpdateWithPrivateKeyAsync(
+            s => s with { CertificatePem = cert.CertificatePem, CertificateFingerprint = cert.Sha1Fingerprint },
+            cert.PrivateKeyPem);
     }
 
-    private void RemoveCertificate() =>
-        Store.Update(s => s with { CertificatePem = null, PrivateKeyPem = null, CertificateFingerprint = null });
+    private Task RemoveCertificate() =>
+        Store.UpdateWithPrivateKeyAsync(s => s with { CertificatePem = null, CertificateFingerprint = null }, null);
 }

@@ -18,7 +18,14 @@ fuzz_target!(|data: &[u8]| {
         peer.set_key(&[0x42; 16], &[4; 16], &[3; 16]);
         if let Some(encrypted) = sender.encrypt_to_vec(data) {
             let decrypted = peer.decrypt_to_vec(&encrypted).expect("honest packet must decrypt");
-            assert_eq!(decrypted, data, "round trip changed the payload");
+            assert_eq!(decrypted.len(), data.len(), "round trip changed the length");
+
+            // Digital silence makes the sender flip one bit (the XEX* countermeasure), so the
+            // payload may differ in exactly that bit and nowhere else.
+            let changed: Vec<u8> = decrypted.iter().zip(data).map(|(a, b)| a ^ b).collect();
+            let flipped: usize = changed.iter().map(|b| b.count_ones() as usize).sum();
+            assert!(flipped <= 1, "round trip changed {flipped} bits");
+            assert!(changed.iter().all(|b| *b == 0 || *b == 1), "unexpected bit changed");
         }
     }
 });

@@ -29,6 +29,7 @@ public sealed class VoiceSession : IAsyncDisposable
     private const int MaxChat = 400;
 
     private readonly SettingsStore _settings;
+    private readonly ServerStore _servers;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ConcurrentDictionary<uint, VoiceTrace> _traces = new();
     private readonly List<ChatEntry> _chat = [];
@@ -37,9 +38,10 @@ public sealed class VoiceSession : IAsyncDisposable
     private IDispatcherTimer? _timer;
     private bool _pushToTalk;
 
-    public VoiceSession(SettingsStore settings, ILoggerFactory loggerFactory)
+    public VoiceSession(SettingsStore settings, ServerStore servers, ILoggerFactory loggerFactory)
     {
         _settings = settings;
+        _servers = servers;
         _loggerFactory = loggerFactory;
     }
 
@@ -119,12 +121,14 @@ public sealed class VoiceSession : IAsyncDisposable
         Notify();
 
         var settings = _settings.Current;
+        // Passwords live in the platform's secure storage, never in the saved server file.
+        var password = server.IsDemo ? null : await _servers.GetPasswordAsync(server.Id);
         var options = new RumbleClientOptions
         {
             Host = server.Host,
             Port = server.Port,
             Username = string.IsNullOrWhiteSpace(server.Username) ? DefaultName() : server.Username,
-            Password = string.IsNullOrEmpty(server.Password) ? null : server.Password,
+            Password = string.IsNullOrEmpty(password) ? null : password,
             CertificatePem = settings.CertificatePem,
             PrivateKeyPem = settings.PrivateKeyPem,
             ForceTcpVoice = settings.ForceTcpVoice,

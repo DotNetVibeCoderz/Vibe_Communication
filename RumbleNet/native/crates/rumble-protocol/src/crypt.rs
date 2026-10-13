@@ -526,6 +526,37 @@ mod tests {
         assert!(server.local.lost >= 5);
     }
 
+    /// Digital silence triggers the XEX* countermeasure: upstream Mumble deliberately flips the
+    /// lowest bit of the second-to-last block instead of refusing to send, so the decrypted
+    /// payload differs from the input by exactly that bit. Found by the `ocb2_decrypt` fuzz target.
+    #[test]
+    fn digital_silence_is_delivered_with_a_single_flipped_bit() {
+        for len in [15usize, 16, 17, 32, 33, 96] {
+            let (mut client, mut server) = pair();
+            let data = vec![0u8; len];
+            let encrypted = client.encrypt_to_vec(&data).unwrap();
+            let decrypted = server.decrypt_to_vec(&encrypted).expect("silence must still decrypt");
+
+            assert_eq!(decrypted.len(), len);
+            let differences: Vec<(usize, u8)> = decrypted
+                .iter()
+                .zip(&data)
+                .enumerate()
+                .filter(|(_, (a, b))| a != b)
+                .map(|(i, (a, b))| (i, a ^ b))
+                .collect();
+            match differences.as_slice() {
+                [] => assert!(len <= BLOCK_SIZE, "only short payloads skip the countermeasure"),
+                [(index, 1)] => {
+                    // The flip lands at the start of the last full block the loop processes.
+                    let blocks = len.div_ceil(BLOCK_SIZE);
+                    assert_eq!(*index, (blocks - 2) * BLOCK_SIZE, "flip landed in the wrong block");
+                }
+                other => panic!("payload changed in an unexpected way: {other:?}"),
+            }
+        }
+    }
+
     #[test]
     fn xex_star_silence_blocks_roundtrip() {
         // Digital silence triggers the countermeasure path on encrypt; decrypt must still succeed.

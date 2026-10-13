@@ -48,6 +48,11 @@
         <ProjectReference Include="..\..\src\Rumble.Net\Rumble.Net.csproj" />
     </ItemGroup>
 
+    <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
+        <!-- DPAPI fallback for secrets when Windows SecureStorage is unavailable (unpackaged apps). -->
+        <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
+    </ItemGroup>
+
     <!--
       Mobile native libraries are produced by build/build-native.* (android-arm64, ios-arm64) and staged
       under src/Rumble.Net/runtimes. Desktop libraries flow automatically through the project reference.

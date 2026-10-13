@@ -11,6 +11,7 @@ public static class MauiProgram
 		builder.UseMauiApp<App>();
 
 		builder.Services.AddMauiBlazorWebView();
+		builder.Services.AddSingleton<SecretStore>();
 		builder.Services.AddSingleton<ServerStore>();
 		builder.Services.AddSingleton<SettingsStore>();
 		builder.Services.AddSingleton<VoiceSession>();

@@ -146,14 +146,15 @@ jobs:
       - name: Build (Android)
         if: startsWith(matrix.rid, 'android')
         working-directory: RumbleNet/native
-        run: cargo ndk --target ${{ matrix.abi }} --platform 24 --output-dir ./jniLibs build --release -p rumble-ffi
+        run: cargo ndk --target ${{ matrix.abi }} --platform 26 --output-dir ./jniLibs build --release -p rumble-ffi
       - name: Build (iOS)
         if: startsWith(matrix.rid, 'ios')
         working-directory: RumbleNet/native
         run: cargo build --release -p rumble-ffi --target ${{ matrix.triple }}
       - uses: actions/upload-artifact@v4
         with:
-          name: native-${{ matrix.rid }}
+          # Not "native-*": that pattern feeds the NuGet pack job, which ships desktop RIDs only.
+          name: mobile-${{ matrix.rid }}
           path: RumbleNet/native/target/${{ matrix.triple }}/release/${{ matrix.file }}
 
   fuzz:
@@ -230,7 +231,9 @@ jobs:
         run: |
           pkg=$(ls artifacts/Rumble.Net.[0-9]*.nupkg)
           unzip -l "$pkg" | grep runtimes/
-          test "$(unzip -l "$pkg" | grep -c 'runtimes/.*/native/')" -eq 6
+          for rid in win-x64 win-arm64 linux-x64 linux-arm64 osx-x64 osx-arm64; do
+            unzip -l "$pkg" | grep -q "runtimes/$rid/native/" || { echo "missing $rid in the package"; exit 1; }
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: nuget

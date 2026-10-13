@@ -105,7 +105,7 @@
                 <div class="actions">
                     <button class="btn btn-primary" disabled="@Voice.IsBusy" @onclick="() => Connect(server)">@ConnectLabel(server)</button>
                     <button class="btn btn-quiet" title="Edit @server.Name" @onclick="() => StartEdit(server)"><Icon Name="edit" /></button>
-                    <button class="btn btn-quiet btn-danger" title="Remove @server.Name" @onclick="() => Store.Remove(server.Id)"><Icon Name="trash" /></button>
+                    <button class="btn btn-quiet btn-danger" title="Remove @server.Name" @onclick="() => Store.RemoveAsync(server.Id)"><Icon Name="trash" /></button>
                 </div>
             </article>
         }
@@ -139,8 +139,10 @@
     private bool _isNew;
     private Guid? _connecting;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
+        // Move passwords written in plain text by earlier versions into secure storage.
+        await Store.MigrateSecretsAsync();
         Store.Changed += Refresh;
         Voice.Changed += OnVoiceChanged;
         _ = QueryAllAsync();
@@ -202,20 +204,24 @@
         _editing = new Draft();
     }
 
-    private void StartEdit(SavedServer server)
+    private async Task StartEdit(SavedServer server)
     {
         _isNew = false;
-        _editing = new Draft { Id = server.Id, Name = server.Name, Host = server.Host, Port = server.Port, Username = server.Username, Password = server.Password };
+        _editing = new Draft
+        {
+            Id = server.Id, Name = server.Name, Host = server.Host, Port = server.Port, Username = server.Username,
+            Password = await Store.GetPasswordAsync(server.Id),
+        };
     }
 
-    private void SaveEdit()
+    private async Task SaveEdit()
     {
         if (_editing is not { } d || string.IsNullOrWhiteSpace(d.Host))
         {
             return;
         }
 
-        Store.Save(new SavedServer
+        await Store.SaveAsync(new SavedServer
         {
             Id = d.Id,
             Name = string.IsNullOrWhiteSpace(d.Name) ? d.Host.Trim() : d.Name.Trim(),
