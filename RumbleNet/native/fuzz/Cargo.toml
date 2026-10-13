@@ -1,0 +1,44 @@
+[package]
+name = "rumble-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# Own workspace: the fuzz targets need nightly and must not be built by `cargo test --workspace`.
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+rumble-protocol = { path = "../crates/rumble-protocol" }
+
+[[bin]]
+name = "control_frames"
+path = "fuzz_targets/control_frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "voice_packets"
+path = "fuzz_targets/voice_packets.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "varint"
+path = "fuzz_targets/varint.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ocb2_decrypt"
+path = "fuzz_targets/ocb2_decrypt.rs"
+test = false
+doc = false
+bench = false

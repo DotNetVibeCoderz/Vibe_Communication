@@ -1,5 +1,9 @@
 # Rust
 native/target/
+native/fuzz/target/
+native/fuzz/artifacts/
+native/fuzz/corpus/
+native/jniLibs/
 
 # .NET
 bin/

@@ -13,6 +13,7 @@
     <PackageTags>mumble;voip;voice;opus;audio;positional-audio;bot;rust;gravicode</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
     <PackageReleaseNotes>Preview release built and tested by CI. Native binaries: win-x64, win-arm64, linux-x64, linux-arm64, osx-x64, osx-arm64. Android and iOS: build with build/build-native.*. See https://github.com/DotNetVibeCoderz/Vibe_Communication/tree/main/RumbleNet</PackageReleaseNotes>
     <PackageProjectUrl>https://github.com/DotNetVibeCoderz/Vibe_Communication/tree/main/RumbleNet</PackageProjectUrl>
     <IncludeSymbols>true</IncludeSymbols>
@@ -35,6 +36,7 @@
     <InternalsVisibleTo Include="Rumble.Net.Tests" />
     <InternalsVisibleTo Include="Rumble.Net.Benchmarks" />
     <None Include="$(RepositoryRoot)README.md" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="icon.png" Pack="true" PackagePath="\" Visible="false" />
     <!-- Every RID produced by build/build-native.* is packed under runtimes/{rid}/native. -->
     <!-- Replace the SDK's default None item (which has no Pack metadata and would win the de-duplication). -->
     <None Remove="runtimes\**" />

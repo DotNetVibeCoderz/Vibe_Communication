@@ -9,6 +9,7 @@
     <PackageTags>mumble;bot;ai;chatbot;voice;rumble</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
     <PackageProjectUrl>https://github.com/DotNetVibeCoderz/Vibe_Communication/tree/main/RumbleNet</PackageProjectUrl>
   </PropertyGroup>
 
@@ -20,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Rumble.Net\Rumble.Net.csproj" />
     <None Include="$(RepositoryRoot)README.md" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="icon.png" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>
 
 </Project>
