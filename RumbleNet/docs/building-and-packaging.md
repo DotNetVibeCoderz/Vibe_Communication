@@ -71,8 +71,9 @@ gh workflow run rumblenet-ci.yml -f publish=true
 
 Pushes to `main` and pull requests build, test and pack, but never publish.
 
-If the publish step fails with `403 (The specified API key is invalid, has expired, or does not have
-permission to access the specified package.)`, the `NUGET_API_KEY` secret needs refreshing: create a
+NuGet API keys expire (this bit the preview.3 release). If the publish step fails with
+`403 (The specified API key is invalid, has expired, or does not have permission to access the
+specified package.)`, the `NUGET_API_KEY` secret needs refreshing: create a
 key on nuget.org scoped to `Rumble.Net*` with "Push new packages and package versions", update the
 repository secret, then re-run the failed job from the Actions page. Everything before publishing is
 already built and tested in that run, so only the last job repeats.

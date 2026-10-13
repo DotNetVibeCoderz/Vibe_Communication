@@ -27,7 +27,7 @@ The roadmap is in [PLAN.md](PLAN.md). This file records what exists and how it w
 | Documentation | ✅ | `docs/` (12 guides with screenshots), README in English and Indonesian, THIRD-PARTY-NOTICES |
 | CI workflow | ✅ | `.github/workflows/rumblenet-ci.yml`: run 34973752150 was green. It covers 6 native builds (win, linux and osx, each x64 and arm64), .NET tests and all gallery samples on Windows, Linux and macOS, and a pack step that checks all 6 native binaries are included. Pushing a `rumblenet-v*` tag also publishes with the `NUGET_API_KEY` secret. |
 | Linux and macOS | ✅ (CI) | Native builds, Rust tests (linux-x64, osx-arm64), .NET tests and gallery samples pass on GitHub runners |
-| NuGet packages | ✅ (preview) | **0.1.0-preview.3** published, with package icons and all 6 desktop native binaries. CI built and packed it; its publish step hit a 403 because the `NUGET_API_KEY` secret is stale, so the packages were pushed from the same CI artifacts using the local key. Refresh the secret to make CI publish again. 0.1.0-preview.1 was published locally with win-x64 only; before publishing it was installed into a fresh app from a local feed and tested there. |
+| NuGet packages | ✅ (preview) | **0.1.0-preview.3** published, with package icons and all 6 desktop native binaries. CI built and packed it; the first publish attempt hit a 403 on a stale `NUGET_API_KEY`, so the packages went up from the same CI artifacts with the local key. The secret has since been rotated and the publish job re-run: it authenticated and skipped both packages as already present (run 38388884661, job 115287259277), so the whole release run is green and the next tag publishes end to end. 0.1.0-preview.1 was published locally with win-x64 only; before publishing it was installed into a fresh app from a local feed and tested there. |
 | RumbleApp Android, iOS, macOS | 🟡 | Project, permissions and native library hooks are in place. The mobile native builds and on-device runs haven't happened yet. |
 | Unity bridge | 🟡 | Bindings compile in CI; the MonoBehaviour has still not been built inside Unity (IL2CPP) |
 | Unreal bridge | 🟡 | UE plugin written against `rumble.h`, not yet compiled in Unreal |
@@ -37,7 +37,7 @@ The roadmap is in [PLAN.md](PLAN.md). This file records what exists and how it w
 ## Log
 
 ### 2026-10-13 (preview.3)
-- Published 0.1.0-preview.3 from the CI-built artifacts. The CI publish job itself returned 403: the `NUGET_API_KEY` repository secret is invalid or expired and needs rotating; everything else in the release run was green.
+- Published 0.1.0-preview.3 from the CI-built artifacts. The CI publish job first returned 403 on an expired `NUGET_API_KEY`; after the secret was rotated, the re-run authenticated and reported both packages as already present, so release run 38388884661 is green end to end.
 - Package icons for both packages: the amber voice trace on a slate plate, and the same trace speaking from a teal chat bubble for the bots package.
 - Interop suite against real servers plus a CI job covering mumble-server 1.4.287, 1.5 and 1.6. Publishing now waits for it.
 - cargo-fuzz targets for the control, voice, varint and OCB2 decoders. Two findings, both inherent to Mumble's OCB2 scheme rather than bugs here, now documented and unit tested:
