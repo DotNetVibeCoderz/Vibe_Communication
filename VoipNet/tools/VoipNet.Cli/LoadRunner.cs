@@ -56,10 +56,13 @@ public sealed class LoadReport
     /// <summary>Most calls that were up at the same time.</summary>
     public required int PeakConcurrency { get; init; }
 
+    /// <summary>How many calls were placed.</summary>
     public int Attempted => Calls.Count;
 
+    /// <summary>How many of them the far end answered.</summary>
     public int Connected => Calls.Count(c => c.Connected);
 
+    /// <summary>How many never got through, for whatever reason.</summary>
     public int Failed => Attempted - Connected;
 
     /// <summary>Calls placed per second over the whole run. Concurrency and call duration cap this, so

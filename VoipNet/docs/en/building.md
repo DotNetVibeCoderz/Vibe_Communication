@@ -114,6 +114,21 @@ dotnet nuget push "artifacts/packages/*.nupkg" --api-key <key> --source https://
 
 Keep the key outside the repository (a CI secret or a credentials file).
 
+### What every package carries
+
+`Directory.Build.targets` gives all six packages the same icon, readme and XML documentation, so no
+project has to remember to. It has to be a targets file rather than `Directory.Build.props`: a
+project sets `IsPackable` in its own body, which props is evaluated before, so a condition on it
+there is never true.
+
+The icon is drawn rather than stored — a cord patched across a patch bay, in the colours the samples
+use for a call. Change `build/icon.py` and run it to redraw `icon.png` and a contact sheet of the
+sizes a gallery and an IDE use:
+
+```bash
+python build/icon.py      # needs Pillow: pip install pillow
+```
+
 ## Performance notes
 
 - Release engine builds use `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`.

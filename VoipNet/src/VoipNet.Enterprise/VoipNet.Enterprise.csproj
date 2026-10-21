@@ -20,11 +20,6 @@
     <ProjectReference Include="..\VoipNet.Audio\VoipNet.Audio.csproj" />
     <ProjectReference Include="..\VoipNet.Video\VoipNet.Video.csproj" />
     <ProjectReference Include="..\VoipNet.AI\VoipNet.AI.csproj" />
-    <None Include="$(MSBuildThisFileDirectory)..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
-
-  <PropertyGroup>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
-  </PropertyGroup>
 
 </Project>

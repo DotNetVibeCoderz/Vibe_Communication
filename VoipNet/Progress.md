@@ -2,7 +2,7 @@
 
 Voip.NET — made by Gravicode Studios, led by Kang Fadhil · dibuat oleh Gravicode Studios, dipimpin oleh Kang Fadhil
 
-Last updated · Terakhir diperbarui: **2026-09-26** · Version · Versi: **1.3.0**
+Last updated · Terakhir diperbarui: **2026-10-22** · Version · Versi: **1.3.1**
 
 Legend · Keterangan: ✅ done · selesai — 🟡 partial · sebagian — ⏳ planned · direncanakan (see · lihat [PLAN.md](PLAN.md))
 
@@ -190,6 +190,19 @@ Planned in · Direncanakan di [PLAN.md 1.3](PLAN.md#13---video--fitur-video).
 - Mutual TLS: callers can be asked for a certificate, and a connection that dies mid-request (a rejected handshake, a restart) now fails that request immediately instead of after the 32 second timeout. · TLS dua arah, dan koneksi yang putus langsung menggagalkan request.
 - Browser interop runs in CI: Chrome and Firefox place a real call through the WebRTC gateway sample on every build. · Interop browser dijalankan di CI pada setiap build.
 - Criterion benchmarks for codecs, SRTP and the conference mixer, run in CI; the mixer no longer allocates per frame and the G.722 delay line no longer copies its history on every sample pair. · Benchmark Criterion dijalankan di CI.
+
+### 1.3.1 — 2026-10-22
+
+- All six packages now carry an icon on nuget.org: a cord patched across a patch bay, in the samples'
+  own cobalt. `build/icon.py` draws `icon.png`, so the mark is a script and not a binary nobody can
+  change. · Keenam paket kini punya ikon di nuget.org, digambar oleh `build/icon.py`.
+- The packages ship their XML documentation, so IntelliSense has the comments the source has. They
+  never did: `GenerateDocumentationFile` sat behind a `'$(IsPackable)' == 'true'` condition in
+  `Directory.Build.props`, which is evaluated before a project sets `IsPackable` and so was never
+  true. Both it and the readme and icon wiring now live in `Directory.Build.targets`, which is
+  imported late enough to read it. · Paket kini menyertakan dokumentasi XML; sebelumnya tidak pernah,
+  karena kondisinya dievaluasi sebelum proyek menetapkan `IsPackable`.
+- `VoipNet.Cli` gets the readme it was packed without. · `VoipNet.Cli` kini menyertakan readme.
 
 ### 1.3.0 — 2026-09-26
 

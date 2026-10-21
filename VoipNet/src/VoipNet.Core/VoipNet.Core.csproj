@@ -57,11 +57,6 @@
       <PackagePath>runtimes/</PackagePath>
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
-
-  <PropertyGroup>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
-  </PropertyGroup>
 
 </Project>

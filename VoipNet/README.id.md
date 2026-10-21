@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/VoipNet/icon.png" alt="" width="96" align="right">
+
 # Voip.NET
 
 **Platform VoIP + AI bertenaga Rust yang ramah .NET.** SIP, RTP, dan SRTP dari engine native; panggilan, percakapan, dan komponen contact center dari API .NET 10 yang modern; model suara dan bahasa langsung tersambung ke jalur audio.

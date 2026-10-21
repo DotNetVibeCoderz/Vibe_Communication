@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Communication/main/VoipNet/icon.png" alt="" width="96" align="right">
+
 # Voip.NET
 
 **A Rust-powered, .NET-friendly VoIP + AI platform.** SIP, RTP and SRTP from a native engine; calls, conversations and contact-centre building blocks from a modern .NET 10 API; speech and language models wired straight into the audio path.

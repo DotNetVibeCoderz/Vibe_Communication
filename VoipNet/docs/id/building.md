@@ -114,6 +114,21 @@ dotnet nuget push "artifacts/packages/*.nupkg" --api-key <key> --source https://
 
 Simpan API key di luar repositori (secret CI atau file kredensial).
 
+### Isi setiap paket
+
+`Directory.Build.targets` memberi keenam paket ikon, readme, dan dokumentasi XML yang sama, sehingga
+tidak ada proyek yang perlu mengingatnya sendiri. Ini harus berupa file targets, bukan
+`Directory.Build.props`: proyek menetapkan `IsPackable` di badannya sendiri, yang dievaluasi setelah
+props, jadi kondisi atas nilai itu di props tidak pernah benar.
+
+Ikonnya digambar, bukan disimpan — sebuah kabel patch yang terpasang melintasi patch bay, dengan
+warna yang dipakai sampel untuk sebuah panggilan. Ubah `build/icon.py` lalu jalankan untuk menggambar
+ulang `icon.png` beserta lembar contoh pada ukuran yang dipakai galeri dan IDE:
+
+```bash
+python build/icon.py      # butuh Pillow: pip install pillow
+```
+
 ## Catatan performa
 
 - Build release engine memakai `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`.

@@ -1,0 +1,25 @@
+<Project>
+
+  <!--
+    Imported after each project body, which is the only place '$(IsPackable)' can be read: the
+    projects set it themselves, and Directory.Build.props is evaluated before they do.
+
+    The icon and the readme are one file each at the repository root, carried by all six packages.
+    build/icon.py draws the icon.
+  -->
+  <PropertyGroup Condition="'$(IsPackable)' == 'true'">
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <!-- Only what ships has to be documented; a sample or a test saying nothing is not a warning. -->
+  <PropertyGroup Condition="'$(IsPackable)' != 'true'">
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <None Include="$(MSBuildThisFileDirectory)icon.png" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
+</Project>
